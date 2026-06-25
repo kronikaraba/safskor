@@ -1,0 +1,29 @@
+services:
+  - type: web
+    name: safskor-api
+    runtime: node
+    plan: free
+    region: frankfurt
+    rootDir: server
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: API_FOOTBALL_BASE_URL
+        value: https://v3.football.api-sports.io
+      - key: JWT_EXPIRES_IN
+        value: 7d
+      - key: ADMIN_EMAILS
+        value: arabakronik@gmail.com
+      - key: CLIENT_ORIGIN
+        value: https://client-iota-ruddy.vercel.app
+      # Aşağıdaki secret'lar Blueprint kurulumu sırasında Render UI'dan girilir
+      - key: DATABASE_URL
+        sync: false
+      - key: API_FOOTBALL_KEY
+        sync: false
+      - key: JWT_SECRET
+        sync: false
