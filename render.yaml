@@ -19,7 +19,7 @@ services:
       - key: ADMIN_EMAILS
         value: arabakronik@gmail.com
       - key: CLIENT_ORIGIN
-        value: https://client-iota-ruddy.vercel.app
+        value: https://safskor.vercel.app,https://client-iota-ruddy.vercel.app
       # Aşağıdaki secret'lar Blueprint kurulumu sırasında Render UI'dan girilir
       - key: DATABASE_URL
         sync: false
