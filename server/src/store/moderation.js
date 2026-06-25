@@ -1,6 +1,6 @@
-import { db } from '../db.js';
+import { sql, toIso } from '../db.js';
 
-export function logModeration({
+export async function logModeration({
   adminId,
   action,
   targetUserId = null,
@@ -8,33 +8,32 @@ export function logModeration({
   reason = null,
   meta = null,
 }) {
-  db.prepare(
-    `INSERT INTO moderation_actions
-       (admin_id, action, target_user_id, target_message_id, reason, meta)
-     VALUES (?, ?, ?, ?, ?, ?)`
-  ).run(adminId, action, targetUserId, targetMessageId, reason, meta ? JSON.stringify(meta) : null);
+  await sql`
+    INSERT INTO moderation_actions
+      (admin_id, action, target_user_id, target_message_id, reason, meta)
+    VALUES
+      (${adminId}, ${action}, ${targetUserId}, ${targetMessageId}, ${reason}, ${meta ? sql.json(meta) : null})
+  `;
 }
 
-export function listModeration({ limit = 100 } = {}) {
-  const rows = db
-    .prepare(
-      `SELECT ma.*, a.username AS admin_username, t.username AS target_username
-       FROM moderation_actions ma
-       LEFT JOIN users a ON a.id = ma.admin_id
-       LEFT JOIN users t ON t.id = ma.target_user_id
-       ORDER BY ma.id DESC LIMIT ?`
-    )
-    .all(limit);
+export async function listModeration({ limit = 100 } = {}) {
+  const rows = await sql`
+    SELECT ma.*, a.username AS admin_username, t.username AS target_username
+    FROM moderation_actions ma
+    LEFT JOIN users a ON a.id = ma.admin_id
+    LEFT JOIN users t ON t.id = ma.target_user_id
+    ORDER BY ma.id DESC LIMIT ${limit}
+  `;
   return rows.map((r) => ({
-    id: r.id,
+    id: Number(r.id),
     action: r.action,
-    adminId: r.admin_id,
+    adminId: r.admin_id != null ? Number(r.admin_id) : null,
     adminUsername: r.admin_username,
-    targetUserId: r.target_user_id,
+    targetUserId: r.target_user_id != null ? Number(r.target_user_id) : null,
     targetUsername: r.target_username,
-    targetMessageId: r.target_message_id,
+    targetMessageId: r.target_message_id != null ? Number(r.target_message_id) : null,
     reason: r.reason,
-    meta: r.meta ? JSON.parse(r.meta) : null,
-    createdAt: r.created_at,
+    meta: r.meta || null,
+    createdAt: toIso(r.created_at),
   }));
 }

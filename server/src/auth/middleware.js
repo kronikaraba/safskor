@@ -7,16 +7,16 @@ function tokenFromRequest(req) {
   return null;
 }
 
-/** Token varsa req.user'a tam kullanici satirini koyar; yoksa sessizce gecer. */
-export function attachUser(req, _res, next) {
+/** Token varsa req.user'a tam kullanıcı satırını koyar; yoksa sessizce geçer. */
+export async function attachUser(req, _res, next) {
   const token = tokenFromRequest(req);
   if (token) {
     try {
       const payload = verifyToken(token);
-      const user = getUserById(payload.sub);
+      const user = await getUserById(payload.sub);
       if (user) req.user = user;
     } catch {
-      /* gecersiz/expired token -> anonim */
+      /* geçersiz/expired token -> anonim */
     }
   }
   next();

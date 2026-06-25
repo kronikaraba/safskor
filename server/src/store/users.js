@@ -1,76 +1,80 @@
-import { db, nowIso } from '../db.js';
+import { sql, nowIso, toIso } from '../db.js';
 
-const insertStmt = db.prepare(
-  `INSERT INTO users (username, email, password_hash, role)
-   VALUES (?, ?, ?, ?)`
-);
-
-export function createUser({ username, email, passwordHash, role = 'user' }) {
-  const info = insertStmt.run(username, email, passwordHash, role);
-  return getUserById(Number(info.lastInsertRowid));
+export async function createUser({ username, email, passwordHash, role = 'user' }) {
+  const [row] = await sql`
+    INSERT INTO users (username, email, password_hash, role)
+    VALUES (${username}, ${email}, ${passwordHash}, ${role})
+    RETURNING *
+  `;
+  return row;
 }
 
-export function getUserById(id) {
-  return db.prepare('SELECT * FROM users WHERE id = ?').get(id);
+export async function getUserById(id) {
+  const [row] = await sql`SELECT * FROM users WHERE id = ${id}`;
+  return row || null;
 }
 
-export function getUserByEmail(email) {
-  return db.prepare('SELECT * FROM users WHERE email = ? COLLATE NOCASE').get(email);
+export async function getUserByEmail(email) {
+  const [row] = await sql`SELECT * FROM users WHERE LOWER(email) = LOWER(${email})`;
+  return row || null;
 }
 
-export function getUserByUsername(username) {
-  return db.prepare('SELECT * FROM users WHERE username = ? COLLATE NOCASE').get(username);
+export async function getUserByUsername(username) {
+  const [row] = await sql`SELECT * FROM users WHERE LOWER(username) = LOWER(${username})`;
+  return row || null;
 }
 
-export function getUserByLogin(identifier) {
-  return db
-    .prepare(
-      'SELECT * FROM users WHERE email = ? COLLATE NOCASE OR username = ? COLLATE NOCASE'
-    )
-    .get(identifier, identifier);
+export async function getUserByLogin(identifier) {
+  const [row] = await sql`
+    SELECT * FROM users
+    WHERE LOWER(email) = LOWER(${identifier}) OR LOWER(username) = LOWER(${identifier})
+    LIMIT 1
+  `;
+  return row || null;
 }
 
-export function countAdmins() {
-  return db.prepare("SELECT COUNT(*) AS n FROM users WHERE role = 'admin'").get().n;
+export async function countAdmins() {
+  const [row] = await sql`SELECT COUNT(*)::int AS n FROM users WHERE role = 'admin'`;
+  return row.n;
 }
 
-export function setRole(userId, role) {
-  db.prepare('UPDATE users SET role = ? WHERE id = ?').run(role, userId);
+export async function setRole(userId, role) {
+  await sql`UPDATE users SET role = ${role} WHERE id = ${userId}`;
   return getUserById(userId);
 }
 
-export function setBanned(userId, isBanned) {
-  db.prepare('UPDATE users SET is_banned = ? WHERE id = ?').run(isBanned ? 1 : 0, userId);
+export async function setBanned(userId, isBannedFlag) {
+  await sql`UPDATE users SET is_banned = ${!!isBannedFlag} WHERE id = ${userId}`;
   return getUserById(userId);
 }
 
-export function setMutedUntil(userId, untilIso) {
-  db.prepare('UPDATE users SET muted_until = ? WHERE id = ?').run(untilIso ?? null, userId);
+export async function setMutedUntil(userId, untilIso) {
+  await sql`UPDATE users SET muted_until = ${untilIso ?? null} WHERE id = ${userId}`;
   return getUserById(userId);
 }
 
-export function listUsers({ search = '', limit = 50, offset = 0 } = {}) {
+export async function listUsers({ search = '', limit = 50, offset = 0 } = {}) {
   if (search) {
     const like = `%${search}%`;
-    return db
-      .prepare(
-        `SELECT * FROM users
-         WHERE username LIKE ? OR email LIKE ?
-         ORDER BY created_at DESC LIMIT ? OFFSET ?`
-      )
-      .all(like, like, limit, offset);
+    return sql`
+      SELECT * FROM users
+      WHERE username ILIKE ${like} OR email ILIKE ${like}
+      ORDER BY created_at DESC LIMIT ${limit} OFFSET ${offset}
+    `;
   }
-  return db
-    .prepare('SELECT * FROM users ORDER BY created_at DESC LIMIT ? OFFSET ?')
-    .all(limit, offset);
+  return sql`
+    SELECT * FROM users
+    ORDER BY created_at DESC LIMIT ${limit} OFFSET ${offset}
+  `;
 }
 
-/** Kullanici su anda susturulmus mu? (Suresi gecmisse otomatik temizler.) */
-export function isMuted(user) {
+/** Kullanıcı şu anda susturulmuş mu? (Süresi geçmişse otomatik temizler.) */
+export async function isMuted(user) {
   if (!user?.muted_until) return false;
-  if (new Date(user.muted_until).getTime() > Date.now()) return true;
-  // suresi dolmus -> temizle
-  setMutedUntil(user.id, null);
+  const ts = user.muted_until instanceof Date ? user.muted_until.getTime() : new Date(user.muted_until).getTime();
+  if (ts > Date.now()) return true;
+  // süresi dolmuş -> temizle
+  await setMutedUntil(user.id, null);
   user.muted_until = null;
   return false;
 }
@@ -79,28 +83,26 @@ export function isBanned(user) {
   return !!user?.is_banned;
 }
 
-/** Disari acilabilir (sifre hash'i olmadan) kullanici nesnesi. */
-export function publicUser(user) {
+/** Dışarı açılabilir (şifre hash'i olmadan) kullanıcı nesnesi. */
+export async function publicUser(user) {
   if (!user) return null;
-  const muted = isMuted(user);
+  const muted = await isMuted(user);
   return {
-    id: user.id,
+    id: Number(user.id),
     username: user.username,
     role: user.role,
     isBanned: !!user.is_banned,
     isMuted: muted,
-    mutedUntil: muted ? user.muted_until : null,
-    createdAt: user.created_at,
+    mutedUntil: muted ? toIso(user.muted_until) : null,
+    createdAt: toIso(user.created_at),
   };
 }
 
-/** Admin paneli icin e-posta da iceren detay. */
-export function adminUserView(user) {
+/** Admin paneli için e-posta da içeren detay. */
+export async function adminUserView(user) {
   if (!user) return null;
-  return {
-    ...publicUser(user),
-    email: user.email,
-  };
+  const base = await publicUser(user);
+  return { ...base, email: user.email };
 }
 
 export { nowIso };

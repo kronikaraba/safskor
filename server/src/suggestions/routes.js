@@ -18,15 +18,15 @@ export const suggestionsRouter = Router();
 const TYPES = new Set(['degisiklik', 'taktik', 'dizilis', 'genel']);
 const MAX_LEN = 280;
 
-/** Mac bitmediyse (yaklasan/canli) oneri ve oy aciktir. */
+/** Maç bitmediyse (yaklaşan/canlı) öneri ve oy açıktır. */
 async function assertOpen(matchId) {
   let group;
   try {
     group = (await getMatch(matchId)).statusGroup;
   } catch {
-    throw new ApiError(502, 'Mac durumu alinamadi.');
+    throw new ApiError(502, 'Maç durumu alınamadı.');
   }
-  if (group === 'finished') throw new ApiError(403, 'Mac bitti, oneri ve oylama kapandi.');
+  if (group === 'finished') throw new ApiError(403, 'Maç bitti, öneri ve oylama kapandı.');
 }
 
 // GET /api/suggestions/:matchId
@@ -34,12 +34,16 @@ suggestionsRouter.get(
   '/:matchId',
   asyncHandler(async (req, res) => {
     const matchId = Number(req.params.matchId);
-    if (!Number.isInteger(matchId)) throw new ApiError(400, 'Gecersiz mac.');
+    if (!Number.isInteger(matchId)) throw new ApiError(400, 'Geçersiz maç.');
     const userId = req.user?.id ?? null;
+    const [suggestions, myVotes] = await Promise.all([
+      listSuggestions(matchId, userId),
+      userId ? userVoteSet(matchId, userId) : Promise.resolve(new Set()),
+    ]);
     res.json({
       matchId,
-      suggestions: listSuggestions(matchId, userId),
-      myVotes: userId ? [...userVoteSet(matchId, userId)] : [],
+      suggestions,
+      myVotes: [...myVotes],
     });
   })
 );
@@ -50,23 +54,23 @@ suggestionsRouter.post(
   authRequired,
   asyncHandler(async (req, res) => {
     const matchId = Number(req.params.matchId);
-    if (!Number.isInteger(matchId)) throw new ApiError(400, 'Gecersiz mac.');
+    if (!Number.isInteger(matchId)) throw new ApiError(400, 'Geçersiz maç.');
 
-    const fresh = getUserById(req.user.id);
-    if (isBanned(fresh)) throw new ApiError(403, 'Hesabiniz banlandi.');
-    if (isMuted(fresh)) throw new ApiError(403, 'Susturuldunuz, oneri gonderemezsiniz.');
+    const fresh = await getUserById(req.user.id);
+    if (isBanned(fresh)) throw new ApiError(403, 'Hesabınız banlandı.');
+    if (await isMuted(fresh)) throw new ApiError(403, 'Susturuldunuz, öneri gönderemezsiniz.');
 
     const type = String(req.body?.type ?? '').trim();
     const content = String(req.body?.content ?? '').trim();
-    if (!TYPES.has(type)) throw new ApiError(400, 'Gecersiz oneri turu.');
-    if (!content) throw new ApiError(400, 'Oneri bos olamaz.');
+    if (!TYPES.has(type)) throw new ApiError(400, 'Geçersiz öneri türü.');
+    if (!content) throw new ApiError(400, 'Öneri boş olamaz.');
     if (content.length > MAX_LEN) {
-      throw new ApiError(400, `Oneri cok uzun (en fazla ${MAX_LEN} karakter).`);
+      throw new ApiError(400, `Öneri çok uzun (en fazla ${MAX_LEN} karakter).`);
     }
 
     await assertOpen(matchId);
 
-    const suggestion = createSuggestion({ matchId, userId: fresh.id, type, content });
+    const suggestion = await createSuggestion({ matchId, userId: fresh.id, type, content });
     getIo()
       ?.to(suggestionsRoom(matchId))
       .emit('suggestion:new', { ...suggestion, voted: false });
@@ -82,17 +86,17 @@ suggestionsRouter.post(
     const matchId = Number(req.params.matchId);
     const id = Number(req.params.id);
 
-    const fresh = getUserById(req.user.id);
-    if (isBanned(fresh)) throw new ApiError(403, 'Hesabiniz banlandi.');
+    const fresh = await getUserById(req.user.id);
+    if (isBanned(fresh)) throw new ApiError(403, 'Hesabınız banlandı.');
 
-    const row = getSuggestionRow(id);
-    if (!row || row.is_deleted || row.match_id !== matchId) {
-      throw new ApiError(404, 'Oneri bulunamadi.');
+    const row = await getSuggestionRow(id);
+    if (!row || row.is_deleted || Number(row.match_id) !== matchId) {
+      throw new ApiError(404, 'Öneri bulunamadı.');
     }
 
     await assertOpen(matchId);
 
-    const { voted, voteCount } = toggleVote(id, fresh.id);
+    const { voted, voteCount } = await toggleVote(id, fresh.id);
     getIo()?.to(suggestionsRoom(matchId)).emit('suggestion:vote', { suggestionId: id, voteCount });
     res.json({ suggestionId: id, voted, voteCount });
   })

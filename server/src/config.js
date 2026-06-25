@@ -34,7 +34,7 @@ export const config = {
   jwtSecret: process.env.JWT_SECRET || 'safskor-dev-insecure-secret-change-me',
   jwtExpiresIn: process.env.JWT_EXPIRES_IN || '7d',
 
-  dbPath: process.env.DB_PATH || path.join(__dirname, '..', 'data', 'safskor.db'),
+  databaseUrl: process.env.DATABASE_URL || '',
 
   adminEmails: parseList(process.env.ADMIN_EMAILS),
 
@@ -54,6 +54,12 @@ export function assertConfig() {
     console.warn(
       '[config] UYARI: API_FOOTBALL_KEY tanimli degil. Mac/skor/dizilis verisi cekilemez. ' +
         'server/.env dosyasina anahtarinizi ekleyin (https://dashboard.api-football.com/register).'
+    );
+  }
+  if (!config.databaseUrl) {
+    // eslint-disable-next-line no-console
+    console.warn(
+      '[config] UYARI: DATABASE_URL tanımlı değil. Neon Postgres connection string ekleyin.'
     );
   }
 }

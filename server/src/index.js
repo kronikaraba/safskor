@@ -7,7 +7,7 @@ import cors from 'cors';
 import { Server as SocketServer } from 'socket.io';
 
 import { config, assertConfig } from './config.js';
-import './db.js'; // sema kurulumu
+import { initDb } from './db.js';
 import { attachUser } from './auth/middleware.js';
 import { authRouter } from './auth/routes.js';
 import { footballRouter } from './football/routes.js';
@@ -75,9 +75,13 @@ const io = new SocketServer(server, {
 });
 initRealtime(io);
 
-server.listen(config.port, () => {
-  console.log(`SafSkor sunucu http://localhost:${config.port} adresinde calisiyor`);
-  if (!config.football.apiKey) {
-    console.log('-> Mac verisi icin server/.env dosyasina FOOTBALL_DATA_API_KEY ekleyin.');
-  }
-});
+initDb()
+  .then(() => {
+    server.listen(config.port, () => {
+      console.log(`SafSkor sunucu http://localhost:${config.port} adresinde çalışıyor`);
+    });
+  })
+  .catch((e) => {
+    console.error('[db] başlatılamadı:', e.message);
+    process.exit(1);
+  });

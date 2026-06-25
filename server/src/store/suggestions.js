@@ -1,111 +1,123 @@
-import { db } from '../db.js';
+import { sql, toIso } from '../db.js';
 
 export function publicSuggestion(row, votedSet) {
   return {
-    id: row.id,
-    matchId: row.match_id,
-    userId: row.user_id,
+    id: Number(row.id),
+    matchId: Number(row.match_id),
+    userId: Number(row.user_id),
     username: row.username,
     role: row.role ?? 'user',
     type: row.type,
     content: row.content,
-    voteCount: row.vote_count ?? 0,
-    voted: votedSet ? votedSet.has(row.id) : false,
-    createdAt: row.created_at,
+    voteCount: Number(row.vote_count ?? 0),
+    voted: votedSet ? votedSet.has(Number(row.id)) : false,
+    createdAt: toIso(row.created_at),
   };
 }
 
-const SELECT_ONE = `
-  SELECT s.*, u.username, u.role,
-         (SELECT COUNT(*) FROM suggestion_votes v WHERE v.suggestion_id = s.id) AS vote_count
-  FROM suggestions s JOIN users u ON u.id = s.user_id
-  WHERE s.id = ?`;
-
-export function userVoteSet(matchId, userId) {
-  const rows = db
-    .prepare(
-      `SELECT v.suggestion_id AS id
-       FROM suggestion_votes v JOIN suggestions s ON s.id = v.suggestion_id
-       WHERE s.match_id = ? AND v.user_id = ?`
-    )
-    .all(matchId, userId);
-  return new Set(rows.map((r) => r.id));
+export async function userVoteSet(matchId, userId) {
+  const rows = await sql`
+    SELECT v.suggestion_id AS id
+    FROM suggestion_votes v JOIN suggestions s ON s.id = v.suggestion_id
+    WHERE s.match_id = ${matchId} AND v.user_id = ${userId}
+  `;
+  return new Set(rows.map((r) => Number(r.id)));
 }
 
-export function listSuggestions(matchId, userId = null) {
-  const rows = db
-    .prepare(
-      `SELECT s.*, u.username, u.role,
-              (SELECT COUNT(*) FROM suggestion_votes v WHERE v.suggestion_id = s.id) AS vote_count
-       FROM suggestions s JOIN users u ON u.id = s.user_id
-       WHERE s.match_id = ? AND s.is_deleted = 0
-       ORDER BY vote_count DESC, s.id DESC`
-    )
-    .all(matchId);
-  const votedSet = userId ? userVoteSet(matchId, userId) : null;
+export async function listSuggestions(matchId, userId = null) {
+  const rows = await sql`
+    SELECT s.*, u.username, u.role,
+           (SELECT COUNT(*) FROM suggestion_votes v WHERE v.suggestion_id = s.id) AS vote_count
+    FROM suggestions s JOIN users u ON u.id = s.user_id
+    WHERE s.match_id = ${matchId} AND s.is_deleted = FALSE
+    ORDER BY vote_count DESC, s.id DESC
+  `;
+  const votedSet = userId ? await userVoteSet(matchId, userId) : null;
   return rows.map((r) => publicSuggestion(r, votedSet));
 }
 
-export function getSuggestionById(id, userId = null) {
-  const row = db.prepare(SELECT_ONE).get(id);
+export async function getSuggestionById(id, userId = null) {
+  const [row] = await sql`
+    SELECT s.*, u.username, u.role,
+           (SELECT COUNT(*) FROM suggestion_votes v WHERE v.suggestion_id = s.id) AS vote_count
+    FROM suggestions s JOIN users u ON u.id = s.user_id
+    WHERE s.id = ${id}
+  `;
   if (!row) return null;
-  const voted = userId
-    ? !!db
-        .prepare('SELECT 1 FROM suggestion_votes WHERE suggestion_id = ? AND user_id = ?')
-        .get(id, userId)
-    : false;
+  let voted = false;
+  if (userId) {
+    const [v] = await sql`
+      SELECT 1 FROM suggestion_votes
+      WHERE suggestion_id = ${id} AND user_id = ${userId}
+    `;
+    voted = !!v;
+  }
   const s = publicSuggestion(row);
   s.voted = voted;
   return s;
 }
 
-export function getSuggestionRow(id) {
-  return db.prepare('SELECT * FROM suggestions WHERE id = ?').get(id);
+export async function getSuggestionRow(id) {
+  const [row] = await sql`SELECT * FROM suggestions WHERE id = ${id}`;
+  return row || null;
 }
 
-export function createSuggestion({ matchId, userId, type, content }) {
-  const info = db
-    .prepare('INSERT INTO suggestions (match_id, user_id, type, content) VALUES (?, ?, ?, ?)')
-    .run(matchId, userId, type, content);
-  return getSuggestionById(Number(info.lastInsertRowid), userId);
+export async function createSuggestion({ matchId, userId, type, content }) {
+  const [row] = await sql`
+    INSERT INTO suggestions (match_id, user_id, type, content)
+    VALUES (${matchId}, ${userId}, ${type}, ${content})
+    RETURNING id
+  `;
+  return getSuggestionById(row.id, userId);
 }
 
-export function getVoteCount(suggestionId) {
-  return db
-    .prepare('SELECT COUNT(*) AS n FROM suggestion_votes WHERE suggestion_id = ?')
-    .get(suggestionId).n;
+export async function getVoteCount(suggestionId) {
+  const [row] = await sql`
+    SELECT COUNT(*)::int AS n FROM suggestion_votes WHERE suggestion_id = ${suggestionId}
+  `;
+  return row.n;
 }
 
-/** Oy varsa kaldirir, yoksa ekler. { voted, voteCount } doner. */
-export function toggleVote(suggestionId, userId) {
-  const existing = db
-    .prepare('SELECT id FROM suggestion_votes WHERE suggestion_id = ? AND user_id = ?')
-    .get(suggestionId, userId);
+/** Oy varsa kaldırır, yoksa ekler. { voted, voteCount } döner. */
+export async function toggleVote(suggestionId, userId) {
+  const [existing] = await sql`
+    SELECT id FROM suggestion_votes
+    WHERE suggestion_id = ${suggestionId} AND user_id = ${userId}
+  `;
   if (existing) {
-    db.prepare('DELETE FROM suggestion_votes WHERE id = ?').run(existing.id);
-    return { voted: false, voteCount: getVoteCount(suggestionId) };
+    await sql`DELETE FROM suggestion_votes WHERE id = ${existing.id}`;
+    return { voted: false, voteCount: await getVoteCount(suggestionId) };
   }
-  db.prepare('INSERT INTO suggestion_votes (suggestion_id, user_id) VALUES (?, ?)').run(
-    suggestionId,
-    userId
-  );
-  return { voted: true, voteCount: getVoteCount(suggestionId) };
+  await sql`
+    INSERT INTO suggestion_votes (suggestion_id, user_id)
+    VALUES (${suggestionId}, ${userId})
+  `;
+  return { voted: true, voteCount: await getVoteCount(suggestionId) };
 }
 
-export function softDeleteSuggestion(id, adminId) {
-  db.prepare('UPDATE suggestions SET is_deleted = 1, deleted_by = ? WHERE id = ?').run(adminId, id);
+export async function softDeleteSuggestion(id, adminId) {
+  await sql`UPDATE suggestions SET is_deleted = TRUE, deleted_by = ${adminId} WHERE id = ${id}`;
 }
 
-/** Admin paneli icin son oneriler. */
-export function listRecentSuggestions({ limit = 80 } = {}) {
+/** Admin paneli için son öneriler. */
+export async function listRecentSuggestions({ limit = 80 } = {}) {
   const safeLimit = Math.min(Math.max(limit, 1), 200);
-  return db
-    .prepare(
-      `SELECT s.id, s.match_id, s.type, s.content, s.is_deleted, s.created_at,
-              s.user_id, u.username,
-              (SELECT COUNT(*) FROM suggestion_votes v WHERE v.suggestion_id = s.id) AS vote_count
-       FROM suggestions s JOIN users u ON u.id = s.user_id
-       ORDER BY s.id DESC LIMIT ?`
-    )
-    .all(safeLimit);
+  const rows = await sql`
+    SELECT s.id, s.match_id, s.type, s.content, s.is_deleted, s.created_at,
+           s.user_id, u.username,
+           (SELECT COUNT(*) FROM suggestion_votes v WHERE v.suggestion_id = s.id) AS vote_count
+    FROM suggestions s JOIN users u ON u.id = s.user_id
+    ORDER BY s.id DESC LIMIT ${safeLimit}
+  `;
+  return rows.map((r) => ({
+    id: Number(r.id),
+    match_id: Number(r.match_id),
+    type: r.type,
+    content: r.content,
+    is_deleted: !!r.is_deleted,
+    created_at: toIso(r.created_at),
+    user_id: Number(r.user_id),
+    username: r.username,
+    vote_count: Number(r.vote_count),
+  }));
 }

@@ -1,93 +1,93 @@
-import { db } from '../db.js';
+import { sql, toIso } from '../db.js';
 
 export function publicMessage(row) {
   return {
-    id: row.id,
+    id: Number(row.id),
     room: row.room,
-    userId: row.user_id,
+    userId: Number(row.user_id),
     username: row.username,
     role: row.role ?? 'user',
     content: row.is_deleted ? null : row.content,
     isDeleted: !!row.is_deleted,
-    createdAt: row.created_at,
+    createdAt: toIso(row.created_at),
   };
 }
 
-export function getMessageById(id) {
-  const row = db
-    .prepare(
-      `SELECT m.*, u.username, u.role
-       FROM messages m JOIN users u ON u.id = m.user_id
-       WHERE m.id = ?`
-    )
-    .get(id);
+export async function getMessageById(id) {
+  const [row] = await sql`
+    SELECT m.*, u.username, u.role
+    FROM messages m JOIN users u ON u.id = m.user_id
+    WHERE m.id = ${id}
+  `;
   return row ? publicMessage(row) : null;
 }
 
-/** Ham satir (moderasyon icin user_id, room lazim). */
-export function getMessageRow(id) {
-  return db.prepare('SELECT * FROM messages WHERE id = ?').get(id);
+/** Ham satır (moderasyon için user_id, room lazım). */
+export async function getMessageRow(id) {
+  const [row] = await sql`SELECT * FROM messages WHERE id = ${id}`;
+  return row || null;
 }
 
-export function insertMessage({ room, scope, matchId, playerId = null, userId, content }) {
-  const info = db
-    .prepare(
-      `INSERT INTO messages (room, scope, match_id, player_id, user_id, content)
-       VALUES (?, ?, ?, ?, ?, ?)`
-    )
-    .run(room, scope, matchId, playerId, userId, content);
-  return getMessageById(Number(info.lastInsertRowid));
+export async function insertMessage({ room, scope, matchId, playerId = null, userId, content }) {
+  const [row] = await sql`
+    INSERT INTO messages (room, scope, match_id, player_id, user_id, content)
+    VALUES (${room}, ${scope}, ${matchId}, ${playerId}, ${userId}, ${content})
+    RETURNING id
+  `;
+  return getMessageById(row.id);
 }
 
-/** En yeni <= limit mesaji eskiden yeniye sirali dondurur. */
-export function listMessages({ room, beforeId = null, limit = 50 }) {
+/** En yeni <= limit mesajı eskiden yeniye sıralı döner. */
+export async function listMessages({ room, beforeId = null, limit = 50 }) {
   const safeLimit = Math.min(Math.max(limit, 1), 100);
   const rows = beforeId
-    ? db
-        .prepare(
-          `SELECT m.id, m.room, m.user_id, u.username, u.role, m.content, m.is_deleted, m.created_at
-           FROM messages m JOIN users u ON u.id = m.user_id
-           WHERE m.room = ? AND m.id < ?
-           ORDER BY m.id DESC LIMIT ?`
-        )
-        .all(room, beforeId, safeLimit)
-    : db
-        .prepare(
-          `SELECT m.id, m.room, m.user_id, u.username, u.role, m.content, m.is_deleted, m.created_at
-           FROM messages m JOIN users u ON u.id = m.user_id
-           WHERE m.room = ?
-           ORDER BY m.id DESC LIMIT ?`
-        )
-        .all(room, safeLimit);
+    ? await sql`
+        SELECT m.id, m.room, m.user_id, u.username, u.role, m.content, m.is_deleted, m.created_at
+        FROM messages m JOIN users u ON u.id = m.user_id
+        WHERE m.room = ${room} AND m.id < ${beforeId}
+        ORDER BY m.id DESC LIMIT ${safeLimit}
+      `
+    : await sql`
+        SELECT m.id, m.room, m.user_id, u.username, u.role, m.content, m.is_deleted, m.created_at
+        FROM messages m JOIN users u ON u.id = m.user_id
+        WHERE m.room = ${room}
+        ORDER BY m.id DESC LIMIT ${safeLimit}
+      `;
   return rows.reverse().map(publicMessage);
 }
 
-export function softDeleteMessage(id, adminId) {
-  db.prepare('UPDATE messages SET is_deleted = 1, deleted_by = ? WHERE id = ?').run(adminId, id);
+export async function softDeleteMessage(id, adminId) {
+  await sql`UPDATE messages SET is_deleted = TRUE, deleted_by = ${adminId} WHERE id = ${id}`;
   return getMessageById(id);
 }
 
-/** Admin paneli icin son mesajlar (silinmemis dahil). */
-export function listRecentMessages({ limit = 80, search = '' } = {}) {
+/** Admin paneli için son mesajlar (silinmemiş dahil). */
+export async function listRecentMessages({ limit = 80, search = '' } = {}) {
   const safeLimit = Math.min(Math.max(limit, 1), 200);
-  if (search) {
-    const like = `%${search}%`;
-    return db
-      .prepare(
-        `SELECT m.id, m.room, m.scope, m.match_id, m.player_id, m.user_id, u.username,
-                m.content, m.is_deleted, m.created_at
-         FROM messages m JOIN users u ON u.id = m.user_id
-         WHERE m.content LIKE ? OR u.username LIKE ?
-         ORDER BY m.id DESC LIMIT ?`
-      )
-      .all(like, like, safeLimit);
-  }
-  return db
-    .prepare(
-      `SELECT m.id, m.room, m.scope, m.match_id, m.player_id, m.user_id, u.username,
-              m.content, m.is_deleted, m.created_at
-       FROM messages m JOIN users u ON u.id = m.user_id
-       ORDER BY m.id DESC LIMIT ?`
-    )
-    .all(safeLimit);
+  const rows = search
+    ? await sql`
+        SELECT m.id, m.room, m.scope, m.match_id, m.player_id, m.user_id, u.username,
+               m.content, m.is_deleted, m.created_at
+        FROM messages m JOIN users u ON u.id = m.user_id
+        WHERE m.content ILIKE ${'%' + search + '%'} OR u.username ILIKE ${'%' + search + '%'}
+        ORDER BY m.id DESC LIMIT ${safeLimit}
+      `
+    : await sql`
+        SELECT m.id, m.room, m.scope, m.match_id, m.player_id, m.user_id, u.username,
+               m.content, m.is_deleted, m.created_at
+        FROM messages m JOIN users u ON u.id = m.user_id
+        ORDER BY m.id DESC LIMIT ${safeLimit}
+      `;
+  return rows.map((r) => ({
+    id: Number(r.id),
+    room: r.room,
+    scope: r.scope,
+    match_id: r.match_id != null ? Number(r.match_id) : null,
+    player_id: r.player_id != null ? Number(r.player_id) : null,
+    user_id: Number(r.user_id),
+    username: r.username,
+    content: r.content,
+    is_deleted: !!r.is_deleted,
+    created_at: toIso(r.created_at),
+  }));
 }

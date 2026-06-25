@@ -1,19 +1,22 @@
-// Bir kullaniciyi admin yapar.
-// Kullanim:  npm --prefix server run make-admin -- <email-veya-kullanici-adi>
+// Bir kullanıcıyı admin yapar.
+// Kullanım:  npm --prefix server run make-admin -- <email-veya-kullanıcı-adı>
+import { initDb } from '../db.js';
 import { getUserByLogin, setRole } from '../store/users.js';
 
 const identifier = process.argv[2];
 if (!identifier) {
-  console.error('Kullanim: npm run make-admin -- <email-veya-kullanici-adi>');
+  console.error('Kullanım: npm run make-admin -- <email-veya-kullanıcı-adı>');
   process.exit(1);
 }
 
-const user = getUserByLogin(identifier);
+await initDb();
+
+const user = await getUserByLogin(identifier);
 if (!user) {
-  console.error('Kullanici bulunamadi:', identifier);
+  console.error('Kullanıcı bulunamadı:', identifier);
   process.exit(1);
 }
 
-setRole(user.id, 'admin');
-console.log(`OK: ${user.username} (${user.email}) artik admin.`);
+await setRole(user.id, 'admin');
+console.log(`OK: ${user.username} (${user.email}) artık admin.`);
 process.exit(0);

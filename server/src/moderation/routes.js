@@ -24,8 +24,8 @@ import { suggestionsRoom } from '../realtime/rooms.js';
 
 export const adminRouter = Router();
 
-// Tum admin rotalari yetki ister. NOT: admin SADECE moderasyon yapar;
-// mac/takim/oyuncu/skor/lig verisi girme endpoint'i bilerek YOKTUR.
+// Tüm admin rotaları yetki ister. NOT: admin SADECE moderasyon yapar;
+// maç/takım/oyuncu/skor/lig verisi girme endpoint'i bilerek YOKTUR.
 adminRouter.use(adminRequired);
 
 async function notifyUserSockets(userId, event, payload, disconnect = false) {
@@ -44,12 +44,13 @@ async function notifyUserSockets(userId, event, payload, disconnect = false) {
   }
 }
 
-// --- Kullanicilar ---
+// --- Kullanıcılar ---
 adminRouter.get(
   '/users',
   asyncHandler(async (req, res) => {
     const search = String(req.query.search ?? '').trim();
-    const users = listUsers({ search, limit: 100 }).map(adminUserView);
+    const rows = await listUsers({ search, limit: 100 });
+    const users = await Promise.all(rows.map(adminUserView));
     res.json({ users });
   })
 );
@@ -59,7 +60,7 @@ adminRouter.get(
   '/messages',
   asyncHandler(async (req, res) => {
     const search = String(req.query.search ?? '').trim();
-    const rows = listRecentMessages({ search, limit: 100 });
+    const rows = await listRecentMessages({ search, limit: 100 });
     res.json({
       messages: rows.map((r) => ({
         id: r.id,
@@ -81,13 +82,13 @@ adminRouter.post(
   '/messages/:id/delete',
   asyncHandler(async (req, res) => {
     const id = Number(req.params.id);
-    const row = getMessageRow(id);
-    if (!row) throw new ApiError(404, 'Mesaj bulunamadi.');
-    const message = softDeleteMessage(id, req.user.id);
-    logModeration({
+    const row = await getMessageRow(id);
+    if (!row) throw new ApiError(404, 'Mesaj bulunamadı.');
+    const message = await softDeleteMessage(id, req.user.id);
+    await logModeration({
       adminId: req.user.id,
       action: 'delete_message',
-      targetUserId: row.user_id,
+      targetUserId: Number(row.user_id),
       targetMessageId: id,
       reason: req.body?.reason ?? null,
     });
@@ -96,11 +97,11 @@ adminRouter.post(
   })
 );
 
-// --- Oneriler ---
+// --- Öneriler ---
 adminRouter.get(
   '/suggestions',
   asyncHandler(async (_req, res) => {
-    const rows = listRecentSuggestions({ limit: 100 });
+    const rows = await listRecentSuggestions({ limit: 100 });
     res.json({
       suggestions: rows.map((r) => ({
         id: r.id,
@@ -121,17 +122,19 @@ adminRouter.post(
   '/suggestions/:id/delete',
   asyncHandler(async (req, res) => {
     const id = Number(req.params.id);
-    const row = getSuggestionRow(id);
-    if (!row) throw new ApiError(404, 'Oneri bulunamadi.');
-    softDeleteSuggestion(id, req.user.id);
-    logModeration({
+    const row = await getSuggestionRow(id);
+    if (!row) throw new ApiError(404, 'Öneri bulunamadı.');
+    await softDeleteSuggestion(id, req.user.id);
+    await logModeration({
       adminId: req.user.id,
       action: 'delete_suggestion',
-      targetUserId: row.user_id,
+      targetUserId: Number(row.user_id),
       targetMessageId: id,
       reason: req.body?.reason ?? null,
     });
-    getIo()?.to(suggestionsRoom(row.match_id)).emit('suggestion:deleted', { id, matchId: row.match_id });
+    getIo()
+      ?.to(suggestionsRoom(Number(row.match_id)))
+      .emit('suggestion:deleted', { id, matchId: Number(row.match_id) });
     res.json({ ok: true });
   })
 );
@@ -141,16 +144,16 @@ adminRouter.post(
   '/users/:id/mute',
   asyncHandler(async (req, res) => {
     const id = Number(req.params.id);
-    const user = getUserById(id);
-    if (!user) throw new ApiError(404, 'Kullanici bulunamadi.');
+    const user = await getUserById(id);
+    if (!user) throw new ApiError(404, 'Kullanıcı bulunamadı.');
     if (user.role === 'admin') throw new ApiError(400, 'Admin susturulamaz.');
     const minutes = Number(req.body?.minutes);
     if (!Number.isFinite(minutes) || minutes <= 0 || minutes > 60 * 24 * 30) {
-      throw new ApiError(400, 'Gecersiz sure (1 dk - 30 gun).');
+      throw new ApiError(400, 'Geçersiz süre (1 dk - 30 gün).');
     }
     const until = new Date(Date.now() + minutes * 60000).toISOString();
-    setMutedUntil(id, until);
-    logModeration({
+    await setMutedUntil(id, until);
+    await logModeration({
       adminId: req.user.id,
       action: 'mute',
       targetUserId: id,
@@ -158,7 +161,7 @@ adminRouter.post(
       meta: { minutes, until },
     });
     await notifyUserSockets(id, 'moderation:muted', { until });
-    res.json({ ok: true, user: adminUserView(getUserById(id)) });
+    res.json({ ok: true, user: await adminUserView(await getUserById(id)) });
   })
 );
 
@@ -166,12 +169,12 @@ adminRouter.post(
   '/users/:id/unmute',
   asyncHandler(async (req, res) => {
     const id = Number(req.params.id);
-    const user = getUserById(id);
-    if (!user) throw new ApiError(404, 'Kullanici bulunamadi.');
-    setMutedUntil(id, null);
-    logModeration({ adminId: req.user.id, action: 'unmute', targetUserId: id });
+    const user = await getUserById(id);
+    if (!user) throw new ApiError(404, 'Kullanıcı bulunamadı.');
+    await setMutedUntil(id, null);
+    await logModeration({ adminId: req.user.id, action: 'unmute', targetUserId: id });
     await notifyUserSockets(id, 'moderation:unmuted', {});
-    res.json({ ok: true, user: adminUserView(getUserById(id)) });
+    res.json({ ok: true, user: await adminUserView(await getUserById(id)) });
   })
 );
 
@@ -180,18 +183,18 @@ adminRouter.post(
   '/users/:id/ban',
   asyncHandler(async (req, res) => {
     const id = Number(req.params.id);
-    const user = getUserById(id);
-    if (!user) throw new ApiError(404, 'Kullanici bulunamadi.');
+    const user = await getUserById(id);
+    if (!user) throw new ApiError(404, 'Kullanıcı bulunamadı.');
     if (user.role === 'admin') throw new ApiError(400, 'Admin banlanamaz.');
-    setBanned(id, true);
-    logModeration({
+    await setBanned(id, true);
+    await logModeration({
       adminId: req.user.id,
       action: 'ban',
       targetUserId: id,
       reason: req.body?.reason ?? null,
     });
     await notifyUserSockets(id, 'moderation:banned', {}, true);
-    res.json({ ok: true, user: adminUserView(getUserById(id)) });
+    res.json({ ok: true, user: await adminUserView(await getUserById(id)) });
   })
 );
 
@@ -199,18 +202,18 @@ adminRouter.post(
   '/users/:id/unban',
   asyncHandler(async (req, res) => {
     const id = Number(req.params.id);
-    const user = getUserById(id);
-    if (!user) throw new ApiError(404, 'Kullanici bulunamadi.');
-    setBanned(id, false);
-    logModeration({ adminId: req.user.id, action: 'unban', targetUserId: id });
-    res.json({ ok: true, user: adminUserView(getUserById(id)) });
+    const user = await getUserById(id);
+    if (!user) throw new ApiError(404, 'Kullanıcı bulunamadı.');
+    await setBanned(id, false);
+    await logModeration({ adminId: req.user.id, action: 'unban', targetUserId: id });
+    res.json({ ok: true, user: await adminUserView(await getUserById(id)) });
   })
 );
 
-// --- Moderasyon kaydi ---
+// --- Moderasyon kaydı ---
 adminRouter.get(
   '/log',
   asyncHandler(async (_req, res) => {
-    res.json({ log: listModeration({ limit: 100 }) });
+    res.json({ log: await listModeration({ limit: 100 }) });
   })
 );

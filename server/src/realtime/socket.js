@@ -16,16 +16,16 @@ function fail(ack, message) {
 export function initRealtime(io) {
   setIo(io);
 
-  // Baglanti dogrulama: token varsa kullaniciyi ekle, yoksa anonim (salt-okunur).
-  io.use((socket, next) => {
+  // Bağlantı doğrulama: token varsa kullanıcıyı ekle, yoksa anonim (salt-okunur).
+  io.use(async (socket, next) => {
     const token = socket.handshake.auth?.token;
     if (token) {
       try {
         const payload = verifyToken(token);
-        const user = getUserById(payload.sub);
-        if (user) socket.data.user = { id: user.id, username: user.username, role: user.role };
+        const user = await getUserById(payload.sub);
+        if (user) socket.data.user = { id: Number(user.id), username: user.username, role: user.role };
       } catch {
-        /* gecersiz token -> anonim */
+        /* geçersiz token -> anonim */
       }
     }
     next();
@@ -44,54 +44,65 @@ export function initRealtime(io) {
       if (typeof room === 'string') socket.leave(room);
     });
 
-    socket.on('chat:send', (payload, ack) => {
-      const sess = socket.data.user;
-      if (!sess) return fail(ack, 'Mesaj gondermek icin giris yapin.');
+    socket.on('chat:send', async (payload, ack) => {
+      try {
+        const sess = socket.data.user;
+        if (!sess) return fail(ack, 'Mesaj göndermek için giriş yapın.');
 
-      const parsed = parseRoom(payload?.room);
-      if (!parsed) return fail(ack, 'Gecersiz sohbet odasi.');
+        const parsed = parseRoom(payload?.room);
+        if (!parsed) return fail(ack, 'Geçersiz sohbet odası.');
 
-      const fresh = getUserById(sess.id);
-      if (!fresh) return fail(ack, 'Kullanici bulunamadi.');
-      if (isBanned(fresh)) return fail(ack, 'Hesabiniz banlandi.');
-      if (isMuted(fresh)) return fail(ack, 'Susturuldunuz, su an mesaj gonderemezsiniz.');
+        const fresh = await getUserById(sess.id);
+        if (!fresh) return fail(ack, 'Kullanıcı bulunamadı.');
+        if (isBanned(fresh)) return fail(ack, 'Hesabınız banlandı.');
+        if (await isMuted(fresh)) return fail(ack, 'Susturuldunuz, şu an mesaj gönderemezsiniz.');
 
-      const content = String(payload?.content ?? '').trim();
-      if (!content) return fail(ack, 'Bos mesaj gonderilemez.');
-      if (content.length > MAX_MESSAGE_LEN) {
-        return fail(ack, `Mesaj cok uzun (en fazla ${MAX_MESSAGE_LEN} karakter).`);
+        const content = String(payload?.content ?? '').trim();
+        if (!content) return fail(ack, 'Boş mesaj gönderilemez.');
+        if (content.length > MAX_MESSAGE_LEN) {
+          return fail(ack, `Mesaj çok uzun (en fazla ${MAX_MESSAGE_LEN} karakter).`);
+        }
+
+        const now = Date.now();
+        if (now - socket.data.lastSentAt < SEND_COOLDOWN_MS) {
+          return fail(ack, 'Çok hızlı mesaj gönderiyorsunuz, biraz yavaşlayın.');
+        }
+        socket.data.lastSentAt = now;
+
+        const message = await insertMessage({
+          room: parsed.room,
+          scope: parsed.scope,
+          matchId: parsed.matchId,
+          playerId: parsed.playerId,
+          userId: Number(fresh.id),
+          content,
+        });
+
+        io.to(parsed.room).emit('chat:message', message);
+        if (typeof ack === 'function') ack({ ok: true, message });
+      } catch (e) {
+        // eslint-disable-next-line no-console
+        console.error('[socket] chat:send error', e);
+        return fail(ack, 'Mesaj gönderilemedi.');
       }
-
-      const now = Date.now();
-      if (now - socket.data.lastSentAt < SEND_COOLDOWN_MS) {
-        return fail(ack, 'Cok hizli mesaj gonderiyorsunuz, biraz yavaslayin.');
-      }
-      socket.data.lastSentAt = now;
-
-      const message = insertMessage({
-        room: parsed.room,
-        scope: parsed.scope,
-        matchId: parsed.matchId,
-        playerId: parsed.playerId,
-        userId: fresh.id,
-        content,
-      });
-
-      io.to(parsed.room).emit('chat:message', message);
-      if (typeof ack === 'function') ack({ ok: true, message });
     });
 
     // --- Puanlama ---
-    socket.on('rating:join', (matchId) => {
+    socket.on('rating:join', async (matchId) => {
       const id = Number(matchId);
       if (!Number.isInteger(id)) return;
       socket.join(ratingsRoom(id));
-      socket.emit('rating:averages', { matchId: id, averages: getMatchAverages(id) });
-      if (socket.data.user) {
-        socket.emit('rating:mine', {
-          matchId: id,
-          ratings: getUserMatchRatings(id, socket.data.user.id),
-        });
+      try {
+        socket.emit('rating:averages', { matchId: id, averages: await getMatchAverages(id) });
+        if (socket.data.user) {
+          socket.emit('rating:mine', {
+            matchId: id,
+            ratings: await getUserMatchRatings(id, socket.data.user.id),
+          });
+        }
+      } catch (e) {
+        // eslint-disable-next-line no-console
+        console.error('[socket] rating:join error', e);
       }
     });
 
@@ -100,7 +111,7 @@ export function initRealtime(io) {
       if (Number.isInteger(id)) socket.leave(ratingsRoom(id));
     });
 
-    // --- Oneriler (oylama yayini icin oda aboneligi; yazma/oylama REST ile) ---
+    // --- Öneriler (oylama yayını için oda aboneliği; yazma/oylama REST ile) ---
     socket.on('suggestion:join', (matchId) => {
       const id = Number(matchId);
       if (Number.isInteger(id)) socket.join(suggestionsRoom(id));
@@ -112,38 +123,43 @@ export function initRealtime(io) {
     });
 
     socket.on('rating:submit', async (payload, ack) => {
-      const sess = socket.data.user;
-      if (!sess) return fail(ack, 'Puan vermek icin giris yapin.');
-
-      const fresh = getUserById(sess.id);
-      if (!fresh) return fail(ack, 'Kullanici bulunamadi.');
-      if (isBanned(fresh)) return fail(ack, 'Hesabiniz banlandi.');
-
-      const matchId = Number(payload?.matchId);
-      const playerId = Number(payload?.playerId);
-      const score = Number(payload?.score);
-      if (!Number.isInteger(matchId) || !Number.isInteger(playerId)) {
-        return fail(ack, 'Gecersiz mac veya oyuncu.');
-      }
-      if (!Number.isInteger(score) || score < 1 || score > 10) {
-        return fail(ack, 'Puan 1-10 arasinda olmali.');
-      }
-
-      // Mac canli mi? (cache'ten gelir, API'yi yormaz)
-      let statusGroup;
       try {
-        statusGroup = (await getMatch(matchId)).statusGroup;
-      } catch {
-        return fail(ack, 'Mac durumu alinamadi.');
-      }
-      if (statusGroup !== 'live') {
-        socket.emit('rating:closed', { matchId });
-        return fail(ack, 'Puanlama yalnizca mac canliyken acik.');
-      }
+        const sess = socket.data.user;
+        if (!sess) return fail(ack, 'Puan vermek için giriş yapın.');
 
-      const agg = upsertRating({ matchId, playerId, userId: fresh.id, score });
-      io.to(ratingsRoom(matchId)).emit('rating:update', agg);
-      if (typeof ack === 'function') ack({ ok: true, average: agg.average, count: agg.count, score });
+        const fresh = await getUserById(sess.id);
+        if (!fresh) return fail(ack, 'Kullanıcı bulunamadı.');
+        if (isBanned(fresh)) return fail(ack, 'Hesabınız banlandı.');
+
+        const matchId = Number(payload?.matchId);
+        const playerId = Number(payload?.playerId);
+        const score = Number(payload?.score);
+        if (!Number.isInteger(matchId) || !Number.isInteger(playerId)) {
+          return fail(ack, 'Geçersiz maç veya oyuncu.');
+        }
+        if (!Number.isInteger(score) || score < 1 || score > 10) {
+          return fail(ack, 'Puan 1-10 arasında olmalı.');
+        }
+
+        let statusGroup;
+        try {
+          statusGroup = (await getMatch(matchId)).statusGroup;
+        } catch {
+          return fail(ack, 'Maç durumu alınamadı.');
+        }
+        if (statusGroup !== 'live') {
+          socket.emit('rating:closed', { matchId });
+          return fail(ack, 'Puanlama yalnızca maç canlıyken açık.');
+        }
+
+        const agg = await upsertRating({ matchId, playerId, userId: Number(fresh.id), score });
+        io.to(ratingsRoom(matchId)).emit('rating:update', agg);
+        if (typeof ack === 'function') ack({ ok: true, average: agg.average, count: agg.count, score });
+      } catch (e) {
+        // eslint-disable-next-line no-console
+        console.error('[socket] rating:submit error', e);
+        return fail(ack, 'Puan kaydedilemedi.');
+      }
     });
   });
 }

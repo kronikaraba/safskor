@@ -10,9 +10,9 @@ ratingsRouter.get(
   '/:matchId',
   asyncHandler(async (req, res) => {
     const matchId = Number(req.params.matchId);
-    if (!Number.isInteger(matchId)) throw new ApiError(400, 'Gecersiz mac.');
-    const averages = getMatchAverages(matchId);
-    const mine = req.user ? getUserMatchRatings(matchId, req.user.id) : {};
+    if (!Number.isInteger(matchId)) throw new ApiError(400, 'Geçersiz maç.');
+    const averages = await getMatchAverages(matchId);
+    const mine = req.user ? await getUserMatchRatings(matchId, req.user.id) : {};
     res.json({ matchId, averages, mine });
   })
 );

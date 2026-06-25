@@ -30,14 +30,14 @@ authRouter.post(
       if (err) throw new ApiError(400, err);
     }
 
-    if (getUserByUsername(username)) throw new ApiError(409, 'Bu kullanici adi alinmis.');
-    if (getUserByEmail(email)) throw new ApiError(409, 'Bu e-posta zaten kayitli.');
+    if (await getUserByUsername(username)) throw new ApiError(409, 'Bu kullanıcı adı alınmış.');
+    if (await getUserByEmail(email)) throw new ApiError(409, 'Bu e-posta zaten kayıtlı.');
 
     const role = config.adminEmails.includes(email.toLowerCase()) ? 'admin' : 'user';
     const passwordHash = await hashPassword(password);
-    const user = createUser({ username, email, passwordHash, role });
+    const user = await createUser({ username, email, passwordHash, role });
     const token = signToken(user);
-    res.status(201).json({ user: publicUser(user), token });
+    res.status(201).json({ user: await publicUser(user), token });
   })
 );
 
@@ -51,15 +51,15 @@ authRouter.post(
     if (!identifier || !password) {
       throw new ApiError(400, 'Kullanici adi/e-posta ve sifre gerekli.');
     }
-    const user = getUserByLogin(identifier);
-    if (!user) throw new ApiError(401, 'Hatali giris bilgileri.');
+    const user = await getUserByLogin(identifier);
+    if (!user) throw new ApiError(401, 'Hatalı giriş bilgileri.');
     const ok = await verifyPassword(password, user.password_hash);
-    if (!ok) throw new ApiError(401, 'Hatali giris bilgileri.');
+    if (!ok) throw new ApiError(401, 'Hatalı giriş bilgileri.');
     const token = signToken(user);
-    res.json({ user: publicUser(user), token });
+    res.json({ user: await publicUser(user), token });
   })
 );
 
-authRouter.get('/me', authRequired, (req, res) => {
-  res.json({ user: publicUser(req.user) });
-});
+authRouter.get('/me', authRequired, asyncHandler(async (req, res) => {
+  res.json({ user: await publicUser(req.user) });
+}));
