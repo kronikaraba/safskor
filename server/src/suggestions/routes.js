@@ -23,8 +23,10 @@ async function assertOpen(matchId) {
   let group;
   try {
     group = (await getMatch(matchId)).statusGroup;
-  } catch {
-    throw new ApiError(502, 'Maç durumu alınamadı.');
+  } catch (e) {
+    // Alttaki futbol API hatasını orijinaliyle yukarı taşı (admin detayını korumak için).
+    if (e instanceof ApiError) throw e;
+    throw new ApiError(502, 'Maç durumu alınamadı.', 'Maç verisi şu an alınamıyor.');
   }
   if (group === 'finished') throw new ApiError(403, 'Maç bitti, öneri ve oylama kapandı.');
 }

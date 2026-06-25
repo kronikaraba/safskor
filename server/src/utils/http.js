@@ -1,7 +1,14 @@
 export class ApiError extends Error {
-  constructor(status, message) {
+  /**
+   * @param {number} status HTTP status
+   * @param {string} message Admin/log için ayrıntılı mesaj
+   * @param {string} [publicMessage] Üye/ziyaretçi için yumuşatılmış mesaj
+   *   (verilmezse `message` herkese gösterilir)
+   */
+  constructor(status, message, publicMessage) {
     super(message);
     this.status = status;
+    this.publicMessage = publicMessage || null;
   }
 }
 

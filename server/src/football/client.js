@@ -2,10 +2,15 @@ import { config } from '../config.js';
 import { ApiError } from '../utils/http.js';
 import { cacheGet, cacheSet } from './cache.js';
 
-// API-Football (api-sports.io) ucretsiz plan: gunde 100 istek + ~10 istek/dk.
+// API-Football (api-sports.io) ücretsiz plan: günde 100 istek + ~10 istek/dk.
 // Cache + seri kuyruk ile limitleri koruyoruz.
 const RATE_LIMIT = 10;
 const WINDOW_MS = 60_000;
+
+// Üyelere ve ziyaretçilere gösterilen yumuşatılmış varsayılan mesajlar.
+const PUBLIC_GENERIC = 'Maç verileri şu an alınamıyor, biraz sonra tekrar deneyin.';
+const PUBLIC_RATELIMIT = 'Şu an yoğunluk var, birkaç dakika sonra tekrar deneyin.';
+const PUBLIC_NOTFOUND = 'Bulunamadı.';
 
 const recent = [];
 const inflight = new Map();
@@ -34,7 +39,8 @@ async function rawRequest(pathAndQuery) {
   if (!config.football.apiKey) {
     throw new ApiError(
       503,
-      'API-Football anahtari yapilandirilmamis. server/.env icine API_FOOTBALL_KEY ekleyin.'
+      'API-Football anahtarı yapılandırılmamış. server/.env içine API_FOOTBALL_KEY ekleyin.',
+      PUBLIC_GENERIC
     );
   }
   await throttle();
@@ -44,25 +50,34 @@ async function rawRequest(pathAndQuery) {
   try {
     res = await fetch(url, { headers: { 'x-apisports-key': config.football.apiKey } });
   } catch {
-    throw new ApiError(502, 'Futbol API sunucusuna ulasilamadi.');
+    throw new ApiError(502, 'Futbol API sunucusuna ulaşılamadı.', PUBLIC_GENERIC);
   }
 
   if (res.status === 429) {
-    throw new ApiError(429, 'Futbol API istek limiti asildi, biraz sonra tekrar deneyin.');
+    throw new ApiError(
+      429,
+      'Futbol API istek limiti aşıldı, biraz sonra tekrar deneyin.',
+      PUBLIC_RATELIMIT
+    );
   }
 
   let data;
   try {
     data = await res.json();
   } catch {
-    throw new ApiError(502, 'Futbol API yaniti okunamadi.');
+    throw new ApiError(502, 'Futbol API yanıtı okunamadı.', PUBLIC_GENERIC);
   }
 
   if (!res.ok) {
-    throw new ApiError(res.status === 404 ? 404 : 502, `Futbol API hatasi (${res.status}).`);
+    const is404 = res.status === 404;
+    throw new ApiError(
+      is404 ? 404 : 502,
+      `Futbol API hatası (${res.status}).`,
+      is404 ? PUBLIC_NOTFOUND : PUBLIC_GENERIC
+    );
   }
 
-  // API-Football 200 dondurup hatayi "errors" alaninda verebilir.
+  // API-Football 200 döndürüp hatayı "errors" alanında verebilir.
   const errs = data?.errors;
   const hasErr = Array.isArray(errs)
     ? errs.length > 0
@@ -70,9 +85,9 @@ async function rawRequest(pathAndQuery) {
   if (hasErr) {
     const msg = errorsToMessage(errs);
     if (/limit|requests|reached|token|key/i.test(msg)) {
-      throw new ApiError(429, `Futbol API: ${msg}`);
+      throw new ApiError(429, `Futbol API: ${msg}`, PUBLIC_RATELIMIT);
     }
-    throw new ApiError(502, `Futbol API: ${msg}`);
+    throw new ApiError(502, `Futbol API: ${msg}`, PUBLIC_GENERIC);
   }
 
   return data;

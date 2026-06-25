@@ -40,7 +40,7 @@ export async function getMatchesByDate(date) {
 export async function getMatch(id) {
   const data = await apiGet(`/fixtures?id=${id}`, { ttlMs: TTL.matchDetail });
   const item = data.response?.[0];
-  if (!item) throw new ApiError(404, 'Mac bulunamadi.');
+  if (!item) throw new ApiError(404, 'Maç bulunamadı.');
   return N.normalizeFixture(item);
 }
 

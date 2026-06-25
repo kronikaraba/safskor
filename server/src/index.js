@@ -56,17 +56,18 @@ if (fs.existsSync(clientDist)) {
   app.get('*', (_req, res) => res.sendFile(path.join(clientDist, 'index.html')));
 }
 
-// Merkezi hata yakalayici
+// Merkezi hata yakalayıcı — admin'e detaylı, üye/ziyaretçiye yumuşatılmış mesaj
 // eslint-disable-next-line no-unused-vars
-app.use((err, _req, res, _next) => {
+app.use((err, req, res, _next) => {
+  const isAdmin = req.user?.role === 'admin';
   if (err instanceof ApiError) {
-    // Beklenen/operasyonel hata (orn. 503 API anahtari yok, 404). Stack basmaya gerek yok.
     if (err.status >= 500) console.warn('[api]', err.status, err.message);
-    res.status(err.status).json({ error: err.message });
+    const message = isAdmin ? err.message : (err.publicMessage || err.message);
+    res.status(err.status).json({ error: message });
     return;
   }
   console.error('[error]', err);
-  res.status(500).json({ error: 'Sunucu hatasi.' });
+  res.status(500).json({ error: isAdmin ? (err.message || 'Sunucu hatası.') : 'Sunucu hatası.' });
 });
 
 const server = http.createServer(app);
