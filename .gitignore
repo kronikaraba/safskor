@@ -1,0 +1,22 @@
+node_modules/
+dist/
+build/
+
+# env / secrets
+.env
+.env.local
+server/.env
+
+# database
+server/data/
+*.db
+*.db-shm
+*.db-wal
+
+# logs
+*.log
+npm-debug.log*
+
+# os
+.DS_Store
+Thumbs.db

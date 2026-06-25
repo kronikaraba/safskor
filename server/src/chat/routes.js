@@ -1,0 +1,19 @@
+import { Router } from 'express';
+import { asyncHandler, ApiError } from '../utils/http.js';
+import { parseRoom } from '../realtime/rooms.js';
+import { listMessages } from '../store/messages.js';
+
+export const chatRouter = Router();
+
+// GET /api/chat/:room/messages?beforeId=&limit=
+// room: 'match:123' veya 'player:123:456' (URL-encoded)
+chatRouter.get(
+  '/:room/messages',
+  asyncHandler(async (req, res) => {
+    const room = req.params.room;
+    if (!parseRoom(room)) throw new ApiError(400, 'Gecersiz sohbet odasi.');
+    const beforeId = req.query.beforeId ? Number(req.query.beforeId) : null;
+    const limit = req.query.limit ? Number(req.query.limit) : 50;
+    res.json({ room, messages: listMessages({ room, beforeId, limit }) });
+  })
+);
