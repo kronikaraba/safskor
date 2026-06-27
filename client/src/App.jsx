@@ -1,4 +1,4 @@
-import { Routes, Route } from 'react-router-dom';
+import { Routes, Route, Link } from 'react-router-dom';
 import Header from './components/Header.jsx';
 import HomePage from './pages/HomePage.jsx';
 import MatchPage from './pages/MatchPage.jsx';
@@ -31,7 +31,13 @@ export default function App() {
             path="*"
             element={
               <div className="page container">
-                <div className="empty">Sayfa bulunamadi.</div>
+                <div className="not-found">
+                  <div className="not-found__code num">404</div>
+                  <p className="muted">Aradığın sayfa bulunamadı.</p>
+                  <Link to="/" className="btn btn--primary">
+                    Maçlara dön
+                  </Link>
+                </div>
               </div>
             }
           />

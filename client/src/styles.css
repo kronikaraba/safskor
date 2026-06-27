@@ -1140,6 +1140,29 @@ h4 {
   color: #8b8b90;
 }
 
+.chat__more {
+  align-self: center;
+  margin: 2px 0 6px;
+  padding: 5px 14px;
+  border: 1px solid #2a2a2d;
+  background: #1f1f23;
+  color: #d3d3d6;
+  border-radius: var(--radius-pill);
+  font-size: 12px;
+  font-weight: 600;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.chat__more:hover:not(:disabled) {
+  background: #2a2a2d;
+  color: #fff;
+}
+
+.chat__more:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
 /* ---------- Forms / auth ---------- */
 .auth-wrap {
   max-width: 380px;
@@ -1249,6 +1272,24 @@ h4 {
   to {
     transform: rotate(360deg);
   }
+}
+
+/* ---------- 404 ---------- */
+.not-found {
+  text-align: center;
+  padding: 64px 16px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+
+.not-found__code {
+  font-size: 64px;
+  font-weight: 800;
+  color: var(--accent);
+  letter-spacing: -0.03em;
+  line-height: 1;
 }
 
 /* ---------- Detail layout ---------- */

@@ -47,10 +47,3 @@ export function messageTime(iso) {
   if (sameDay) return formatTime(iso);
   return `${d.getDate()} ${AYLAR[d.getMonth()]} ${formatTime(iso)}`;
 }
-
-export function playerAge(dateOfBirth) {
-  if (!dateOfBirth) return null;
-  const dob = new Date(dateOfBirth);
-  const diff = Date.now() - dob.getTime();
-  return Math.floor(diff / (365.25 * 24 * 3600 * 1000));
-}

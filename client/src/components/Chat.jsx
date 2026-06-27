@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../lib/api.js';
 import { getSocket } from '../lib/socket.js';
@@ -20,23 +20,32 @@ function userColor(name) {
   return USER_COLORS[h % USER_COLORS.length];
 }
 
+const PAGE = 50;
+
 export default function Chat({ room, title }) {
   const { user } = useAuth();
   const [messages, setMessages] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(false);
   const [text, setText] = useState('');
   const [error, setError] = useState('');
   const [sending, setSending] = useState(false);
   const listRef = useRef(null);
+  // Eski mesaj yuklemede kaydirma konumunu korumak icin (null = dibe in).
+  const preserveScrollRef = useRef(null);
 
-  // Gecmis (REST)
+  // Gecmis (REST) - ilk sayfa
   useEffect(() => {
     let active = true;
     setLoading(true);
+    setHasMore(false);
     api
-      .get(`/chat/${encodeURIComponent(room)}/messages?limit=50`)
+      .get(`/chat/${encodeURIComponent(room)}/messages?limit=${PAGE}`)
       .then(({ messages }) => {
-        if (active) setMessages(messages);
+        if (!active) return;
+        setMessages(messages);
+        setHasMore(messages.length >= PAGE);
       })
       .catch(() => {})
       .finally(() => {
@@ -69,11 +78,37 @@ export default function Chat({ room, title }) {
     };
   }, [room, user?.id]);
 
-  // Otomatik kaydir
-  useEffect(() => {
+  // Kaydirma: yeni mesaj/ilk yukte dibe in; eski mesaj yuklendiyse konumu koru.
+  useLayoutEffect(() => {
     const el = listRef.current;
-    if (el) el.scrollTop = el.scrollHeight;
+    if (!el) return;
+    if (preserveScrollRef.current != null) {
+      el.scrollTop = el.scrollHeight - preserveScrollRef.current;
+      preserveScrollRef.current = null;
+    } else {
+      el.scrollTop = el.scrollHeight;
+    }
   }, [messages]);
+
+  const loadMore = useCallback(async () => {
+    if (loadingMore || messages.length === 0) return;
+    setLoadingMore(true);
+    const el = listRef.current;
+    if (el) preserveScrollRef.current = el.scrollHeight;
+    try {
+      const oldestId = messages[0].id;
+      const { messages: older } = await api.get(
+        `/chat/${encodeURIComponent(room)}/messages?beforeId=${oldestId}&limit=${PAGE}`
+      );
+      if (older.length < PAGE) setHasMore(false);
+      if (older.length > 0) setMessages((prev) => [...older, ...prev]);
+      else preserveScrollRef.current = null;
+    } catch {
+      preserveScrollRef.current = null;
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [room, messages, loadingMore]);
 
   const send = useCallback(
     (e) => {
@@ -114,7 +149,13 @@ export default function Chat({ room, title }) {
         ) : messages.length === 0 ? (
           <div className="empty">Henüz mesaj yok. İlk yazan sen ol.</div>
         ) : (
-          messages.map((m) => {
+          <>
+            {hasMore && (
+              <button className="chat__more" onClick={loadMore} disabled={loadingMore}>
+                {loadingMore ? 'Yükleniyor...' : 'Daha eski mesajlar'}
+              </button>
+            )}
+            {messages.map((m) => {
             const isAdmin = m.role === 'admin';
             const color = isAdmin ? '#5aa9ff' : userColor(m.username);
             return (
@@ -138,7 +179,8 @@ export default function Chat({ room, title }) {
                 )}
               </div>
             );
-          })
+            })}
+          </>
         )}
       </div>
 
