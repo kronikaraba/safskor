@@ -2,10 +2,13 @@ import { apiGet } from './client.js';
 import { ApiError } from '../utils/http.js';
 import * as N from './normalize.js';
 
+// Cache TTL'leri, istemci polling araliklarinin biraz altinda tutulur:
+// boylece ayni veriye bakan tum kullanicilar tek API istegini paylasir
+// (API-Football ucretsiz plan: gunde 100 istek).
 const TTL = {
-  matchesByDate: 30 * 1000,
-  matchDetail: 25 * 1000,
-  events: 40 * 1000,
+  matchesByDate: 50 * 1000,
+  matchDetail: 50 * 1000,
+  events: 50 * 1000,
   lineups: 5 * 60 * 1000,
   standings: 30 * 60 * 1000,
 };

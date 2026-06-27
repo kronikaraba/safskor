@@ -50,10 +50,15 @@ export default function HomePage() {
     load(true);
   }, [load]);
 
+  // Polling, API limitini (gunde 100 istek) korumak icin duruma gore ayarlanir:
+  //  - Canli mac varsa 60 sn'de bir yenile (skorlar degisir).
+  //  - Canli mac yoksa 5 dk'da bir (yalnizca yeni baslayan maclari yakalamak icin).
+  const hasLive = (data?.live?.length ?? 0) > 0;
   useEffect(() => {
-    const id = setInterval(() => load(false), 35000);
+    const interval = hasLive ? 60000 : 300000;
+    const id = setInterval(() => load(false), interval);
     return () => clearInterval(id);
-  }, [load]);
+  }, [load, hasLive]);
 
   // Lig filtresi secenekleri (cekilen maclardan turetilir, ekstra istek yok)
   const leagues = useMemo(() => {

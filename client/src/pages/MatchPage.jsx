@@ -49,7 +49,7 @@ export default function MatchPage() {
 
   useEffect(() => {
     if (!match?.isLive) return undefined;
-    const t = setInterval(() => loadMatch(false), 30000);
+    const t = setInterval(() => loadMatch(false), 60000);
     return () => clearInterval(t);
   }, [match?.isLive, loadMatch]);
 
@@ -221,7 +221,7 @@ function EventsTab({ matchId, isLive }) {
 
   useEffect(() => {
     if (!isLive) return undefined;
-    const t = setInterval(() => load(false), 40000);
+    const t = setInterval(() => load(false), 60000);
     return () => clearInterval(t);
   }, [isLive, load]);
 
