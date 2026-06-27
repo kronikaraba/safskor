@@ -5,17 +5,28 @@ import { getSocket } from '../lib/socket.js';
 import { useAuth } from '../context/AuthContext.jsx';
 import { messageTime } from '../lib/format.js';
 import { Loading, Empty } from './ui.jsx';
-import { SUGGESTION_TYPES, SUGGESTION_TYPE_MAP } from '../lib/suggestionTypes.js';
+import {
+  SUGGESTION_TYPES,
+  SUGGESTION_TYPE_MAP,
+  TACTIC_OPTIONS,
+  FORMATION_OPTIONS,
+} from '../lib/suggestionTypes.js';
 
 export default function Suggestions({ matchId, canSuggest }) {
   const { user } = useAuth();
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [sort, setSort] = useState('top'); // 'top' | 'new'
-  const [type, setType] = useState('taktik');
-  const [content, setContent] = useState('');
+  const [type, setType] = useState('degisiklik');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+
+  // Oneri secimleri (elle yazma yok)
+  const [lineup, setLineup] = useState(null);
+  const [playerOut, setPlayerOut] = useState('');
+  const [playerIn, setPlayerIn] = useState('');
+  const [tactic, setTactic] = useState('');
+  const [formation, setFormation] = useState('');
 
   useEffect(() => {
     let active = true;
@@ -33,6 +44,20 @@ export default function Suggestions({ matchId, canSuggest }) {
       active = false;
     };
   }, [matchId, user?.id]);
+
+  // Oyuncu degisikligi onerisi icin diziliş (kadro) cek.
+  useEffect(() => {
+    let active = true;
+    api
+      .get(`/football/matches/${matchId}/lineups`)
+      .then((res) => {
+        if (active) setLineup(res);
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, [matchId]);
 
   useEffect(() => {
     const socket = getSocket();
@@ -56,6 +81,16 @@ export default function Suggestions({ matchId, canSuggest }) {
     };
   }, [matchId, user?.id]);
 
+  // Kadrosu olan takimlar (ev sahibi + deplasman).
+  const teams = useMemo(() => {
+    if (!lineup) return [];
+    return ['home', 'away']
+      .map((side) => lineup[side])
+      .filter((t) => t && (t.startXI?.length || t.substitutes?.length));
+  }, [lineup]);
+
+  const hasLineup = teams.length > 0;
+
   const sorted = useMemo(() => {
     const arr = [...items];
     if (sort === 'top') arr.sort((a, b) => b.voteCount - a.voteCount || b.id - a.id);
@@ -63,24 +98,41 @@ export default function Suggestions({ matchId, canSuggest }) {
     return arr;
   }, [items, sort]);
 
+  // Secimlerden oneri metnini olustur.
+  const buildContent = useCallback(() => {
+    if (type === 'degisiklik') {
+      if (!playerOut || !playerIn) return null;
+      return `${playerOut} çıksın, ${playerIn} girsin`;
+    }
+    if (type === 'taktik') return tactic || null;
+    if (type === 'dizilis') return formation ? `${formation} dizilişe geç` : null;
+    return null;
+  }, [type, playerOut, playerIn, tactic, formation]);
+
   const submit = useCallback(
     async (e) => {
       e.preventDefault();
-      const text = content.trim();
-      if (!text) return;
+      const content = buildContent();
+      if (!content) {
+        setError('Lütfen önerini seçimlerle tamamla.');
+        return;
+      }
       setBusy(true);
       setError('');
       try {
-        const { suggestion } = await api.post(`/suggestions/${matchId}`, { type, content: text });
+        const { suggestion } = await api.post(`/suggestions/${matchId}`, { type, content });
         setItems((prev) => (prev.some((x) => x.id === suggestion.id) ? prev : [suggestion, ...prev]));
-        setContent('');
+        setPlayerOut('');
+        setPlayerIn('');
+        setTactic('');
+        setFormation('');
       } catch (err) {
         setError(err.message);
       } finally {
         setBusy(false);
       }
     },
-    [content, type, matchId]
+    [buildContent, type, matchId]
   );
 
   const vote = useCallback(
@@ -121,30 +173,111 @@ export default function Suggestions({ matchId, canSuggest }) {
   }, []);
 
   const canPost = user && !user.isBanned && !user.isMuted && canSuggest;
+  const preview = buildContent();
 
   return (
     <div>
       {canPost ? (
         <form className="panel suggest-form" onSubmit={submit}>
           <div className="suggest-form__row">
-            <select className="select" value={type} onChange={(e) => setType(e.target.value)}>
+            <select
+              className="select"
+              value={type}
+              onChange={(e) => setType(e.target.value)}
+              aria-label="Öneri türü"
+            >
               {SUGGESTION_TYPES.map((t) => (
                 <option key={t.key} value={t.key}>
-                  {t.label}
+                  {t.icon} {t.label}
                 </option>
               ))}
             </select>
-            <input
-              className="suggest-form__input"
-              value={content}
-              onChange={(e) => setContent(e.target.value)}
-              placeholder="Önerini yaz: örn. 'X'i çıkar Y'yi al', 'pres yükselt', 'savunmaya geç'..."
-              maxLength={280}
-            />
-            <button className="btn btn--primary" disabled={busy || !content.trim()}>
+
+            {type === 'degisiklik' &&
+              (hasLineup ? (
+                <>
+                  <select
+                    className="select suggest-form__grow"
+                    value={playerOut}
+                    onChange={(e) => setPlayerOut(e.target.value)}
+                    aria-label="Çıkacak oyuncu"
+                  >
+                    <option value="">Çıkacak oyuncu…</option>
+                    {teams.map((t) => (
+                      <optgroup key={`out-${t.teamId}`} label={t.teamName}>
+                        {(t.startXI || []).map((p) => (
+                          <option key={p.id} value={p.name}>
+                            {p.number ? `${p.number}. ` : ''}
+                            {p.name}
+                          </option>
+                        ))}
+                      </optgroup>
+                    ))}
+                  </select>
+                  <select
+                    className="select suggest-form__grow"
+                    value={playerIn}
+                    onChange={(e) => setPlayerIn(e.target.value)}
+                    aria-label="Girecek oyuncu"
+                  >
+                    <option value="">Girecek oyuncu…</option>
+                    {teams.map((t) => (
+                      <optgroup key={`in-${t.teamId}`} label={t.teamName}>
+                        {(t.substitutes || []).map((p) => (
+                          <option key={p.id} value={p.name}>
+                            {p.number ? `${p.number}. ` : ''}
+                            {p.name}
+                          </option>
+                        ))}
+                      </optgroup>
+                    ))}
+                  </select>
+                </>
+              ) : (
+                <span className="suggest-form__grow muted small" style={{ alignSelf: 'center' }}>
+                  Diziliş henüz açıklanmadı; oyuncu değişikliği önerisi için kadro gerekli.
+                </span>
+              ))}
+
+            {type === 'taktik' && (
+              <select
+                className="select suggest-form__grow"
+                value={tactic}
+                onChange={(e) => setTactic(e.target.value)}
+                aria-label="Taktik"
+              >
+                <option value="">Taktik seç…</option>
+                {TACTIC_OPTIONS.map((t) => (
+                  <option key={t} value={t}>
+                    {t}
+                  </option>
+                ))}
+              </select>
+            )}
+
+            {type === 'dizilis' && (
+              <select
+                className="select suggest-form__grow"
+                value={formation}
+                onChange={(e) => setFormation(e.target.value)}
+                aria-label="Diziliş"
+              >
+                <option value="">Diziliş seç…</option>
+                {FORMATION_OPTIONS.map((f) => (
+                  <option key={f} value={f}>
+                    {f}
+                  </option>
+                ))}
+              </select>
+            )}
+
+            <button className="btn btn--primary" disabled={busy || !preview}>
               Öner
             </button>
           </div>
+          {preview && (
+            <div className="suggest-form__preview muted small">Önerin: “{preview}”</div>
+          )}
         </form>
       ) : (
         <div className="notice-box" style={{ marginBottom: 12 }}>

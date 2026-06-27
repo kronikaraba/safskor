@@ -1377,20 +1377,17 @@ h4 {
 .suggest-form__row {
   display: flex;
   gap: 8px;
+  flex-wrap: wrap;
 }
 
-.suggest-form__input {
+.suggest-form__grow {
   flex: 1;
-  min-width: 0;
-  padding: 9px 13px;
-  border: 1px solid var(--border-strong);
-  border-radius: var(--radius-sm);
-  font-size: 13.5px;
+  min-width: 160px;
 }
 
-.suggest-form__input:focus {
-  outline: none;
-  border-color: var(--accent);
+.suggest-form__preview {
+  margin-top: 8px;
+  font-style: italic;
 }
 
 .suggest-section {
