@@ -1047,6 +1047,40 @@ h4 {
   background: var(--live);
 }
 
+.msg__like {
+  margin-left: 6px;
+  border: none;
+  background: transparent;
+  color: #8b8b90;
+  font-size: 11px;
+  line-height: 1;
+  padding: 2px 7px;
+  border-radius: 10px;
+  vertical-align: baseline;
+  white-space: nowrap;
+  opacity: 0.55;
+  transition: opacity 0.12s ease, color 0.12s ease, background 0.12s ease;
+}
+
+.msg:hover .msg__like {
+  opacity: 1;
+}
+
+.msg__like.is-liked {
+  opacity: 1;
+  color: #5aa9ff;
+  background: rgba(90, 169, 255, 0.14);
+}
+
+.msg__like:hover:not(:disabled):not(.is-liked) {
+  color: #efeff1;
+  background: #2a2a2d;
+}
+
+.msg__like:disabled {
+  cursor: default;
+}
+
 .chat__form {
   display: flex;
   align-items: center;

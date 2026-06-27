@@ -14,6 +14,9 @@ chatRouter.get(
     if (!parseRoom(room)) throw new ApiError(400, 'Geçersiz sohbet odası.');
     const beforeId = req.query.beforeId ? Number(req.query.beforeId) : null;
     const limit = req.query.limit ? Number(req.query.limit) : 50;
-    res.json({ room, messages: await listMessages({ room, beforeId, limit }) });
+    res.json({
+      room,
+      messages: await listMessages({ room, beforeId, limit, userId: req.user?.id ?? null }),
+    });
   })
 );

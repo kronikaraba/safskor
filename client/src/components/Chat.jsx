@@ -69,12 +69,17 @@ export default function Chat({ room, title }) {
         prev.map((m) => (m.id === id ? { ...m, isDeleted: true, content: null } : m))
       );
     };
+    const onLiked = ({ id, likeCount }) => {
+      setMessages((prev) => prev.map((m) => (m.id === id ? { ...m, likeCount } : m)));
+    };
     socket.on('chat:message', onMessage);
     socket.on('chat:deleted', onDeleted);
+    socket.on('chat:liked', onLiked);
     return () => {
       socket.emit('chat:leave', room);
       socket.off('chat:message', onMessage);
       socket.off('chat:deleted', onDeleted);
+      socket.off('chat:liked', onLiked);
     };
   }, [room, user?.id]);
 
@@ -134,6 +139,37 @@ export default function Chat({ room, title }) {
     }
   }, []);
 
+  const like = useCallback(
+    (m) => {
+      if (!user || user.isBanned) return;
+      // iyimser guncelleme
+      setMessages((prev) =>
+        prev.map((x) =>
+          x.id === m.id
+            ? { ...x, liked: !x.liked, likeCount: (x.likeCount || 0) + (x.liked ? -1 : 1) }
+            : x
+        )
+      );
+      getSocket().emit('chat:like', { messageId: m.id }, (resp) => {
+        if (resp?.ok) {
+          setMessages((prev) =>
+            prev.map((x) =>
+              x.id === m.id ? { ...x, liked: resp.liked, likeCount: resp.likeCount } : x
+            )
+          );
+        } else {
+          // geri al
+          setMessages((prev) =>
+            prev.map((x) =>
+              x.id === m.id ? { ...x, liked: m.liked, likeCount: m.likeCount } : x
+            )
+          );
+        }
+      });
+    },
+    [user]
+  );
+
   const canSend = user && !user.isBanned && !user.isMuted;
 
   return (
@@ -172,6 +208,16 @@ export default function Chat({ room, title }) {
                 <span className="msg__body">
                   {m.isDeleted ? <em>Bu mesaj silindi.</em> : m.content}
                 </span>
+                {!m.isDeleted && (
+                  <button
+                    className={`msg__like ${m.liked ? 'is-liked' : ''}`}
+                    onClick={() => like(m)}
+                    disabled={!user || user.isBanned}
+                    title={user ? 'Beğen' : 'Beğenmek için giriş yap'}
+                  >
+                    👍{m.likeCount > 0 ? ` ${m.likeCount}` : ''}
+                  </button>
+                )}
                 {user?.role === 'admin' && !m.isDeleted && (
                   <button className="msg__del" onClick={() => remove(m.id)} title="Mesajı sil">
                     ×

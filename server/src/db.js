@@ -117,6 +117,17 @@ export function initDb() {
       )
     `;
     await sql`CREATE INDEX IF NOT EXISTS idx_suggestion_votes_sid ON suggestion_votes(suggestion_id)`;
+
+    await sql`
+      CREATE TABLE IF NOT EXISTS message_likes (
+        id         BIGSERIAL PRIMARY KEY,
+        message_id BIGINT NOT NULL REFERENCES messages(id),
+        user_id    BIGINT NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        UNIQUE (message_id, user_id)
+      )
+    `;
+    await sql`CREATE INDEX IF NOT EXISTS idx_message_likes_mid ON message_likes(message_id)`;
   })();
   return initPromise;
 }

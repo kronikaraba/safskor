@@ -10,16 +10,35 @@ export function publicMessage(row) {
     content: row.is_deleted ? null : row.content,
     isDeleted: !!row.is_deleted,
     createdAt: toIso(row.created_at),
+    likeCount: Number(row.like_count ?? 0),
+    liked: !!row.liked,
   };
 }
 
 export async function getMessageById(id) {
   const [row] = await sql`
-    SELECT m.*, u.username, u.role
+    SELECT m.*, u.username, u.role,
+           (SELECT COUNT(*) FROM message_likes ml WHERE ml.message_id = m.id) AS like_count
     FROM messages m JOIN users u ON u.id = m.user_id
     WHERE m.id = ${id}
   `;
   return row ? publicMessage(row) : null;
+}
+
+/** Bir mesajın beğenisini açar/kapar. { liked, likeCount } döner. */
+export async function toggleLike(messageId, userId) {
+  const [existing] = await sql`
+    SELECT id FROM message_likes WHERE message_id = ${messageId} AND user_id = ${userId}
+  `;
+  if (existing) {
+    await sql`DELETE FROM message_likes WHERE id = ${existing.id}`;
+  } else {
+    await sql`INSERT INTO message_likes (message_id, user_id) VALUES (${messageId}, ${userId})`;
+  }
+  const [c] = await sql`
+    SELECT COUNT(*)::int AS n FROM message_likes WHERE message_id = ${messageId}
+  `;
+  return { liked: !existing, likeCount: c.n };
 }
 
 /** Ham satır (moderasyon için user_id, room lazım). */
@@ -37,18 +56,26 @@ export async function insertMessage({ room, scope, matchId, playerId = null, use
   return getMessageById(row.id);
 }
 
-/** En yeni <= limit mesajı eskiden yeniye sıralı döner. */
-export async function listMessages({ room, beforeId = null, limit = 50 }) {
+/** En yeni <= limit mesajı eskiden yeniye sıralı döner. userId verilirse `liked` doldurulur. */
+export async function listMessages({ room, beforeId = null, limit = 50, userId = null }) {
   const safeLimit = Math.min(Math.max(limit, 1), 100);
   const rows = beforeId
     ? await sql`
-        SELECT m.id, m.room, m.user_id, u.username, u.role, m.content, m.is_deleted, m.created_at
+        SELECT m.id, m.room, m.user_id, u.username, u.role, m.content, m.is_deleted, m.created_at,
+               (SELECT COUNT(*) FROM message_likes ml WHERE ml.message_id = m.id) AS like_count,
+               EXISTS(
+                 SELECT 1 FROM message_likes ml WHERE ml.message_id = m.id AND ml.user_id = ${userId}
+               ) AS liked
         FROM messages m JOIN users u ON u.id = m.user_id
         WHERE m.room = ${room} AND m.id < ${beforeId}
         ORDER BY m.id DESC LIMIT ${safeLimit}
       `
     : await sql`
-        SELECT m.id, m.room, m.user_id, u.username, u.role, m.content, m.is_deleted, m.created_at
+        SELECT m.id, m.room, m.user_id, u.username, u.role, m.content, m.is_deleted, m.created_at,
+               (SELECT COUNT(*) FROM message_likes ml WHERE ml.message_id = m.id) AS like_count,
+               EXISTS(
+                 SELECT 1 FROM message_likes ml WHERE ml.message_id = m.id AND ml.user_id = ${userId}
+               ) AS liked
         FROM messages m JOIN users u ON u.id = m.user_id
         WHERE m.room = ${room}
         ORDER BY m.id DESC LIMIT ${safeLimit}

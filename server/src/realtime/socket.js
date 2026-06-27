@@ -1,7 +1,7 @@
 import { verifyToken } from '../auth/jwt.js';
 import { getUserById, isBanned, isMuted } from '../store/users.js';
 import { parseRoom, ratingsRoom, suggestionsRoom } from './rooms.js';
-import { insertMessage } from '../store/messages.js';
+import { insertMessage, getMessageRow, toggleLike } from '../store/messages.js';
 import { upsertRating, getMatchAverages, getUserMatchRatings } from '../store/ratings.js';
 import { getMatch } from '../football/service.js';
 import { setIo } from './io.js';
@@ -84,6 +84,28 @@ export function initRealtime(io) {
         // eslint-disable-next-line no-console
         console.error('[socket] chat:send error', e);
         return fail(ack, 'Mesaj gönderilemedi.');
+      }
+    });
+
+    // --- Mesaj beğenisi (+1) ---
+    socket.on('chat:like', async (payload, ack) => {
+      try {
+        const sess = socket.data.user;
+        if (!sess) return fail(ack, 'Beğenmek için giriş yapın.');
+
+        const messageId = Number(payload?.messageId);
+        if (!Number.isInteger(messageId)) return fail(ack, 'Geçersiz mesaj.');
+
+        const row = await getMessageRow(messageId);
+        if (!row || row.is_deleted) return fail(ack, 'Mesaj bulunamadı.');
+
+        const { liked, likeCount } = await toggleLike(messageId, sess.id);
+        io.to(row.room).emit('chat:liked', { id: messageId, likeCount });
+        if (typeof ack === 'function') ack({ ok: true, liked, likeCount });
+      } catch (e) {
+        // eslint-disable-next-line no-console
+        console.error('[socket] chat:like error', e);
+        return fail(ack, 'Beğeni kaydedilemedi.');
       }
     });
 
