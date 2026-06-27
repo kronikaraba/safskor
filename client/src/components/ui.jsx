@@ -1,26 +1,10 @@
-import { useEffect, useState } from 'react';
-
-export function Loading({ text = 'Yükleniyor...', slowAfter = 6000 }) {
-  const [slow, setSlow] = useState(false);
-  useEffect(() => {
-    if (!slowAfter) return undefined;
-    const t = setTimeout(() => setSlow(true), slowAfter);
-    return () => clearTimeout(t);
-  }, [slowAfter]);
-
+export function Loading({ text = 'Yükleniyor...' }) {
   return (
     <div className="loading">
-      <div>
-        <span className="spinner" />
-        <span className="muted" style={{ marginLeft: 8 }}>
-          {text}
-        </span>
-      </div>
-      {slow && (
-        <div className="muted small" style={{ marginTop: 10 }}>
-          Sunucu uykudan uyanıyor olabilir; ilk açılış 30 saniye kadar sürebilir.
-        </div>
-      )}
+      <span className="spinner" />
+      <span className="muted" style={{ marginLeft: 8 }}>
+        {text}
+      </span>
     </div>
   );
 }

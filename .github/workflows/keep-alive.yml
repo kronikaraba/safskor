@@ -1,0 +1,20 @@
+name: Keep server awake
+
+# Render free plani 15 dk hareketsizlikten sonra sunucuyu uyutur ve
+# sonraki ilk istek ~30-50 sn surer. Bu is, saglik ucunu duzenli pingleyerek
+# sunucuyu uyanik tutar; boylece ziyaretciler cold-start yasamaz.
+
+on:
+  schedule:
+    - cron: '*/10 * * * *' # her 10 dakikada bir
+  workflow_dispatch: # elle de tetiklenebilir
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping health endpoint
+        run: |
+          curl -fsS --max-time 90 https://safskor-api.onrender.com/api/health \
+            && echo "ok" \
+            || echo "ping failed (sunucu uyaniyor olabilir)"
