@@ -5,9 +5,7 @@ import { getUserById, isBanned, isMuted } from '../store/users.js';
 import {
   listSuggestions,
   createSuggestion,
-  getSuggestionRow,
-  toggleVote,
-  userVoteSet,
+  withdrawSuggestion,
 } from '../store/suggestions.js';
 import { getMatch } from '../football/service.js';
 import { getIo } from '../realtime/io.js';
@@ -38,15 +36,8 @@ suggestionsRouter.get(
     const matchId = Number(req.params.matchId);
     if (!Number.isInteger(matchId)) throw new ApiError(400, 'Geçersiz maç.');
     const userId = req.user?.id ?? null;
-    const [suggestions, myVotes] = await Promise.all([
-      listSuggestions(matchId, userId),
-      userId ? userVoteSet(matchId, userId) : Promise.resolve(new Set()),
-    ]);
-    res.json({
-      matchId,
-      suggestions,
-      myVotes: [...myVotes],
-    });
+    const suggestions = await listSuggestions(matchId, userId);
+    res.json({ matchId, suggestions });
   })
 );
 
@@ -72,34 +63,33 @@ suggestionsRouter.post(
 
     await assertOpen(matchId);
 
-    const suggestion = await createSuggestion({ matchId, userId: fresh.id, type, content });
-    getIo()
-      ?.to(suggestionsRoom(matchId))
-      .emit('suggestion:new', { ...suggestion, voted: false });
-    res.status(201).json({ suggestion });
+    const { suggestion, created } = await createSuggestion({
+      matchId,
+      userId: fresh.id,
+      type,
+      content,
+    });
+    if (created) {
+      getIo()
+        ?.to(suggestionsRoom(matchId))
+        .emit('suggestion:new', { ...suggestion, voted: false });
+    }
+    res.status(created ? 201 : 200).json({ suggestion, created });
   })
 );
 
-// POST /api/suggestions/:matchId/:id/vote  (toggle)
+// POST /api/suggestions/:matchId/:id/withdraw  (kullanıcı kendi önerisini geri çeker)
 suggestionsRouter.post(
-  '/:matchId/:id/vote',
+  '/:matchId/:id/withdraw',
   authRequired,
   asyncHandler(async (req, res) => {
     const matchId = Number(req.params.matchId);
     const id = Number(req.params.id);
 
-    const fresh = await getUserById(req.user.id);
-    if (isBanned(fresh)) throw new ApiError(403, 'Hesabınız banlandı.');
+    const result = await withdrawSuggestion(id, req.user.id);
+    if (!result) throw new ApiError(404, 'Öneri bulunamadı veya size ait değil.');
 
-    const row = await getSuggestionRow(id);
-    if (!row || row.is_deleted || Number(row.match_id) !== matchId) {
-      throw new ApiError(404, 'Öneri bulunamadı.');
-    }
-
-    await assertOpen(matchId);
-
-    const { voted, voteCount } = await toggleVote(id, fresh.id);
-    getIo()?.to(suggestionsRoom(matchId)).emit('suggestion:vote', { suggestionId: id, voteCount });
-    res.json({ suggestionId: id, voted, voteCount });
+    getIo()?.to(suggestionsRoom(matchId)).emit('suggestion:deleted', { id, matchId });
+    res.json({ ok: true });
   })
 );

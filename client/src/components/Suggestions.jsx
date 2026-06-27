@@ -3,7 +3,6 @@ import { Link } from 'react-router-dom';
 import { api } from '../lib/api.js';
 import { getSocket } from '../lib/socket.js';
 import { useAuth } from '../context/AuthContext.jsx';
-import { messageTime } from '../lib/format.js';
 import { Loading, Empty } from './ui.jsx';
 import {
   SUGGESTION_TYPES,
@@ -67,16 +66,12 @@ export default function Suggestions({ matchId, canSuggest }) {
       if (Number(s.matchId) !== mid) return;
       setItems((prev) => (prev.some((x) => x.id === s.id) ? prev : [s, ...prev]));
     };
-    const onVote = ({ suggestionId, voteCount }) =>
-      setItems((prev) => prev.map((x) => (x.id === suggestionId ? { ...x, voteCount } : x)));
     const onDeleted = ({ id }) => setItems((prev) => prev.filter((x) => x.id !== id));
     socket.on('suggestion:new', onNew);
-    socket.on('suggestion:vote', onVote);
     socket.on('suggestion:deleted', onDeleted);
     return () => {
       socket.emit('suggestion:leave', mid);
       socket.off('suggestion:new', onNew);
-      socket.off('suggestion:vote', onVote);
       socket.off('suggestion:deleted', onDeleted);
     };
   }, [matchId, user?.id]);
@@ -91,12 +86,25 @@ export default function Suggestions({ matchId, canSuggest }) {
 
   const hasLineup = teams.length > 0;
 
-  const sorted = useMemo(() => {
-    const arr = [...items];
-    if (sort === 'top') arr.sort((a, b) => b.voteCount - a.voteCount || b.id - a.id);
-    else arr.sort((a, b) => b.id - a.id);
+  // Ayni (tur + icerik) onerileri grupla ve say.
+  const groups = useMemo(() => {
+    const map = new Map();
+    for (const s of items) {
+      const key = `${s.type}|||${s.content}`;
+      let g = map.get(key);
+      if (!g) {
+        g = { key, type: s.type, content: s.content, count: 0, latestId: 0, mineId: null };
+        map.set(key, g);
+      }
+      g.count += 1;
+      if (s.id > g.latestId) g.latestId = s.id;
+      if (user && Number(s.userId) === Number(user.id)) g.mineId = s.id;
+    }
+    const arr = [...map.values()];
+    if (sort === 'top') arr.sort((a, b) => b.count - a.count || b.latestId - a.latestId);
+    else arr.sort((a, b) => b.latestId - a.latestId);
     return arr;
-  }, [items, sort]);
+  }, [items, sort, user]);
 
   // Secimlerden oneri metnini olustur.
   const buildContent = useCallback(() => {
@@ -135,42 +143,40 @@ export default function Suggestions({ matchId, canSuggest }) {
     [buildContent, type, matchId]
   );
 
-  const vote = useCallback(
-    async (s) => {
+  // Bir gruba katil ("ben de öneriyorum") veya kendi önerini geri çek.
+  const toggleSupport = useCallback(
+    async (g) => {
       if (!user) {
-        setError('Oy vermek için giriş yapın.');
+        setError('Öneriye katılmak için giriş yapın.');
         return;
       }
       setError('');
-      // iyimser guncelleme
-      setItems((prev) =>
-        prev.map((x) =>
-          x.id === s.id ? { ...x, voted: !x.voted, voteCount: x.voteCount + (x.voted ? -1 : 1) } : x
-        )
-      );
-      try {
-        const { voted, voteCount } = await api.post(`/suggestions/${matchId}/${s.id}/vote`);
-        setItems((prev) => prev.map((x) => (x.id === s.id ? { ...x, voted, voteCount } : x)));
-      } catch (err) {
-        // geri al
-        setItems((prev) =>
-          prev.map((x) => (x.id === s.id ? { ...x, voted: s.voted, voteCount: s.voteCount } : x))
-        );
-        setError(err.message);
+      if (g.mineId) {
+        const removedId = g.mineId;
+        const snapshot = items;
+        setItems((prev) => prev.filter((x) => x.id !== removedId));
+        try {
+          await api.post(`/suggestions/${matchId}/${removedId}/withdraw`);
+        } catch (err) {
+          setItems(snapshot); // geri al
+          setError(err.message);
+        }
+      } else {
+        try {
+          const { suggestion } = await api.post(`/suggestions/${matchId}`, {
+            type: g.type,
+            content: g.content,
+          });
+          setItems((prev) =>
+            prev.some((x) => x.id === suggestion.id) ? prev : [suggestion, ...prev]
+          );
+        } catch (err) {
+          setError(err.message);
+        }
       }
     },
-    [user, matchId]
+    [user, items, matchId]
   );
-
-  const remove = useCallback(async (id) => {
-    if (!window.confirm('Öneri silinsin mi?')) return;
-    try {
-      await api.post(`/admin/suggestions/${id}/delete`);
-      setItems((prev) => prev.filter((x) => x.id !== id));
-    } catch (err) {
-      setError(err.message);
-    }
-  }, []);
 
   const canPost = user && !user.isBanned && !user.isMuted && canSuggest;
   const preview = buildContent();
@@ -293,7 +299,7 @@ export default function Suggestions({ matchId, canSuggest }) {
           ) : user.isMuted ? (
             'Susturuldunuz, öneri gönderemezsiniz.'
           ) : (
-            'Maç bitti, öneri ve oylama kapandı. Aşağıda verilen öneriler ve oylar görüntüleniyor.'
+            'Maç bitti, öneri kapandı. Aşağıda en çok önerilenler görüntüleniyor.'
           )}
         </div>
       )}
@@ -314,33 +320,40 @@ export default function Suggestions({ matchId, canSuggest }) {
           </button>
         </div>
         <div className="toolbar__spacer" />
-        <span className="muted small">{items.length} öneri</span>
+        <span className="muted small">{groups.length} öneri</span>
       </div>
 
       {loading ? (
         <Loading />
-      ) : sorted.length === 0 ? (
+      ) : groups.length === 0 ? (
         <Empty>Henüz öneri yok. İlk öneren sen ol.</Empty>
       ) : (
         <div className="panel">
           <div className="suggest-section">
             {sort === 'top' ? 'En Çok Önerilenler' : 'En Yeni Öneriler'}
           </div>
-          {sorted.map((s, i) => {
-            const t = SUGGESTION_TYPE_MAP[s.type] || { label: s.type, icon: '•' };
-            const isTop = sort === 'top' && i === 0 && s.voteCount > 0;
+          {groups.map((g, i) => {
+            const t = SUGGESTION_TYPE_MAP[g.type] || { label: g.type, icon: '•' };
+            const isTop = sort === 'top' && i === 0 && g.count > 0;
+            const mine = !!g.mineId;
             return (
-              <div className={`suggest-row ${isTop ? 'is-top' : ''}`} key={s.id}>
+              <div className={`suggest-row ${isTop ? 'is-top' : ''}`} key={g.key}>
                 <button
-                  className={`vote-btn ${s.voted ? 'is-voted' : ''}`}
-                  onClick={() => vote(s)}
+                  className={`vote-btn ${mine ? 'is-voted' : ''}`}
+                  onClick={() => toggleSupport(g)}
                   disabled={!canSuggest}
-                  title={canSuggest ? 'Öneriyorum' : 'Oylama kapalı'}
+                  title={
+                    !canSuggest
+                      ? 'Öneri kapalı'
+                      : mine
+                        ? 'Önerini geri çek'
+                        : 'Ben de öneriyorum'
+                  }
                 >
                   <span className="vote-btn__arrow" aria-hidden>
                     ▲
                   </span>
-                  <span className="vote-btn__count num">{s.voteCount}</span>
+                  <span className="vote-btn__count num">{g.count}</span>
                 </button>
                 <div className="suggest-row__main">
                   <div className="suggest-row__head">
@@ -349,15 +362,9 @@ export default function Suggestions({ matchId, canSuggest }) {
                     </span>
                     {isTop && <span className="badge badge--top">En çok önerilen</span>}
                   </div>
-                  <div className="suggest-row__content">{s.content}</div>
+                  <div className="suggest-row__content">{g.content}</div>
                   <div className="suggest-row__meta muted small">
-                    <span className={s.role === 'admin' ? 'is-admin-name' : ''}>{s.username}</span> ·{' '}
-                    {messageTime(s.createdAt)}
-                    {user?.role === 'admin' && (
-                      <button className="message__del" onClick={() => remove(s.id)}>
-                        sil
-                      </button>
-                    )}
+                    {g.count} kişi öneriyor{mine ? ' · sen de' : ''}
                   </div>
                 </div>
               </div>

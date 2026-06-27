@@ -62,13 +62,37 @@ export async function getSuggestionRow(id) {
   return row || null;
 }
 
+/**
+ * Öneri ekler. Aynı kullanıcı aynı (maç, tür, içerik) önerisini zaten
+ * yaptıysa yeni kayıt açmaz; mevcut öneriyi döndürür (idempotent).
+ * { suggestion, created } döner.
+ */
 export async function createSuggestion({ matchId, userId, type, content }) {
+  const [existing] = await sql`
+    SELECT id FROM suggestions
+    WHERE match_id = ${matchId} AND user_id = ${userId}
+      AND type = ${type} AND content = ${content} AND is_deleted = FALSE
+    LIMIT 1
+  `;
+  if (existing) {
+    return { suggestion: await getSuggestionById(existing.id, userId), created: false };
+  }
   const [row] = await sql`
     INSERT INTO suggestions (match_id, user_id, type, content)
     VALUES (${matchId}, ${userId}, ${type}, ${content})
     RETURNING id
   `;
-  return getSuggestionById(row.id, userId);
+  return { suggestion: await getSuggestionById(row.id, userId), created: true };
+}
+
+/** Kullanıcının kendi önerisini geri çeker. Döner: { matchId } | null */
+export async function withdrawSuggestion(id, userId) {
+  const [row] = await sql`
+    SELECT user_id, match_id FROM suggestions WHERE id = ${id} AND is_deleted = FALSE
+  `;
+  if (!row || Number(row.user_id) !== Number(userId)) return null;
+  await sql`UPDATE suggestions SET is_deleted = TRUE WHERE id = ${id}`;
+  return { matchId: Number(row.match_id) };
 }
 
 export async function getVoteCount(suggestionId) {
