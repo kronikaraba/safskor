@@ -43,6 +43,11 @@ export async function setRole(userId, role) {
   return getUserById(userId);
 }
 
+export async function setPassword(userId, passwordHash) {
+  await sql`UPDATE users SET password_hash = ${passwordHash} WHERE id = ${userId}`;
+  return getUserById(userId);
+}
+
 export async function setBanned(userId, isBannedFlag) {
   await sql`UPDATE users SET is_banned = ${!!isBannedFlag} WHERE id = ${userId}`;
   return getUserById(userId);

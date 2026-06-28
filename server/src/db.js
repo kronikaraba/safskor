@@ -128,6 +128,18 @@ export function initDb() {
       )
     `;
     await sql`CREATE INDEX IF NOT EXISTS idx_message_likes_mid ON message_likes(message_id)`;
+
+    await sql`
+      CREATE TABLE IF NOT EXISTS password_resets (
+        id         BIGSERIAL PRIMARY KEY,
+        user_id    BIGINT NOT NULL REFERENCES users(id),
+        token_hash TEXT NOT NULL,
+        expires_at TIMESTAMPTZ NOT NULL,
+        used       BOOLEAN NOT NULL DEFAULT FALSE,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `;
+    await sql`CREATE INDEX IF NOT EXISTS idx_password_resets_token ON password_resets(token_hash)`;
   })();
   return initPromise;
 }

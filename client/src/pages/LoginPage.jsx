@@ -58,6 +58,9 @@ export default function LoginPage() {
           </button>
         </form>
         <div className="form__hint">
+          <Link to="/sifremi-unuttum">Şifremi unuttum</Link>
+        </div>
+        <div className="form__hint" style={{ marginTop: 6 }}>
           Hesabın yok mu? <Link to="/kayit">Kayıt ol</Link>
         </div>
       </div>

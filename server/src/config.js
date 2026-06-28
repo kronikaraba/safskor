@@ -42,6 +42,15 @@ export const config = {
     apiKey: process.env.API_FOOTBALL_KEY || '',
     baseUrl: (process.env.API_FOOTBALL_BASE_URL || 'https://v3.football.api-sports.io').replace(/\/$/, ''),
   },
+
+  // Şifre sıfırlama e-postaları için Resend (resend.com)
+  resend: {
+    apiKey: process.env.RESEND_API_KEY || '',
+    from: process.env.RESEND_FROM || 'SafSkor <onboarding@resend.dev>',
+  },
+  // Sıfırlama bağlantısındaki site adresi (frontend). Yoksa ilk CLIENT_ORIGIN.
+  appUrl: (process.env.APP_URL || clientOrigins[0] || 'http://localhost:5173').replace(/\/$/, ''),
+  resetTokenTtlMs: 60 * 60 * 1000, // 1 saat
 };
 
 export function assertConfig() {

@@ -9,8 +9,16 @@ import {
   getUserByEmail,
   getUserByUsername,
   getUserByLogin,
+  getUserById,
+  setPassword,
   publicUser,
 } from '../store/users.js';
+import {
+  createResetToken,
+  getValidReset,
+  markResetUsed,
+} from '../store/passwordResets.js';
+import { sendResetEmail } from '../lib/email.js';
 import { authRequired } from './middleware.js';
 
 export const authRouter = Router();
@@ -63,3 +71,51 @@ authRouter.post(
 authRouter.get('/me', authRequired, asyncHandler(async (req, res) => {
   res.json({ user: await publicUser(req.user) });
 }));
+
+// Şifre sıfırlama isteği — e-posta varsa bağlantı gönderilir.
+// Güvenlik: e-postanın kayıtlı olup olmadığını sızdırmamak için her zaman ok döner.
+authRouter.post(
+  '/forgot-password',
+  asyncHandler(async (req, res) => {
+    const email = String(req.body?.email ?? '').trim();
+    if (validateEmail(email)) throw new ApiError(400, 'Geçerli bir e-posta girin.');
+
+    const user = await getUserByEmail(email);
+    if (user) {
+      const token = await createResetToken(user.id);
+      const resetUrl = `${config.appUrl}/sifre-sifirla?token=${token}`;
+      try {
+        await sendResetEmail(user.email, resetUrl);
+      } catch (e) {
+        // eslint-disable-next-line no-console
+        console.error('[forgot-password] e-posta gönderilemedi:', e?.message);
+      }
+    }
+    res.json({ ok: true });
+  })
+);
+
+// Yeni şifre belirleme (jeton ile).
+authRouter.post(
+  '/reset-password',
+  asyncHandler(async (req, res) => {
+    const token = String(req.body?.token ?? '').trim();
+    const password = String(req.body?.password ?? '');
+    if (!token) throw new ApiError(400, 'Sıfırlama bağlantısı geçersiz.');
+    const pErr = validatePassword(password);
+    if (pErr) throw new ApiError(400, pErr);
+
+    const reset = await getValidReset(token);
+    if (!reset) {
+      throw new ApiError(400, 'Bağlantı geçersiz veya süresi dolmuş. Yeniden sıfırlama isteyin.');
+    }
+
+    const passwordHash = await hashPassword(password);
+    await setPassword(reset.user_id, passwordHash);
+    await markResetUsed(reset.id);
+
+    const user = await getUserById(reset.user_id);
+    const authToken = signToken(user);
+    res.json({ ok: true, user: await publicUser(user), token: authToken });
+  })
+);
