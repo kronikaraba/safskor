@@ -11,6 +11,7 @@ import { initDb } from './db.js';
 import { attachUser } from './auth/middleware.js';
 import { authRouter } from './auth/routes.js';
 import { footballRouter } from './football/routes.js';
+import { manualMatchRouter } from './football/adminMatchRoutes.js';
 import { chatRouter } from './chat/routes.js';
 import { ratingsRouter } from './ratings/routes.js';
 import { suggestionsRouter } from './suggestions/routes.js';
@@ -44,6 +45,7 @@ app.use('/api/football', footballRouter);
 app.use('/api/chat', chatRouter);
 app.use('/api/ratings', ratingsRouter);
 app.use('/api/suggestions', suggestionsRouter);
+app.use('/api/admin/matches', manualMatchRouter);
 app.use('/api/admin', adminRouter);
 
 // Bilinmeyen API yolu

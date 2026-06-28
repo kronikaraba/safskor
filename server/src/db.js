@@ -129,6 +129,62 @@ export function initDb() {
     `;
     await sql`CREATE INDEX IF NOT EXISTS idx_message_likes_mid ON message_likes(message_id)`;
 
+    // --- Manuel maçlar (admin elle girer; API-Football'dan bağımsız) ---
+    // ID'ler API fixture/oyuncu ID'leriyle çakışmasın diye yüksek tabandan başlar.
+    await sql`CREATE SEQUENCE IF NOT EXISTS manual_match_id_seq START 9000000000`;
+    await sql`CREATE SEQUENCE IF NOT EXISTS manual_player_id_seq START 9500000000`;
+
+    await sql`
+      CREATE TABLE IF NOT EXISTS manual_matches (
+        id          BIGINT PRIMARY KEY DEFAULT nextval('manual_match_id_seq'),
+        competition TEXT NOT NULL,
+        stage       TEXT,
+        home_name   TEXT NOT NULL,
+        away_name   TEXT NOT NULL,
+        kickoff     TIMESTAMPTZ NOT NULL,
+        venue       TEXT,
+        status      TEXT NOT NULL DEFAULT 'NS',
+        minute      INTEGER,
+        home_score  INTEGER,
+        away_score  INTEGER,
+        ht_home     INTEGER,
+        ht_away     INTEGER,
+        created_by  BIGINT NOT NULL,
+        created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `;
+    await sql`CREATE INDEX IF NOT EXISTS idx_manual_matches_kickoff ON manual_matches(kickoff)`;
+
+    await sql`
+      CREATE TABLE IF NOT EXISTS manual_lineup_players (
+        id         BIGINT PRIMARY KEY DEFAULT nextval('manual_player_id_seq'),
+        match_id   BIGINT NOT NULL REFERENCES manual_matches(id) ON DELETE CASCADE,
+        side       TEXT NOT NULL,
+        name       TEXT NOT NULL,
+        number     INTEGER,
+        pos        TEXT,
+        is_starter BOOLEAN NOT NULL DEFAULT TRUE,
+        sort_order INTEGER NOT NULL DEFAULT 0
+      )
+    `;
+    await sql`CREATE INDEX IF NOT EXISTS idx_manual_lineup_match ON manual_lineup_players(match_id)`;
+
+    await sql`
+      CREATE TABLE IF NOT EXISTS manual_events (
+        id         BIGSERIAL PRIMARY KEY,
+        match_id   BIGINT NOT NULL REFERENCES manual_matches(id) ON DELETE CASCADE,
+        side       TEXT NOT NULL,
+        type       TEXT NOT NULL,
+        minute     INTEGER,
+        player     TEXT,
+        player_out TEXT,
+        detail     TEXT,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `;
+    await sql`CREATE INDEX IF NOT EXISTS idx_manual_events_match ON manual_events(match_id)`;
+
     await sql`
       CREATE TABLE IF NOT EXISTS password_resets (
         id         BIGSERIAL PRIMARY KEY,

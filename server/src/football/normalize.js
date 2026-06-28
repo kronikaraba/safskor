@@ -4,7 +4,7 @@ const LIVE = new Set(['1H', '2H', 'HT', 'ET', 'BT', 'P', 'LIVE', 'INT']);
 const FINISHED = new Set(['FT', 'AET', 'PEN', 'WO', 'AWD']);
 const UPCOMING = new Set(['NS', 'TBD']);
 
-const STATUS_LABEL = {
+export const STATUS_LABEL = {
   TBD: 'Planlandi',
   NS: 'Planlandi',
   '1H': '1. yari',
@@ -88,7 +88,7 @@ export function normalizeFixture(item) {
 
 const POS_LABEL = { G: 'Kaleci', D: 'Defans', M: 'Orta saha', F: 'Forvet' };
 
-function parseGrid(grid, pos, idx) {
+export function parseGrid(grid, pos, idx) {
   if (grid && /^\d+:\d+$/.test(grid)) {
     const [row, col] = grid.split(':').map(Number);
     return { row, col };
@@ -186,6 +186,93 @@ export function normalizeEvents(events) {
       };
     })
     .sort((a, b) => (a.minute ?? 999) - (b.minute ?? 999) || (a.extra ?? 0) - (b.extra ?? 0));
+}
+
+// --- Manuel maçlar (admin elle girer) → API maçlarıyla aynı şekil ---
+
+function toIsoDate(v) {
+  if (!v) return null;
+  return v instanceof Date ? v.toISOString() : String(v);
+}
+
+/** manual_matches satırını normalizeFixture ile aynı şekle çevirir. */
+export function manualToMatch(row) {
+  const short = row.status ?? 'NS';
+  const group = statusGroup(short);
+
+  const hs = row.home_score;
+  const as = row.away_score;
+  let winner = null;
+  if (group === 'finished') {
+    if (hs > as) winner = 'HOME_TEAM';
+    else if (as > hs) winner = 'AWAY_TEAM';
+    else winner = 'DRAW';
+  }
+
+  return {
+    id: Number(row.id),
+    utcDate: toIsoDate(row.kickoff),
+    status: short,
+    statusGroup: group,
+    statusLabel: STATUS_LABEL[short] ?? short,
+    minute: row.minute ?? null,
+    matchday: null,
+    stage: row.stage ?? null,
+    competition: {
+      id: null,
+      name: row.competition ?? '',
+      emblem: null,
+      country: null,
+      season: null,
+      flag: null,
+    },
+    homeTeam: { id: null, name: row.home_name ?? 'Bilinmiyor', shortName: row.home_name ?? '', crest: null },
+    awayTeam: { id: null, name: row.away_name ?? 'Bilinmiyor', shortName: row.away_name ?? '', crest: null },
+    score: {
+      home: hs ?? null,
+      away: as ?? null,
+      halfTime: { home: row.ht_home ?? null, away: row.ht_away ?? null },
+      winner,
+      duration: null,
+    },
+    venue: row.venue ?? null,
+    isLive: group === 'live',
+    isFinished: group === 'finished',
+    canRate: group === 'live',
+    isManual: true,
+  };
+}
+
+/** Bir takımın manuel kadro satırlarını {teamId, startXI, substitutes,...} şekline çevirir. */
+export function manualLineupTeam(rows, teamName) {
+  const toPlayer = (r, idx) =>
+    mapPlayer({ id: Number(r.id), name: r.name, number: r.number, pos: r.pos, grid: null }, idx);
+  return {
+    teamId: null,
+    teamName: teamName ?? '',
+    crest: null,
+    colors: null,
+    formation: null,
+    coach: null,
+    startXI: rows.filter((r) => r.is_starter).map(toPlayer),
+    substitutes: rows.filter((r) => !r.is_starter).map(toPlayer),
+  };
+}
+
+/** manual_events satırlarını istemcinin beklediği olay şekline çevirir. */
+export function manualEventsToClient(rows, homeName, awayName) {
+  return (rows ?? []).map((e) => ({
+    type: e.type,
+    minute: e.minute ?? null,
+    extra: null,
+    teamId: null,
+    teamName: e.side === 'home' ? homeName : awayName,
+    player: e.player ?? null,
+    playerId: null,
+    assist: null,
+    playerOut: e.player_out ?? null,
+    detail: e.detail ?? null,
+  }));
 }
 
 export function normalizeStandings(response) {

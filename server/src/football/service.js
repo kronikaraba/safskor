@@ -1,6 +1,18 @@
 import { apiGet } from './client.js';
 import { ApiError } from '../utils/http.js';
 import * as N from './normalize.js';
+import {
+  listManualMatchesByDate,
+  getManualMatchRow,
+  getManualLineupRows,
+  listManualEvents,
+} from '../store/manualMatches.js';
+
+// Manuel maç ID'leri bu tabandan başlar (db.js manual_match_id_seq).
+const MANUAL_ID_BASE = 9_000_000_000;
+export function isManualId(id) {
+  return Number(id) >= MANUAL_ID_BASE;
+}
 
 // Cache TTL'leri, istemci polling araliklarinin biraz altinda tutulur:
 // boylece ayni veriye bakan tum kullanicilar tek API istegini paylasir
@@ -34,13 +46,22 @@ export async function getMatchesByDate(date) {
   const groups = { live: [], upcoming: [], finished: [], other: [] };
   for (const m of matches) groups[m.statusGroup].push(m);
 
+  // Admin'in elle girdiği maçlar (lig filtresine takılmaz) aynı gruplara katılır.
+  const manual = (await listManualMatchesByDate(date)).map(N.manualToMatch);
+  for (const m of manual) groups[m.statusGroup].push(m);
+
   const byKickoff = (a, b) => new Date(a.utcDate) - new Date(b.utcDate);
   for (const k of Object.keys(groups)) groups[k].sort(byKickoff);
 
-  return { date, count: matches.length, ...groups };
+  return { date, count: matches.length + manual.length, ...groups };
 }
 
 export async function getMatch(id) {
+  if (isManualId(id)) {
+    const row = await getManualMatchRow(id);
+    if (!row) throw new ApiError(404, 'Maç bulunamadı.');
+    return N.manualToMatch(row);
+  }
   const data = await apiGet(`/fixtures?id=${id}`, { ttlMs: TTL.matchDetail });
   const item = data.response?.[0];
   if (!item) throw new ApiError(404, 'Maç bulunamadı.');
@@ -48,6 +69,11 @@ export async function getMatch(id) {
 }
 
 export async function getMatchEvents(id) {
+  if (isManualId(id)) {
+    const row = await getManualMatchRow(id);
+    if (!row) throw new ApiError(404, 'Maç bulunamadı.');
+    return N.manualEventsToClient(await listManualEvents(id), row.home_name, row.away_name);
+  }
   const data = await apiGet(`/fixtures/events?fixture=${id}`, { ttlMs: TTL.events });
   return N.normalizeEvents(data.response);
 }
@@ -55,6 +81,22 @@ export async function getMatchEvents(id) {
 /** Bir macin iki takiminin dizilisleri (saha gorunumu + puanlama/sohbet oyuncu listesi). */
 export async function getMatchLineups(id) {
   const match = await getMatch(id);
+
+  if (isManualId(id)) {
+    const rows = await getManualLineupRows(id);
+    const homeRows = rows.filter((r) => r.side === 'home');
+    const awayRows = rows.filter((r) => r.side === 'away');
+    return {
+      matchId: match.id,
+      canRate: match.canRate,
+      statusGroup: match.statusGroup,
+      homeTeam: match.homeTeam,
+      awayTeam: match.awayTeam,
+      home: N.manualLineupTeam(homeRows, match.homeTeam?.name),
+      away: N.manualLineupTeam(awayRows, match.awayTeam?.name),
+    };
+  }
+
   const data = await apiGet(`/fixtures/lineups?fixture=${id}`, { ttlMs: TTL.lineups });
   const teams = (data.response ?? []).map(N.normalizeLineup);
 
