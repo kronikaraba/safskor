@@ -13,6 +13,7 @@ import { authRouter } from './auth/routes.js';
 import { footballRouter } from './football/routes.js';
 import { manualMatchRouter } from './football/adminMatchRoutes.js';
 import { chatRouter } from './chat/routes.js';
+import { usersRouter } from './users/routes.js';
 import { ratingsRouter } from './ratings/routes.js';
 import { suggestionsRouter } from './suggestions/routes.js';
 import { adminRouter } from './moderation/routes.js';
@@ -44,6 +45,7 @@ app.get('/api/health', (_req, res) =>
 app.use('/api/auth', authRouter);
 app.use('/api/football', footballRouter);
 app.use('/api/chat', chatRouter);
+app.use('/api/users', usersRouter);
 app.use('/api/ratings', ratingsRouter);
 app.use('/api/suggestions', suggestionsRouter);
 app.use('/api/admin/matches', manualMatchRouter);

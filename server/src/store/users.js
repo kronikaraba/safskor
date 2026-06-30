@@ -103,6 +103,31 @@ export async function publicUser(user) {
   };
 }
 
+/** Basit profil istatistikleri (puanlama / öneri / mesaj sayısı). */
+export async function getUserStats(userId) {
+  const [r] = await sql`SELECT COUNT(*)::int AS n FROM ratings WHERE user_id = ${userId}`;
+  const [s] = await sql`
+    SELECT COUNT(*)::int AS n FROM suggestions WHERE user_id = ${userId} AND is_deleted = FALSE
+  `;
+  const [m] = await sql`
+    SELECT COUNT(*)::int AS n FROM messages WHERE user_id = ${userId} AND is_deleted = FALSE
+  `;
+  return { ratings: r.n, suggestions: s.n, messages: m.n };
+}
+
+/** Herkese açık üye profili (sade): ad, rol, üyelik tarihi, aktivite sayıları. */
+export async function getPublicProfile(id) {
+  const user = await getUserById(id);
+  if (!user) return null;
+  return {
+    id: Number(user.id),
+    username: user.username,
+    role: user.role,
+    createdAt: toIso(user.created_at),
+    stats: await getUserStats(id),
+  };
+}
+
 /** Admin paneli için e-posta da içeren detay. */
 export async function adminUserView(user) {
   if (!user) return null;

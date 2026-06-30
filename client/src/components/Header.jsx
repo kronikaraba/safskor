@@ -21,7 +21,9 @@ export default function Header() {
           )}
           {user ? (
             <div className="nav__user">
-              <span className="nav__name">{user.username}</span>
+              <Link to={`/uye/${user.id}`} className="nav__name">
+                {user.username}
+              </Link>
               <button className="btn btn--ghost btn--sm" onClick={logout}>
                 Çıkış
               </button>
