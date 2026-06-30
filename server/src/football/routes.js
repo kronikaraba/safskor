@@ -44,28 +44,6 @@ footballRouter.get(
   })
 );
 
-// GET /api/football/team/:id/logo  (Sofascore görsellerini proxy'ler)
-footballRouter.get(
-  '/team/:id/logo',
-  asyncHandler(async (req, res) => {
-    const { buffer, contentType } = await svc.getTeamLogo(req.params.id);
-    res.set('Content-Type', contentType);
-    res.set('Cache-Control', 'public, max-age=604800, immutable');
-    res.send(buffer);
-  })
-);
-
-// GET /api/football/league/:id/logo
-footballRouter.get(
-  '/league/:id/logo',
-  asyncHandler(async (req, res) => {
-    const { buffer, contentType } = await svc.getLeagueLogo(req.params.id);
-    res.set('Content-Type', contentType);
-    res.set('Cache-Control', 'public, max-age=604800, immutable');
-    res.send(buffer);
-  })
-);
-
 // GET /api/football/competitions/:id/standings?season=YYYY
 footballRouter.get(
   '/competitions/:id/standings',

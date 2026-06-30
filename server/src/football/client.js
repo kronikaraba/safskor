@@ -1,9 +1,12 @@
 import { config } from '../config.js';
 import { ApiError } from '../utils/http.js';
-import { cacheGet, cacheSet } from './cache.js';
+import { cacheGetEntry, cacheSet } from './cache.js';
 
 // API-Football (api-sports.io) ücretsiz plan: günde 100 istek + ~10 istek/dk.
-// Cache + seri kuyruk ile limitleri koruyoruz.
+// Agresif cache + stale-while-revalidate ile bu limitleri korur, yüklemeyi
+// <1 sn tutarız: istemciye anında (bayat olsa da) cache'ten veririz, gerekirse
+// arka planda tek bir upstream isteğiyle yenileriz. Dakikalık throttle yalnızca
+// 10 istek/dk sınırına saygı için.
 const RATE_LIMIT = 10;
 const WINDOW_MS = 60_000;
 
@@ -14,7 +17,6 @@ const PUBLIC_NOTFOUND = 'Bulunamadı.';
 
 const recent = [];
 const inflight = new Map();
-let chain = Promise.resolve();
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -26,6 +28,13 @@ async function throttle() {
     return throttle();
   }
   recent.push(Date.now());
+}
+
+function errorsToMessage(errs) {
+  if (!errs) return '';
+  if (Array.isArray(errs)) return errs.join(' ');
+  if (typeof errs === 'object') return Object.values(errs).join(' ');
+  return String(errs);
 }
 
 async function rawRequest(pathAndQuery) {
@@ -41,12 +50,7 @@ async function rawRequest(pathAndQuery) {
   const url = `${config.football.baseUrl}${pathAndQuery}`;
   let res;
   try {
-    res = await fetch(url, {
-      headers: {
-        'x-rapidapi-key': config.football.apiKey,
-        'x-rapidapi-host': config.football.rapidApiHost,
-      },
-    });
+    res = await fetch(url, { headers: { 'x-apisports-key': config.football.apiKey } });
   } catch {
     throw new ApiError(502, 'Futbol API sunucusuna ulaşılamadı.', PUBLIC_GENERIC);
   }
@@ -75,14 +79,20 @@ async function rawRequest(pathAndQuery) {
     );
   }
 
-  // RapidAPI/Sofascore: 200 dönüp hata/limit mesajını "message" alanında verebilir.
-  const msg = typeof data?.message === 'string' ? data.message : '';
-  if (msg) {
-    if (/quota|limit|exceeded|rate/i.test(msg)) {
-      throw new ApiError(429, `Futbol API: ${msg}`, PUBLIC_RATELIMIT);
+  // API-Football 200 döndürüp hatayı "errors" alanında verebilir.
+  const errs = data?.errors;
+  const hasErr = Array.isArray(errs)
+    ? errs.length > 0
+    : errs && typeof errs === 'object' && Object.keys(errs).length > 0;
+  if (hasErr) {
+    // Plan kısıtlaması (örn. ücretsiz planda erişilemeyen tarih) → hata değil:
+    // boş sonucu (response: []) olduğu gibi döndür, üst katman "maç yok" gösterir.
+    if (!Array.isArray(errs) && typeof errs === 'object' && errs.plan) {
+      return data;
     }
-    if (/does not exist|not found/i.test(msg)) {
-      throw new ApiError(404, `Futbol API: ${msg}`, PUBLIC_NOTFOUND);
+    const msg = errorsToMessage(errs);
+    if (/limit|requests|reached|token|key/i.test(msg)) {
+      throw new ApiError(429, `Futbol API: ${msg}`, PUBLIC_RATELIMIT);
     }
     throw new ApiError(502, `Futbol API: ${msg}`, PUBLIC_GENERIC);
   }
@@ -90,72 +100,32 @@ async function rawRequest(pathAndQuery) {
   return data;
 }
 
-function enqueue(fn) {
-  const run = chain.then(fn, fn);
-  chain = run.then(
-    () => undefined,
-    () => undefined
-  );
-  return run;
-}
-
-export async function apiGet(pathAndQuery, { ttlMs = 0 } = {}) {
-  const key = pathAndQuery;
-
-  if (ttlMs > 0) {
-    const cached = cacheGet(key);
-    if (cached !== undefined) return cached;
-  }
+// Aynı anahtar için tek upstream isteği (dedupe) + cache yaz.
+function fetchAndCache(key, pathAndQuery, ttlMs) {
   if (inflight.has(key)) return inflight.get(key);
-
-  const promise = enqueue(() => rawRequest(pathAndQuery))
+  const promise = rawRequest(pathAndQuery)
     .then((data) => {
       if (ttlMs > 0) cacheSet(key, data, ttlMs);
       return data;
     })
     .finally(() => inflight.delete(key));
-
   inflight.set(key, promise);
   return promise;
 }
 
-// Logo/görsel çeker (RapidAPI ikili yanıt döndürür). Uzun süre cache'lenir;
-// logolar nadiren değişir, böylece aylık istek kotası korunur.
-async function rawImage(pathAndQuery) {
-  if (!config.football.apiKey) throw new ApiError(503, 'API anahtarı yok.', PUBLIC_GENERIC);
-  await throttle();
-  let res;
-  try {
-    res = await fetch(`${config.football.baseUrl}${pathAndQuery}`, {
-      headers: {
-        'x-rapidapi-key': config.football.apiKey,
-        'x-rapidapi-host': config.football.rapidApiHost,
-      },
-    });
-  } catch {
-    throw new ApiError(502, 'Görsel alınamadı.', PUBLIC_GENERIC);
+// Stale-while-revalidate:
+//  - Taze cache → anında döndür.
+//  - Bayat cache → anında bayatı döndür, arka planda yenile.
+//  - Cache yok → upstream'i bekle (yalnızca ilk yükleme).
+export async function apiGet(pathAndQuery, { ttlMs = 0 } = {}) {
+  const key = pathAndQuery;
+  if (ttlMs <= 0) return fetchAndCache(key, pathAndQuery, 0);
+
+  const entry = cacheGetEntry(key);
+  if (entry) {
+    if (entry.expires > Date.now()) return entry.value; // taze
+    if (!inflight.has(key)) fetchAndCache(key, pathAndQuery, ttlMs).catch(() => {}); // arka plan
+    return entry.value; // bayatı hemen ver
   }
-  const contentType = res.headers.get('content-type') || '';
-  if (!res.ok || !contentType.startsWith('image/')) {
-    throw new ApiError(404, 'Görsel bulunamadı.', PUBLIC_NOTFOUND);
-  }
-  const buffer = Buffer.from(await res.arrayBuffer());
-  return { buffer, contentType };
-}
-
-export async function apiGetImage(pathAndQuery, { ttlMs = 24 * 60 * 60 * 1000 } = {}) {
-  const key = `img:${pathAndQuery}`;
-  const cached = cacheGet(key);
-  if (cached !== undefined) return cached;
-  if (inflight.has(key)) return inflight.get(key);
-
-  const promise = enqueue(() => rawImage(pathAndQuery))
-    .then((data) => {
-      cacheSet(key, data, ttlMs);
-      return data;
-    })
-    .finally(() => inflight.delete(key));
-
-  inflight.set(key, promise);
-  return promise;
+  return fetchAndCache(key, pathAndQuery, ttlMs);
 }

@@ -1,4 +1,4 @@
-import { apiGet, apiGetImage } from './client.js';
+import { apiGet } from './client.js';
 import { ApiError } from '../utils/http.js';
 import * as N from './normalize.js';
 import {
@@ -14,54 +14,43 @@ export function isManualId(id) {
   return Number(id) >= MANUAL_ID_BASE;
 }
 
-// Cache TTL'leri, istemci polling araliklarinin biraz altinda tutulur:
-// boylece ayni veriye bakan tum kullanicilar tek API istegini paylasir.
+// Cache TTL'leri. API-Football ücretsiz plan günde 100 istek; stale-while-
+// revalidate ile yükleme yine anlıktır, bu süreler upstream istek sayısını
+// (dolayısıyla günlük kotayı) düşük tutmak için uzun seçilir.
 const TTL = {
-  matchesByDate: 50 * 1000,
-  matchDetail: 50 * 1000,
-  events: 50 * 1000,
-  lineups: 5 * 60 * 1000,
-  standings: 30 * 60 * 1000,
+  matchesToday: 10 * 60 * 1000, // bugün/gelecek: 10 dk (canlı skorlar)
+  matchesPast: 24 * 60 * 60 * 1000, // geçmiş gün: 24 saat (maçlar bitti, değişmez)
+  matchDetail: 10 * 60 * 1000,
+  events: 10 * 60 * 1000,
+  lineups: 6 * 60 * 60 * 1000,
+  standings: 24 * 60 * 60 * 1000,
 };
 
-// Bir günün maçları için sorgulanan Sofascore kategori ID'leri:
-//  46   = Türkiye (Süper Lig)
-//  1465 = UEFA (Şampiyonlar/Avrupa/Konferans Ligi)
-//  1468 = World (FIFA Dünya Kupası)
-const FETCH_CATEGORY_IDS = [46, 1465, 1468];
+function todayUtc() {
+  return new Date().toISOString().slice(0, 10);
+}
 
-// Yalnızca bu turnuvalar gösterilir (Sofascore uniqueTournament ID'leri):
-//    52 = Trendyol Süper Lig
-//     7 = UEFA Şampiyonlar Ligi
-//   679 = UEFA Avrupa Ligi
-// 17015 = UEFA Konferans Ligi
-//    16 = FIFA Dünya Kupası
-export const ALLOWED_LEAGUE_IDS = new Set([52, 7, 679, 17015, 16]);
+// Yalnızca bu turnuvalar gösterilir (API-Football lig ID'leri):
+//   203 = Türkiye Süper Lig
+//     2 = UEFA Şampiyonlar Ligi      3 = UEFA Avrupa Ligi
+//   848 = UEFA Konferans Ligi      531 = UEFA Süper Kupa
+//     1 = FIFA Dünya Kupası          4 = Avrupa Şampiyonası (EURO)
+//     5 = UEFA Uluslar Ligi         15 = FIFA Kulüpler Dünya Kupası
+//    32 = Dünya Kupası Elemeleri (Avrupa)
+export const ALLOWED_LEAGUE_IDS = new Set([203, 2, 3, 848, 531, 1, 4, 5, 15, 32]);
 
 function isAllowed(match) {
   return ALLOWED_LEAGUE_IDS.has(Number(match.competition?.id));
 }
 
 export async function getMatchesByDate(date) {
-  // Her kategori ayrı istek; hata/limit olursa o kategoriyi atla, diğerleri gelsin.
-  const results = await Promise.all(
-    FETCH_CATEGORY_IDS.map((catId) =>
-      apiGet(`/tournaments/get-scheduled-events?categoryId=${catId}&date=${date}`, {
-        ttlMs: TTL.matchesByDate,
-      }).catch(() => ({ events: [] }))
-    )
-  );
-
-  const seen = new Set();
-  const matches = [];
-  for (const data of results) {
-    for (const ev of data.events ?? []) {
-      const m = N.normalizeFixture(ev);
-      if (!isAllowed(m) || seen.has(m.id)) continue;
-      seen.add(m.id);
-      matches.push(m);
-    }
-  }
+  // Geçmiş günler değişmez → çok uzun cache; bugün/gelecek → kısa. (Tek istek,
+  // tüm ligleri getirir; sonra izinli liglere göre filtreleriz.)
+  const ttlMs = date < todayUtc() ? TTL.matchesPast : TTL.matchesToday;
+  const data = await apiGet(`/fixtures?date=${date}`, { ttlMs });
+  const matches = (data.response ?? [])
+    .map(N.normalizeFixture)
+    .filter(isAllowed);
 
   const groups = { live: [], upcoming: [], finished: [], other: [] };
   for (const m of matches) groups[m.statusGroup].push(m);
@@ -82,10 +71,10 @@ export async function getMatch(id) {
     if (!row) throw new ApiError(404, 'Maç bulunamadı.');
     return N.manualToMatch(row);
   }
-  const data = await apiGet(`/matches/detail?matchId=${id}`, { ttlMs: TTL.matchDetail });
-  const event = data.event ?? data;
-  if (!event?.id) throw new ApiError(404, 'Maç bulunamadı.');
-  return N.normalizeFixture(event);
+  const data = await apiGet(`/fixtures?id=${id}`, { ttlMs: TTL.matchDetail });
+  const item = data.response?.[0];
+  if (!item) throw new ApiError(404, 'Maç bulunamadı.');
+  return N.normalizeFixture(item);
 }
 
 export async function getMatchEvents(id) {
@@ -94,10 +83,8 @@ export async function getMatchEvents(id) {
     if (!row) throw new ApiError(404, 'Maç bulunamadı.');
     return N.manualEventsToClient(await listManualEvents(id), row.home_name, row.away_name);
   }
-  // Takım adlarını (isHome eşlemesi için) maç detayından al (cache'ten gelir).
-  const match = await getMatch(id);
-  const data = await apiGet(`/matches/get-incidents?matchId=${id}`, { ttlMs: TTL.events });
-  return N.normalizeEvents(data.incidents, match.homeTeam, match.awayTeam);
+  const data = await apiGet(`/fixtures/events?fixture=${id}`, { ttlMs: TTL.events });
+  return N.normalizeEvents(data.response);
 }
 
 /** Bir macin iki takiminin dizilisleri (saha gorunumu + puanlama/sohbet oyuncu listesi). */
@@ -119,9 +106,13 @@ export async function getMatchLineups(id) {
     };
   }
 
-  const data = await apiGet(`/matches/get-lineups?matchId=${id}`, { ttlMs: TTL.lineups }).catch(
-    () => null
-  );
+  const data = await apiGet(`/fixtures/lineups?fixture=${id}`, { ttlMs: TTL.lineups });
+  const teams = (data.response ?? []).map(N.normalizeLineup);
+
+  const homeId = match.homeTeam?.id;
+  const awayId = match.awayTeam?.id;
+  const home = teams.find((t) => t.teamId === homeId) ?? teams[0] ?? null;
+  const away = teams.find((t) => t.teamId === awayId) ?? teams[1] ?? null;
 
   return {
     matchId: match.id,
@@ -129,27 +120,17 @@ export async function getMatchLineups(id) {
     statusGroup: match.statusGroup,
     homeTeam: match.homeTeam,
     awayTeam: match.awayTeam,
-    home: data?.home ? N.normalizeLineup(data.home, match.homeTeam) : null,
-    away: data?.away ? N.normalizeLineup(data.away, match.awayTeam) : null,
+    home,
+    away,
   };
 }
 
 export async function getStandings(leagueId, season) {
   const data = await apiGet(
-    `/tournaments/get-standings?tournamentId=${encodeURIComponent(leagueId)}&seasonId=${encodeURIComponent(season)}&type=total`,
+    `/standings?league=${encodeURIComponent(leagueId)}&season=${encodeURIComponent(season)}`,
     { ttlMs: TTL.standings }
   );
-  return N.normalizeStandings(data.standings);
-}
-
-/** Takım logosu (Sofascore görselleri doğrudan 403 verir; proxy'leriz). */
-export async function getTeamLogo(teamId) {
-  return apiGetImage(`/teams/get-logo?teamId=${encodeURIComponent(teamId)}`);
-}
-
-/** Turnuva/lig logosu. */
-export async function getLeagueLogo(tournamentId) {
-  return apiGetImage(`/tournaments/get-logo?tournamentId=${encodeURIComponent(tournamentId)}`);
+  return N.normalizeStandings(data.response);
 }
 
 /** Sadece durum (puanlama/oneri acik mi kontrolu icin - cache'ten gelir). */
