@@ -28,13 +28,6 @@ async function throttle() {
   recent.push(Date.now());
 }
 
-function errorsToMessage(errs) {
-  if (!errs) return '';
-  if (Array.isArray(errs)) return errs.join(' ');
-  if (typeof errs === 'object') return Object.values(errs).join(' ');
-  return String(errs);
-}
-
 async function rawRequest(pathAndQuery) {
   if (!config.football.apiKey) {
     throw new ApiError(
@@ -48,7 +41,12 @@ async function rawRequest(pathAndQuery) {
   const url = `${config.football.baseUrl}${pathAndQuery}`;
   let res;
   try {
-    res = await fetch(url, { headers: { 'x-apisports-key': config.football.apiKey } });
+    res = await fetch(url, {
+      headers: {
+        'x-rapidapi-key': config.football.apiKey,
+        'x-rapidapi-host': config.football.rapidApiHost,
+      },
+    });
   } catch {
     throw new ApiError(502, 'Futbol API sunucusuna ulaşılamadı.', PUBLIC_GENERIC);
   }
@@ -77,15 +75,14 @@ async function rawRequest(pathAndQuery) {
     );
   }
 
-  // API-Football 200 döndürüp hatayı "errors" alanında verebilir.
-  const errs = data?.errors;
-  const hasErr = Array.isArray(errs)
-    ? errs.length > 0
-    : errs && typeof errs === 'object' && Object.keys(errs).length > 0;
-  if (hasErr) {
-    const msg = errorsToMessage(errs);
-    if (/limit|requests|reached|token|key/i.test(msg)) {
+  // RapidAPI/Sofascore: 200 dönüp hata/limit mesajını "message" alanında verebilir.
+  const msg = typeof data?.message === 'string' ? data.message : '';
+  if (msg) {
+    if (/quota|limit|exceeded|rate/i.test(msg)) {
       throw new ApiError(429, `Futbol API: ${msg}`, PUBLIC_RATELIMIT);
+    }
+    if (/does not exist|not found/i.test(msg)) {
+      throw new ApiError(404, `Futbol API: ${msg}`, PUBLIC_NOTFOUND);
     }
     throw new ApiError(502, `Futbol API: ${msg}`, PUBLIC_GENERIC);
   }

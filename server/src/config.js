@@ -40,7 +40,8 @@ export const config = {
 
   football: {
     apiKey: process.env.API_FOOTBALL_KEY || '',
-    baseUrl: (process.env.API_FOOTBALL_BASE_URL || 'https://v3.football.api-sports.io').replace(/\/$/, ''),
+    baseUrl: (process.env.API_FOOTBALL_BASE_URL || 'https://sportapi7.p.rapidapi.com').replace(/\/$/, ''),
+    rapidApiHost: process.env.API_FOOTBALL_RAPID_HOST || 'sportapi7.p.rapidapi.com',
   },
 
   // Şifre sıfırlama e-postaları için Resend (resend.com)
