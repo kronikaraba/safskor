@@ -8,6 +8,7 @@ export function publicSuggestion(row, votedSet) {
     username: row.username,
     role: row.role ?? 'user',
     type: row.type,
+    team: row.team ?? null,
     content: row.content,
     voteCount: Number(row.vote_count ?? 0),
     voted: votedSet ? votedSet.has(Number(row.id)) : false,
@@ -67,19 +68,20 @@ export async function getSuggestionRow(id) {
  * yaptıysa yeni kayıt açmaz; mevcut öneriyi döndürür (idempotent).
  * { suggestion, created } döner.
  */
-export async function createSuggestion({ matchId, userId, type, content }) {
+export async function createSuggestion({ matchId, userId, type, content, team = null }) {
   const [existing] = await sql`
     SELECT id FROM suggestions
     WHERE match_id = ${matchId} AND user_id = ${userId}
-      AND type = ${type} AND content = ${content} AND is_deleted = FALSE
+      AND type = ${type} AND content = ${content}
+      AND team IS NOT DISTINCT FROM ${team} AND is_deleted = FALSE
     LIMIT 1
   `;
   if (existing) {
     return { suggestion: await getSuggestionById(existing.id, userId), created: false };
   }
   const [row] = await sql`
-    INSERT INTO suggestions (match_id, user_id, type, content)
-    VALUES (${matchId}, ${userId}, ${type}, ${content})
+    INSERT INTO suggestions (match_id, user_id, type, content, team)
+    VALUES (${matchId}, ${userId}, ${type}, ${content}, ${team})
     RETURNING id
   `;
   return { suggestion: await getSuggestionById(row.id, userId), created: true };

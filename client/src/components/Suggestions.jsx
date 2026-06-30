@@ -22,6 +22,7 @@ export default function Suggestions({ matchId, canSuggest }) {
 
   // Oneri secimleri (elle yazma yok)
   const [lineup, setLineup] = useState(null);
+  const [side, setSide] = useState('home'); // hangi takim icin: 'home' | 'away'
   const [playerOut, setPlayerOut] = useState('');
   const [playerIn, setPlayerIn] = useState('');
   const [tactic, setTactic] = useState('');
@@ -76,24 +77,29 @@ export default function Suggestions({ matchId, canSuggest }) {
     };
   }, [matchId, user?.id]);
 
-  // Kadrosu olan takimlar (ev sahibi + deplasman).
-  const teams = useMemo(() => {
-    if (!lineup) return [];
-    return ['home', 'away']
-      .map((side) => lineup[side])
-      .filter((t) => t && (t.startXI?.length || t.substitutes?.length));
-  }, [lineup]);
+  // Maçın iki takımı (kadro açıklanmasa da isimler gelir).
+  const homeTeam = lineup?.homeTeam ?? null;
+  const awayTeam = lineup?.awayTeam ?? null;
+  const teamName = (side === 'home' ? homeTeam?.name : awayTeam?.name) ?? null;
 
-  const hasLineup = teams.length > 0;
+  // Seçili takımın kadrosu (oyuncu değişikliği önerisi için).
+  const sideLineup = lineup?.[side] ?? null;
+  const hasSidePlayers = !!(sideLineup?.startXI?.length || sideLineup?.substitutes?.length);
+
+  // Takım değişince oyuncu seçimlerini sıfırla (oyuncular takıma özel).
+  useEffect(() => {
+    setPlayerOut('');
+    setPlayerIn('');
+  }, [side]);
 
   // Ayni (tur + icerik) onerileri grupla ve say.
   const groups = useMemo(() => {
     const map = new Map();
     for (const s of items) {
-      const key = `${s.type}|||${s.content}`;
+      const key = `${s.type}|||${s.team ?? ''}|||${s.content}`;
       let g = map.get(key);
       if (!g) {
-        g = { key, type: s.type, content: s.content, count: 0, latestId: 0, mineId: null };
+        g = { key, type: s.type, team: s.team ?? null, content: s.content, count: 0, latestId: 0, mineId: null };
         map.set(key, g);
       }
       g.count += 1;
@@ -125,10 +131,18 @@ export default function Suggestions({ matchId, canSuggest }) {
         setError('Lütfen önerini seçimlerle tamamla.');
         return;
       }
+      if (!teamName) {
+        setError('Lütfen önerinin hangi takım için olduğunu seç.');
+        return;
+      }
       setBusy(true);
       setError('');
       try {
-        const { suggestion } = await api.post(`/suggestions/${matchId}`, { type, content });
+        const { suggestion } = await api.post(`/suggestions/${matchId}`, {
+          type,
+          content,
+          team: teamName,
+        });
         setItems((prev) => (prev.some((x) => x.id === suggestion.id) ? prev : [suggestion, ...prev]));
         setPlayerOut('');
         setPlayerIn('');
@@ -140,7 +154,7 @@ export default function Suggestions({ matchId, canSuggest }) {
         setBusy(false);
       }
     },
-    [buildContent, type, matchId]
+    [buildContent, type, matchId, teamName]
   );
 
   // Bir gruba katil ("ben de öneriyorum") veya kendi önerini geri çek.
@@ -166,6 +180,7 @@ export default function Suggestions({ matchId, canSuggest }) {
           const { suggestion } = await api.post(`/suggestions/${matchId}`, {
             type: g.type,
             content: g.content,
+            team: g.team ?? null,
           });
           setItems((prev) =>
             prev.some((x) => x.id === suggestion.id) ? prev : [suggestion, ...prev]
@@ -199,8 +214,18 @@ export default function Suggestions({ matchId, canSuggest }) {
               ))}
             </select>
 
+            <select
+              className="select"
+              value={side}
+              onChange={(e) => setSide(e.target.value)}
+              aria-label="Takım"
+            >
+              <option value="home">{homeTeam?.name ?? 'Ev sahibi'}</option>
+              <option value="away">{awayTeam?.name ?? 'Deplasman'}</option>
+            </select>
+
             {type === 'degisiklik' &&
-              (hasLineup ? (
+              (hasSidePlayers ? (
                 <>
                   <select
                     className="select suggest-form__grow"
@@ -209,15 +234,11 @@ export default function Suggestions({ matchId, canSuggest }) {
                     aria-label="Çıkacak oyuncu"
                   >
                     <option value="">Çıkacak oyuncu…</option>
-                    {teams.map((t) => (
-                      <optgroup key={`out-${t.teamId}`} label={t.teamName}>
-                        {(t.startXI || []).map((p) => (
-                          <option key={p.id} value={p.name}>
-                            {p.number ? `${p.number}. ` : ''}
-                            {p.name}
-                          </option>
-                        ))}
-                      </optgroup>
+                    {(sideLineup.startXI || []).map((p) => (
+                      <option key={p.id} value={p.name}>
+                        {p.number ? `${p.number}. ` : ''}
+                        {p.name}
+                      </option>
                     ))}
                   </select>
                   <select
@@ -227,21 +248,17 @@ export default function Suggestions({ matchId, canSuggest }) {
                     aria-label="Girecek oyuncu"
                   >
                     <option value="">Girecek oyuncu…</option>
-                    {teams.map((t) => (
-                      <optgroup key={`in-${t.teamId}`} label={t.teamName}>
-                        {(t.substitutes || []).map((p) => (
-                          <option key={p.id} value={p.name}>
-                            {p.number ? `${p.number}. ` : ''}
-                            {p.name}
-                          </option>
-                        ))}
-                      </optgroup>
+                    {(sideLineup.substitutes || []).map((p) => (
+                      <option key={p.id} value={p.name}>
+                        {p.number ? `${p.number}. ` : ''}
+                        {p.name}
+                      </option>
                     ))}
                   </select>
                 </>
               ) : (
                 <span className="suggest-form__grow muted small" style={{ alignSelf: 'center' }}>
-                  Diziliş henüz açıklanmadı; oyuncu değişikliği önerisi için kadro gerekli.
+                  {teamName || 'Bu takım'} için diziliş henüz açıklanmadı; oyuncu değişikliği için kadro gerekli.
                 </span>
               ))}
 
@@ -282,7 +299,9 @@ export default function Suggestions({ matchId, canSuggest }) {
             </button>
           </div>
           {preview && (
-            <div className="suggest-form__preview muted small">Önerin: “{preview}”</div>
+            <div className="suggest-form__preview muted small">
+              Önerin: {teamName ? <strong>{teamName}</strong> : ''} “{preview}”
+            </div>
           )}
         </form>
       ) : (
@@ -360,6 +379,7 @@ export default function Suggestions({ matchId, canSuggest }) {
                     <span className="suggest-type">
                       {t.icon} {t.label}
                     </span>
+                    {g.team && <span className="badge badge--team">{g.team}</span>}
                     {isTop && <span className="badge badge--top">En çok önerilen</span>}
                   </div>
                   <div className="suggest-row__content">{g.content}</div>

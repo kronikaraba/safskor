@@ -55,6 +55,7 @@ suggestionsRouter.post(
 
     const type = String(req.body?.type ?? '').trim();
     const content = String(req.body?.content ?? '').trim();
+    const team = String(req.body?.team ?? '').trim().slice(0, 60) || null;
     if (!TYPES.has(type)) throw new ApiError(400, 'Geçersiz öneri türü.');
     if (!content) throw new ApiError(400, 'Öneri boş olamaz.');
     if (content.length > MAX_LEN) {
@@ -68,6 +69,7 @@ suggestionsRouter.post(
       userId: fresh.id,
       type,
       content,
+      team,
     });
     if (created) {
       getIo()

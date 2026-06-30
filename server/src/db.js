@@ -106,6 +106,8 @@ export function initDb() {
       )
     `;
     await sql`CREATE INDEX IF NOT EXISTS idx_suggestions_match ON suggestions(match_id)`;
+    // Önerinin hangi takım için olduğu (sonradan eklendi; eski kayıtlarda NULL).
+    await sql`ALTER TABLE suggestions ADD COLUMN IF NOT EXISTS team TEXT`;
 
     await sql`
       CREATE TABLE IF NOT EXISTS suggestion_votes (

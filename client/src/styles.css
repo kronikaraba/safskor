@@ -1533,6 +1533,12 @@ h4 {
   color: var(--accent);
 }
 
+.badge--team {
+  background: var(--bg-subtle);
+  color: var(--text);
+  border: 1px solid var(--border);
+}
+
 @media (max-width: 560px) {
   .suggest-form__row {
     flex-wrap: wrap;
