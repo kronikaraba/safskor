@@ -27,14 +27,16 @@ const TTL = {
 // Bir günün maçları için sorgulanan Sofascore kategori ID'leri:
 //  46   = Türkiye (Süper Lig)
 //  1465 = UEFA (Şampiyonlar/Avrupa/Konferans Ligi)
-const FETCH_CATEGORY_IDS = [46, 1465];
+//  1468 = World (FIFA Dünya Kupası)
+const FETCH_CATEGORY_IDS = [46, 1465, 1468];
 
 // Yalnızca bu turnuvalar gösterilir (Sofascore uniqueTournament ID'leri):
 //    52 = Trendyol Süper Lig
 //     7 = UEFA Şampiyonlar Ligi
 //   679 = UEFA Avrupa Ligi
 // 17015 = UEFA Konferans Ligi
-export const ALLOWED_LEAGUE_IDS = new Set([52, 7, 679, 17015]);
+//    16 = FIFA Dünya Kupası
+export const ALLOWED_LEAGUE_IDS = new Set([52, 7, 679, 17015, 16]);
 
 function isAllowed(match) {
   return ALLOWED_LEAGUE_IDS.has(Number(match.competition?.id));

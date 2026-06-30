@@ -35,6 +35,11 @@ export function statusGroup(short) {
 
 // --- Sofascore (RapidAPI) → istemci şekli ---
 
+// uniqueTournament id → gösterilecek ad (API adı yanlış/İngilizce olanlar için).
+const LEAGUE_NAME_OVERRIDE = {
+  16: 'FIFA Dünya Kupası',
+};
+
 const SOFA_TEAM_CREST = (id) =>
   id ? `https://api.sofascore.app/api/v1/team/${id}/image` : null;
 const SOFA_LEAGUE_CREST = (id) =>
@@ -107,6 +112,8 @@ export function normalizeFixture(event) {
   else if (group === 'finished') winner = 'DRAW';
 
   const ut = event.tournament?.uniqueTournament;
+  // Bazı turnuvaların API adı yanlış/İngilizce; daha anlaşılır adlarla değiştir.
+  const compName = LEAGUE_NAME_OVERRIDE[ut?.id] ?? ut?.name ?? event.tournament?.name ?? '';
 
   return {
     id: event.id,
@@ -119,7 +126,7 @@ export function normalizeFixture(event) {
     stage: event.roundInfo?.round ? `${event.roundInfo.round}. hafta` : null,
     competition: {
       id: ut?.id ?? null,
-      name: ut?.name ?? event.tournament?.name ?? '',
+      name: compName,
       emblem: SOFA_LEAGUE_CREST(ut?.id),
       country: event.tournament?.category?.country?.name ?? event.tournament?.category?.name ?? null,
       season: event.season?.id ?? null,
