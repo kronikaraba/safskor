@@ -13,7 +13,9 @@ services:
       - key: NODE_ENV
         value: production
       - key: API_FOOTBALL_BASE_URL
-        value: https://v3.football.api-sports.io
+        value: https://sofascore.p.rapidapi.com
+      - key: API_FOOTBALL_RAPID_HOST
+        value: sofascore.p.rapidapi.com
       - key: JWT_EXPIRES_IN
         value: 7d
       - key: ADMIN_EMAILS
