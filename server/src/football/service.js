@@ -1,4 +1,4 @@
-import { apiGet } from './client.js';
+import { apiGet, apiGetImage } from './client.js';
 import { ApiError } from '../utils/http.js';
 import * as N from './normalize.js';
 import {
@@ -140,6 +140,16 @@ export async function getStandings(leagueId, season) {
     { ttlMs: TTL.standings }
   );
   return N.normalizeStandings(data.standings);
+}
+
+/** Takım logosu (Sofascore görselleri doğrudan 403 verir; proxy'leriz). */
+export async function getTeamLogo(teamId) {
+  return apiGetImage(`/teams/get-logo?teamId=${encodeURIComponent(teamId)}`);
+}
+
+/** Turnuva/lig logosu. */
+export async function getLeagueLogo(tournamentId) {
+  return apiGetImage(`/tournaments/get-logo?tournamentId=${encodeURIComponent(tournamentId)}`);
 }
 
 /** Sadece durum (puanlama/oneri acik mi kontrolu icin - cache'ten gelir). */

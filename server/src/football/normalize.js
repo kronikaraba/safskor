@@ -40,10 +40,10 @@ const LEAGUE_NAME_OVERRIDE = {
   16: 'FIFA Dünya Kupası',
 };
 
-const SOFA_TEAM_CREST = (id) =>
-  id ? `https://api.sofascore.app/api/v1/team/${id}/image` : null;
-const SOFA_LEAGUE_CREST = (id) =>
-  id ? `https://api.sofascore.app/api/v1/unique-tournament/${id}/image` : null;
+// Sofascore görselleri doğrudan 403 verir → kendi sunucumuzdaki proxy üzerinden.
+// Göreceli yol; istemci API adresini başına ekler (client/src/lib/api.js mediaUrl).
+const SOFA_TEAM_CREST = (id) => (id ? `/api/football/team/${id}/logo` : null);
+const SOFA_LEAGUE_CREST = (id) => (id ? `/api/football/league/${id}/logo` : null);
 
 function sofaTeamRef(t) {
   if (!t) return null;
@@ -359,7 +359,7 @@ export function normalizeStandings(standings) {
       position: r.position,
       teamId: r.team?.id ?? null,
       teamName: r.team?.name ?? '',
-      crest: r.team?.id ? `https://api.sofascore.app/api/v1/team/${r.team.id}/image` : null,
+      crest: SOFA_TEAM_CREST(r.team?.id),
       playedGames: r.matches ?? 0,
       won: r.wins ?? 0,
       draw: r.draws ?? 0,
@@ -376,7 +376,7 @@ export function normalizeStandings(standings) {
     competition: {
       id: ut?.id ?? null,
       name: ut?.name ?? first.tournament?.name ?? '',
-      emblem: ut?.id ? `https://api.sofascore.app/api/v1/unique-tournament/${ut.id}/image` : null,
+      emblem: SOFA_LEAGUE_CREST(ut?.id),
     },
     season: { currentMatchday: null },
     groups,

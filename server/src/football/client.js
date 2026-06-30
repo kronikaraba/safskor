@@ -118,3 +118,44 @@ export async function apiGet(pathAndQuery, { ttlMs = 0 } = {}) {
   inflight.set(key, promise);
   return promise;
 }
+
+// Logo/görsel çeker (RapidAPI ikili yanıt döndürür). Uzun süre cache'lenir;
+// logolar nadiren değişir, böylece aylık istek kotası korunur.
+async function rawImage(pathAndQuery) {
+  if (!config.football.apiKey) throw new ApiError(503, 'API anahtarı yok.', PUBLIC_GENERIC);
+  await throttle();
+  let res;
+  try {
+    res = await fetch(`${config.football.baseUrl}${pathAndQuery}`, {
+      headers: {
+        'x-rapidapi-key': config.football.apiKey,
+        'x-rapidapi-host': config.football.rapidApiHost,
+      },
+    });
+  } catch {
+    throw new ApiError(502, 'Görsel alınamadı.', PUBLIC_GENERIC);
+  }
+  const contentType = res.headers.get('content-type') || '';
+  if (!res.ok || !contentType.startsWith('image/')) {
+    throw new ApiError(404, 'Görsel bulunamadı.', PUBLIC_NOTFOUND);
+  }
+  const buffer = Buffer.from(await res.arrayBuffer());
+  return { buffer, contentType };
+}
+
+export async function apiGetImage(pathAndQuery, { ttlMs = 24 * 60 * 60 * 1000 } = {}) {
+  const key = `img:${pathAndQuery}`;
+  const cached = cacheGet(key);
+  if (cached !== undefined) return cached;
+  if (inflight.has(key)) return inflight.get(key);
+
+  const promise = enqueue(() => rawImage(pathAndQuery))
+    .then((data) => {
+      cacheSet(key, data, ttlMs);
+      return data;
+    })
+    .finally(() => inflight.delete(key));
+
+  inflight.set(key, promise);
+  return promise;
+}

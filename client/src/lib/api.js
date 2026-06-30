@@ -4,6 +4,14 @@ const TOKEN_KEY = 'safskor_token';
 // VITE_API_URL boşsa (lokal dev) Vite proxy'si /api -> backend yapar.
 const API_BASE = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '');
 
+// Görsel/medya yolları sunucudan göreceli (/api/...) gelir; istemci farklı
+// origin'de (Vercel) olabileceği için API adresini başına ekleriz.
+export function mediaUrl(path) {
+  if (!path) return path;
+  if (/^https?:\/\//.test(path)) return path;
+  return `${API_BASE}${path}`;
+}
+
 export function getToken() {
   return localStorage.getItem(TOKEN_KEY);
 }

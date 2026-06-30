@@ -1,3 +1,5 @@
+import { mediaUrl } from '../lib/api.js';
+
 export function Loading({ text = 'Yükleniyor...' }) {
   return (
     <div className="loading">
@@ -30,7 +32,7 @@ export function Crest({ src, alt = '', size = 16, className = 'crest' }) {
   return (
     <img
       className={className}
-      src={src}
+      src={mediaUrl(src)}
       alt={alt}
       width={size}
       height={size}
