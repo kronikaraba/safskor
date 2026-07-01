@@ -1,4 +1,5 @@
 import { Empty } from './ui.jsx';
+import { useAuth } from '../context/AuthContext.jsx';
 
 function EventIcon({ type }) {
   if (type === 'goal') return <span aria-hidden>⚽</span>;
@@ -21,14 +22,19 @@ function labelFor(ev) {
 }
 
 export default function Events({ events }) {
+  const { user } = useAuth();
   if (!events || events.length === 0) {
     return (
       <Empty>
         Bu maç için olay verisi bulunamadı.
-        <br />
-        <span className="small">
-          (Ücretsiz API katmanında gol/kart/değişiklik detayları her zaman sağlanmaz.)
-        </span>
+        {user?.role === 'admin' && (
+          <>
+            <br />
+            <span className="small">
+              (Ücretsiz API katmanında gol/kart/değişiklik detayları her zaman sağlanmaz.)
+            </span>
+          </>
+        )}
       </Empty>
     );
   }
