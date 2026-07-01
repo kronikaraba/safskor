@@ -19,6 +19,7 @@ import { suggestionsRouter } from './suggestions/routes.js';
 import { adminRouter } from './moderation/routes.js';
 import { initRealtime } from './realtime/socket.js';
 import { startKeepAlive } from './keepalive.js';
+import { startBot } from './bot/service.js';
 import { ApiError } from './utils/http.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -86,6 +87,7 @@ initDb()
     server.listen(config.port, () => {
       console.log(`SafSkor sunucu http://localhost:${config.port} adresinde çalışıyor`);
       startKeepAlive();
+      startBot(io);
     });
   })
   .catch((e) => {

@@ -1009,6 +1009,11 @@ h4 {
   color: #18181b;
 }
 
+.msg__badge--bot {
+  background: #dcfce7;
+  font-size: 11px;
+}
+
 .msg__user {
   font-weight: 800;
 }

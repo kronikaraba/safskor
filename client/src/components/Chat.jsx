@@ -193,7 +193,8 @@ export default function Chat({ room, title }) {
             )}
             {messages.map((m) => {
             const isAdmin = m.role === 'admin';
-            const color = isAdmin ? '#5aa9ff' : userColor(m.username);
+            const isBot = m.role === 'bot';
+            const color = isBot ? '#16a34a' : isAdmin ? '#5aa9ff' : userColor(m.username);
             return (
               <div
                 key={m.id}
@@ -201,7 +202,12 @@ export default function Chat({ room, title }) {
                 title={formatDateTime(m.createdAt)}
               >
                 {isAdmin && <span className="msg__badge msg__badge--admin" title="admin">★</span>}
-                {user ? (
+                {isBot && <span className="msg__badge msg__badge--bot" title="Otomatik bot mesajı">🤖</span>}
+                {isBot ? (
+                  <span className="msg__user" style={{ color }}>
+                    {m.username}
+                  </span>
+                ) : user ? (
                   <Link to={`/uye/${m.userId}`} className="msg__user" style={{ color }}>
                     {m.username}
                   </Link>
