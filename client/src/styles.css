@@ -1858,3 +1858,60 @@ h4 {
 .msg__user:hover {
   text-decoration: underline;
 }
+
+/* Favori takım göstergeleri */
+.fav-star {
+  font-size: 11px;
+  margin-left: 4px;
+  line-height: 1;
+}
+.fav-btn {
+  margin-top: 6px;
+  font-size: 12px;
+  padding: 3px 10px;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--border);
+  background: var(--bg-subtle);
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+.fav-btn.is-fav {
+  background: var(--accent-weak);
+  color: var(--accent);
+  border-color: transparent;
+}
+.fav-btn:hover {
+  filter: brightness(0.97);
+}
+
+.profile__section {
+  margin-top: 18px;
+}
+.fav-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.fav-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  border-radius: var(--radius-pill);
+  background: var(--bg-subtle);
+  border: 1px solid var(--border);
+  font-size: 13px;
+  font-weight: 600;
+}
+.fav-chip__x {
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 12px;
+  line-height: 1;
+  padding: 0 2px;
+}
+.fav-chip__x:hover {
+  color: var(--danger, #e11);
+}

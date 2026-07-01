@@ -125,6 +125,23 @@ export async function softDeleteSuggestion(id, adminId) {
   await sql`UPDATE suggestions SET is_deleted = TRUE, deleted_by = ${adminId} WHERE id = ${id}`;
 }
 
+/** Bir kullanıcının son önerileri (profil için). */
+export async function listUserSuggestions(userId, limit = 5) {
+  const rows = await sql`
+    SELECT match_id, type, team, content, created_at
+    FROM suggestions
+    WHERE user_id = ${userId} AND is_deleted = FALSE
+    ORDER BY id DESC LIMIT ${limit}
+  `;
+  return rows.map((r) => ({
+    matchId: Number(r.match_id),
+    type: r.type,
+    team: r.team ?? null,
+    content: r.content,
+    createdAt: toIso(r.created_at),
+  }));
+}
+
 /** Admin paneli için son öneriler. */
 export async function listRecentSuggestions({ limit = 80 } = {}) {
   const safeLimit = Math.min(Math.max(limit, 1), 200);

@@ -9,6 +9,25 @@ import Suggestions from '../components/Suggestions.jsx';
 import Pitch from '../components/Pitch.jsx';
 import { useMatchRatings } from '../hooks/useMatchRatings.js';
 import { formatDateTime } from '../lib/format.js';
+import { isFavTeam, toggleFavTeam } from '../lib/prefs.js';
+
+function FavButton({ team }) {
+  const [, force] = useState(0);
+  if (!team?.id) return null;
+  const fav = isFavTeam(team.id);
+  return (
+    <button
+      className={`fav-btn ${fav ? 'is-fav' : ''}`}
+      onClick={() => {
+        toggleFavTeam(team);
+        force((n) => n + 1);
+      }}
+      title={fav ? 'Favorilerden çıkar' : 'Favorilere ekle'}
+    >
+      {fav ? '⭐ Favori' : '☆ Favori ekle'}
+    </button>
+  );
+}
 
 const TABS = [
   { key: 'lineups', label: 'Kadrolar & Puan' },
@@ -91,6 +110,7 @@ export default function MatchPage() {
           <div className="match-head__team">
             <Crest src={homeTeam?.crest} size={44} className="crest-lg" />
             <span className="match-head__team-name">{homeTeam?.name}</span>
+            <FavButton team={homeTeam} />
           </div>
           <div className="match-head__center">
             <div className="match-head__score num">
@@ -112,6 +132,7 @@ export default function MatchPage() {
           <div className="match-head__team">
             <Crest src={awayTeam?.crest} size={44} className="crest-lg" />
             <span className="match-head__team-name">{awayTeam?.name}</span>
+            <FavButton team={awayTeam} />
           </div>
         </div>
         {(match.venue || score.halfTime?.home != null) && (

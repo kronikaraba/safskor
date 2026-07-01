@@ -1,4 +1,5 @@
 import { sql, nowIso, toIso } from '../db.js';
+import { listUserSuggestions } from './suggestions.js';
 
 export async function createUser({ username, email, passwordHash, role = 'user' }) {
   const [row] = await sql`
@@ -45,6 +46,11 @@ export async function setRole(userId, role) {
 
 export async function setPassword(userId, passwordHash) {
   await sql`UPDATE users SET password_hash = ${passwordHash} WHERE id = ${userId}`;
+  return getUserById(userId);
+}
+
+export async function setUsername(userId, username) {
+  await sql`UPDATE users SET username = ${username} WHERE id = ${userId}`;
   return getUserById(userId);
 }
 
@@ -125,6 +131,7 @@ export async function getPublicProfile(id) {
     role: user.role,
     createdAt: toIso(user.created_at),
     stats: await getUserStats(id),
+    recentSuggestions: await listUserSuggestions(id, 5),
   };
 }
 

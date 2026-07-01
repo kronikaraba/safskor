@@ -2,9 +2,27 @@ import { Router } from 'express';
 import { asyncHandler, ApiError } from '../utils/http.js';
 import { authRequired } from '../auth/middleware.js';
 import { rateLimit } from '../utils/rateLimit.js';
-import { getPublicProfile } from '../store/users.js';
+import { validateUsername } from '../utils/validate.js';
+import { getPublicProfile, getUserByUsername, setUsername, publicUser } from '../store/users.js';
 
 export const usersRouter = Router();
+
+// POST /api/users/me — kendi kullanıcı adını değiştir
+usersRouter.post(
+  '/me',
+  authRequired,
+  asyncHandler(async (req, res) => {
+    const username = String(req.body?.username ?? '').trim();
+    const err = validateUsername(username);
+    if (err) throw new ApiError(400, err);
+    const existing = await getUserByUsername(username);
+    if (existing && Number(existing.id) !== Number(req.user.id)) {
+      throw new ApiError(409, 'Bu kullanıcı adı alınmış.');
+    }
+    const updated = await setUsername(req.user.id, username);
+    res.json({ user: await publicUser(updated) });
+  })
+);
 
 // Kimlik doğrulaması + rate limit: id'leri tarayarak toplu üye/istatistik
 // toplanmasını (enumeration) engeller. (Giriş yapan kullanıcılar görebilir.)

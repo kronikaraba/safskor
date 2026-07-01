@@ -3,6 +3,7 @@ import { api } from '../lib/api.js';
 import MatchList from '../components/MatchList.jsx';
 import { Loading, Empty, ErrorBox } from '../components/ui.jsx';
 import { todayStr, addDays, dateLabel } from '../lib/format.js';
+import { getLeaguePref, setLeaguePref, matchHasFav } from '../lib/prefs.js';
 
 const FILTERS = [
   { key: 'all', label: 'Tümü' },
@@ -10,6 +11,11 @@ const FILTERS = [
   { key: 'upcoming', label: 'Yaklaşan' },
   { key: 'finished', label: 'Bitmiş' },
 ];
+
+// Gezinilebilir tarih penceresi: dün .. +7 gün. (Veri kaynağı yalnızca güncel
+// günleri sağlar; ileri yön planlanmış maçlar için biraz açık bırakılır.)
+const MIN_DATE = () => addDays(todayStr(), -1);
+const MAX_DATE = () => addDays(todayStr(), 7);
 
 function Section({ title, matches }) {
   if (!matches || matches.length === 0) return null;
@@ -23,11 +29,21 @@ function Section({ title, matches }) {
 
 export default function HomePage() {
   const [date, setDate] = useState(todayStr());
-  const [league, setLeague] = useState('');
+  const [league, setLeague] = useState(getLeaguePref());
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [filter, setFilter] = useState('all');
+  const [search, setSearch] = useState('');
+  const [onlyFav, setOnlyFav] = useState(false);
+  const [favVersion, setFavVersion] = useState(0);
+
+  // Favori değişince listeyi yeniden değerlendir.
+  useEffect(() => {
+    const h = () => setFavVersion((v) => v + 1);
+    window.addEventListener('favchange', h);
+    return () => window.removeEventListener('favchange', h);
+  }, []);
 
   const load = useCallback(
     async (showSpinner) => {
@@ -50,9 +66,6 @@ export default function HomePage() {
     load(true);
   }, [load]);
 
-  // Polling, API limitini (gunde 100 istek) korumak icin duruma gore ayarlanir:
-  //  - Canli mac varsa 60 sn'de bir yenile (skorlar degisir).
-  //  - Canli mac yoksa 5 dk'da bir (yalnizca yeni baslayan maclari yakalamak icin).
   const hasLive = (data?.live?.length ?? 0) > 0;
   useEffect(() => {
     const interval = hasLive ? 60000 : 300000;
@@ -75,31 +88,66 @@ export default function HomePage() {
     );
   }, [data]);
 
+  const changeLeague = (v) => {
+    setLeague(v);
+    setLeaguePref(v);
+  };
+
+  // Lig + arama + favori filtreleri; favori takımlı maçları öne alır.
+  const applyFilters = useCallback(
+    (arr) => {
+      let list = arr || [];
+      if (league) list = list.filter((m) => String(m.competition?.id) === String(league));
+      const q = search.trim().toLocaleLowerCase('tr');
+      if (q) {
+        list = list.filter(
+          (m) =>
+            (m.homeTeam?.name || '').toLocaleLowerCase('tr').includes(q) ||
+            (m.awayTeam?.name || '').toLocaleLowerCase('tr').includes(q)
+        );
+      }
+      if (onlyFav) list = list.filter(matchHasFav);
+      // favori takımlı maçları öne al (kararlı sıralama)
+      return [...list].sort((a, b) => (matchHasFav(b) ? 1 : 0) - (matchHasFav(a) ? 1 : 0));
+    },
+    // favVersion: favoriler değişince yeniden hesapla
+    [league, search, onlyFav, favVersion]
+  );
+
   const groups = useMemo(() => {
     if (!data) return null;
-    const byLeague = (arr) =>
-      !league ? arr || [] : (arr || []).filter((m) => String(m.competition?.id) === String(league));
     return {
-      live: byLeague(data.live),
-      upcoming: byLeague(data.upcoming),
-      finished: byLeague(data.finished),
-      other: byLeague(data.other),
+      live: applyFilters(data.live),
+      upcoming: applyFilters(data.upcoming),
+      finished: applyFilters(data.finished),
+      other: applyFilters(data.other),
     };
-  }, [data, league]);
+  }, [data, applyFilters]);
 
   const total = groups
     ? groups.live.length + groups.upcoming.length + groups.finished.length + groups.other.length
     : 0;
 
+  const canPrev = date > MIN_DATE();
+  const canNext = date < MAX_DATE();
+
   return (
     <div className="page container">
       <div className="toolbar">
         <div className="date-nav">
-          <button onClick={() => setDate(addDays(date, -1))} aria-label="Önceki gün">
+          <button
+            onClick={() => canPrev && setDate(addDays(date, -1))}
+            disabled={!canPrev}
+            aria-label="Önceki gün"
+          >
             ‹
           </button>
           <span className="date-nav__label">{dateLabel(date)}</span>
-          <button onClick={() => setDate(addDays(date, 1))} aria-label="Sonraki gün">
+          <button
+            onClick={() => canNext && setDate(addDays(date, 1))}
+            disabled={!canNext}
+            aria-label="Sonraki gün"
+          >
             ›
           </button>
         </div>
@@ -109,7 +157,22 @@ export default function HomePage() {
           </button>
         )}
         <div className="toolbar__spacer" />
-        <select className="select" value={league} onChange={(e) => setLeague(e.target.value)}>
+        <input
+          className="select"
+          type="search"
+          placeholder="Takım ara…"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          style={{ maxWidth: 160 }}
+        />
+        <button
+          className={`btn btn--sm ${onlyFav ? 'btn--primary' : ''}`}
+          onClick={() => setOnlyFav((v) => !v)}
+          title="Yalnızca favori takımların maçları"
+        >
+          ⭐ Favoriler
+        </button>
+        <select className="select" value={league} onChange={(e) => changeLeague(e.target.value)}>
           <option value="">Tüm ligler{leagues.length ? ` (${leagues.length})` : ''}</option>
           {leagues.map((l) => (
             <option key={l.id} value={l.id}>
@@ -138,7 +201,13 @@ export default function HomePage() {
       ) : error ? (
         <ErrorBox>{error}</ErrorBox>
       ) : total === 0 ? (
-        <Empty>Bu tarihte (veya seçili ligde) maç yok.</Empty>
+        <Empty>
+          {onlyFav
+            ? 'Favori takımlarının bu tarihte maçı yok.'
+            : search.trim()
+              ? 'Aramaya uygun maç yok.'
+              : 'Bu tarihte (veya seçili ligde) maç yok.'}
+        </Empty>
       ) : filter === 'all' ? (
         <>
           <Section title="Canlı" matches={groups.live} />

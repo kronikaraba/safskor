@@ -56,6 +56,10 @@ export function AuthProvider({ children }) {
     reconnectSocket();
   }, []);
 
+  const updateUser = useCallback((patch) => {
+    setUser((u) => (u ? { ...u, ...patch } : u));
+  }, []);
+
   // Moderasyon olaylarini canli yansit (banlandi/susturuldu).
   useEffect(() => {
     if (!user) return undefined;
@@ -76,7 +80,7 @@ export function AuthProvider({ children }) {
   }, [user?.id]);
 
   return (
-    <AuthContext.Provider value={{ user, loading, login, register, logout }}>
+    <AuthContext.Provider value={{ user, loading, login, register, logout, updateUser }}>
       {children}
     </AuthContext.Provider>
   );
