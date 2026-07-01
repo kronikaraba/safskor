@@ -10,8 +10,17 @@ import {
 import { getMatch } from '../football/service.js';
 import { getIo } from '../realtime/io.js';
 import { suggestionsRoom } from '../realtime/rooms.js';
+import { rateLimit } from '../utils/rateLimit.js';
 
 export const suggestionsRouter = Router();
+
+// Öneri/geri-çekme spam'ini sınırla (IP başına dakikada 20 yazma).
+const writeLimiter = rateLimit({
+  name: 'suggest-write',
+  windowMs: 60 * 1000,
+  max: 20,
+  message: 'Çok hızlı öneri gönderiyorsunuz, biraz yavaşlayın.',
+});
 
 const TYPES = new Set(['degisiklik', 'taktik', 'dizilis', 'genel']);
 const MAX_LEN = 280;
@@ -44,6 +53,7 @@ suggestionsRouter.get(
 // POST /api/suggestions/:matchId  { type, content }
 suggestionsRouter.post(
   '/:matchId',
+  writeLimiter,
   authRequired,
   asyncHandler(async (req, res) => {
     const matchId = Number(req.params.matchId);

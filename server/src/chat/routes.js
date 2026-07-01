@@ -12,8 +12,11 @@ chatRouter.get(
   asyncHandler(async (req, res) => {
     const room = req.params.room;
     if (!parseRoom(room)) throw new ApiError(400, 'Geçersiz sohbet odası.');
-    const beforeId = req.query.beforeId ? Number(req.query.beforeId) : null;
-    const limit = req.query.limit ? Number(req.query.limit) : 50;
+    // Geçersiz sayılar NaN olup SQL'i patlatmasın diye güvenli parse.
+    const beforeIdNum = Number(req.query.beforeId);
+    const beforeId = Number.isInteger(beforeIdNum) && beforeIdNum > 0 ? beforeIdNum : null;
+    const limitNum = Number(req.query.limit);
+    const limit = Number.isInteger(limitNum) && limitNum > 0 ? limitNum : 50;
     res.json({
       room,
       messages: await listMessages({ room, beforeId, limit, userId: req.user?.id ?? null }),

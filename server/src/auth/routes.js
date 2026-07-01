@@ -20,11 +20,21 @@ import {
 } from '../store/passwordResets.js';
 import { sendResetEmail } from '../lib/email.js';
 import { authRequired } from './middleware.js';
+import { rateLimit } from '../utils/rateLimit.js';
 
 export const authRouter = Router();
 
+// Kaba kuvvet / spam koruması (IP başına).
+const loginLimiter = rateLimit({ name: 'login', windowMs: 5 * 60 * 1000, max: 10 });
+const registerLimiter = rateLimit({ name: 'register', windowMs: 60 * 60 * 1000, max: 5 });
+const forgotLimiter = rateLimit({ name: 'forgot', windowMs: 60 * 60 * 1000, max: 4 });
+
+// Kullanıcı yokken de bcrypt'e benzer gecikme yaratıp zamanlama sızıntısını önler.
+const DUMMY_HASH = '$2a$10$XoRmbXFng5ULRsyTg.aEF.CsiUxDYslBHDVnzoAiQU1i7dpVc0HQW';
+
 authRouter.post(
   '/register',
+  registerLimiter,
   asyncHandler(async (req, res) => {
     const username = String(req.body?.username ?? '').trim();
     const email = String(req.body?.email ?? '').trim();
@@ -43,7 +53,14 @@ authRouter.post(
 
     const role = config.adminEmails.includes(email.toLowerCase()) ? 'admin' : 'user';
     const passwordHash = await hashPassword(password);
-    const user = await createUser({ username, email, passwordHash, role });
+    let user;
+    try {
+      user = await createUser({ username, email, passwordHash, role });
+    } catch (e) {
+      // UNIQUE index ihlali (eşzamanlı kayıt yarışı) → 409
+      if (e?.code === '23505') throw new ApiError(409, 'Bu kullanıcı adı veya e-posta zaten kayıtlı.');
+      throw e;
+    }
     const token = signToken(user);
     res.status(201).json({ user: await publicUser(user), token });
   })
@@ -51,6 +68,7 @@ authRouter.post(
 
 authRouter.post(
   '/login',
+  loginLimiter,
   asyncHandler(async (req, res) => {
     const identifier = String(
       req.body?.identifier ?? req.body?.email ?? req.body?.username ?? ''
@@ -60,9 +78,9 @@ authRouter.post(
       throw new ApiError(400, 'Kullanici adi/e-posta ve sifre gerekli.');
     }
     const user = await getUserByLogin(identifier);
-    if (!user) throw new ApiError(401, 'Hatalı giriş bilgileri.');
-    const ok = await verifyPassword(password, user.password_hash);
-    if (!ok) throw new ApiError(401, 'Hatalı giriş bilgileri.');
+    // Kullanıcı yoksa da bcrypt çalıştır: yanıt süresinden kullanıcı varlığı sızmasın.
+    const ok = await verifyPassword(password, user?.password_hash ?? DUMMY_HASH);
+    if (!user || !ok) throw new ApiError(401, 'Hatalı giriş bilgileri.');
     const token = signToken(user);
     res.json({ user: await publicUser(user), token });
   })
@@ -76,6 +94,7 @@ authRouter.get('/me', authRequired, asyncHandler(async (req, res) => {
 // Güvenlik: e-postanın kayıtlı olup olmadığını sızdırmamak için her zaman ok döner.
 authRouter.post(
   '/forgot-password',
+  forgotLimiter,
   asyncHandler(async (req, res) => {
     const email = String(req.body?.email ?? '').trim();
     if (validateEmail(email)) throw new ApiError(400, 'Geçerli bir e-posta girin.');

@@ -54,9 +54,12 @@ export const config = {
 };
 
 export function assertConfig() {
-  if (config.jwtSecret.includes('change-me') && config.isProd) {
-    // eslint-disable-next-line no-console
-    console.warn('[config] UYARI: Uretimde JWT_SECRET degistirilmeli.');
+  // Güvenlik: üretimde varsayılan/güvensiz secret ile çalışmayı reddet
+  // (aksi halde herkes admin token'ı üretebilir).
+  if (config.isProd && config.jwtSecret.includes('change-me')) {
+    throw new Error(
+      '[config] JWT_SECRET üretimde ayarlanmalı. Render ortam değişkenlerine güçlü bir JWT_SECRET ekleyin.'
+    );
   }
   if (!config.football.apiKey) {
     // eslint-disable-next-line no-console
