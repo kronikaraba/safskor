@@ -3,7 +3,7 @@ import { getUserById, isBanned, isMuted } from '../store/users.js';
 import { parseRoom, ratingsRoom, suggestionsRoom } from './rooms.js';
 import { insertMessage, getMessageRow, toggleLike } from '../store/messages.js';
 import { upsertRating, getMatchAverages, getUserMatchRatings } from '../store/ratings.js';
-import { getMatch } from '../football/service.js';
+import { getMatch, getMatchPlayerIds } from '../football/service.js';
 import { setIo } from './io.js';
 
 const SEND_COOLDOWN_MS = 600;
@@ -172,6 +172,12 @@ export function initRealtime(io) {
         if (statusGroup !== 'live') {
           socket.emit('rating:closed', { matchId });
           return fail(ack, 'Puanlama yalnızca maç canlıyken açık.');
+        }
+
+        // Oyuncu gerçekten bu maçın kadrosunda mı? (rastgele ID ile veri kirliliğini önler)
+        const validPlayers = await getMatchPlayerIds(matchId);
+        if (validPlayers.size > 0 && !validPlayers.has(playerId)) {
+          return fail(ack, 'Bu oyuncu maç kadrosunda değil.');
         }
 
         const agg = await upsertRating({ matchId, playerId, userId: Number(fresh.id), score });

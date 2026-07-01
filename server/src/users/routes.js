@@ -1,12 +1,25 @@
 import { Router } from 'express';
 import { asyncHandler, ApiError } from '../utils/http.js';
+import { authRequired } from '../auth/middleware.js';
+import { rateLimit } from '../utils/rateLimit.js';
 import { getPublicProfile } from '../store/users.js';
 
 export const usersRouter = Router();
 
-// GET /api/users/:id — herkese açık sade üye profili
+// Kimlik doğrulaması + rate limit: id'leri tarayarak toplu üye/istatistik
+// toplanmasını (enumeration) engeller. (Giriş yapan kullanıcılar görebilir.)
+const profileLimiter = rateLimit({
+  name: 'profile',
+  windowMs: 60 * 1000,
+  max: 40,
+  message: 'Çok fazla profil isteği. Lütfen biraz sonra tekrar deneyin.',
+});
+
+// GET /api/users/:id — sade üye profili (yalnızca giriş yapmış üyeler)
 usersRouter.get(
   '/:id',
+  profileLimiter,
+  authRequired,
   asyncHandler(async (req, res) => {
     const id = Number(req.params.id);
     if (!Number.isInteger(id)) throw new ApiError(400, 'Geçersiz üye.');

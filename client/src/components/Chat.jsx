@@ -201,9 +201,15 @@ export default function Chat({ room, title }) {
                 title={formatDateTime(m.createdAt)}
               >
                 {isAdmin && <span className="msg__badge msg__badge--admin" title="admin">★</span>}
-                <Link to={`/uye/${m.userId}`} className="msg__user" style={{ color }}>
-                  {m.username}
-                </Link>
+                {user ? (
+                  <Link to={`/uye/${m.userId}`} className="msg__user" style={{ color }}>
+                    {m.username}
+                  </Link>
+                ) : (
+                  <span className="msg__user" style={{ color }}>
+                    {m.username}
+                  </span>
+                )}
                 <span className="msg__sep">:</span>{' '}
                 <span className="msg__body">
                   {m.isDeleted ? <em>Bu mesaj silindi.</em> : m.content}

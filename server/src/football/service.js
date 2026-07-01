@@ -137,3 +137,19 @@ export async function getStandings(leagueId, season) {
 export async function getMatchStatusGroup(id) {
   return (await getMatch(id)).statusGroup;
 }
+
+/** Bir maçın kadrosundaki geçerli oyuncu ID'leri (puanlama doğrulaması için). */
+export async function getMatchPlayerIds(id) {
+  try {
+    const { home, away } = await getMatchLineups(id);
+    const ids = new Set();
+    for (const team of [home, away]) {
+      for (const p of [...(team?.startXI ?? []), ...(team?.substitutes ?? [])]) {
+        if (p?.id != null) ids.add(Number(p.id));
+      }
+    }
+    return ids;
+  } catch {
+    return new Set();
+  }
+}
