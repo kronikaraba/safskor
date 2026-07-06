@@ -31,7 +31,7 @@ let initPromise = null;
 
 export function initDb() {
   if (initPromise) return initPromise;
-  initPromise = (async () => {
+  const run = (async () => {
     await sql`
       CREATE TABLE IF NOT EXISTS users (
         id            BIGSERIAL PRIMARY KEY,
@@ -207,5 +207,13 @@ export function initDb() {
       )
     `;
   })();
-  return initPromise;
+  // Başarısız başlatmayı cache'leme: reddedilen promise saklanırsa sonraki
+  // initDb() çağrıları hep aynı hatayı döndürür ve geçici bir DB hatasından
+  // (ör. ECONNRESET) asla kurtulamayız. Hata olursa cache'i temizle ki
+  // çağıran yeniden deneyebilsin.
+  run.catch(() => {
+    if (initPromise === run) initPromise = null;
+  });
+  initPromise = run;
+  return run;
 }

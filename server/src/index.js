@@ -82,7 +82,27 @@ const io = new SocketServer(server, {
 });
 initRealtime(io);
 
-initDb()
+// Başlangıçta veritabanına bağlanmayı üstel geri çekilmeyle birkaç kez dener.
+// Neon soğuk başlangıç/uyandırma veya geçici bir ağ hatası (ECONNRESET) tek
+// denemede tüm süreci düşürmesin diye. initDb idempotenttir (hepsi CREATE
+// ... IF NOT EXISTS) ve başarısızlıkta güvenle yeniden denenebilir.
+async function initDbWithRetry(attempts = 5) {
+  for (let i = 1; i <= attempts; i += 1) {
+    try {
+      await initDb();
+      return;
+    } catch (e) {
+      if (i === attempts) throw e;
+      const backoffMs = Math.min(1000 * 2 ** (i - 1), 10000); // 1s,2s,4s,8s
+      console.warn(
+        `[db] başlatma denemesi ${i}/${attempts} başarısız (${e.message}); ${backoffMs}ms sonra yeniden denenecek`
+      );
+      await new Promise((r) => setTimeout(r, backoffMs));
+    }
+  }
+}
+
+initDbWithRetry()
   .then(() => {
     server.listen(config.port, () => {
       console.log(`SafSkor sunucu http://localhost:${config.port} adresinde çalışıyor`);
@@ -91,6 +111,6 @@ initDb()
     });
   })
   .catch((e) => {
-    console.error('[db] başlatılamadı:', e.message);
+    console.error('[db] başlatılamadı (tüm denemeler tükendi):', e.message);
     process.exit(1);
   });
