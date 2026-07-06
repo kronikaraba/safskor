@@ -398,6 +398,23 @@ const STATUS_OPTIONS = [
   { value: 'CANC', label: 'İptal' },
 ];
 
+// Sunucudaki otomatik durum türetmesinin (normalize.js deriveManualStatus)
+// admin paneli karşılığı: status 'NS' ise maç saate göre canlı ilerler. Admin
+// bu göstergeyle otomatik modun aktif olduğunu görür; herhangi bir durumu
+// kaydederse otomatik türetme durur.
+const AUTO_HALF = 45;
+const AUTO_BREAK = 15;
+const AUTO_FULL = AUTO_HALF * 2 + AUTO_BREAK;
+function autoStatusHint(match) {
+  if (match.status !== 'NS' || !match.kickoff) return null;
+  const elapsed = Math.floor((Date.now() - new Date(match.kickoff).getTime()) / 60000);
+  if (elapsed < 0) return null;
+  if (elapsed < AUTO_HALF) return `Otomatik: 1. yarı ${elapsed + 1}'`;
+  if (elapsed < AUTO_HALF + AUTO_BREAK) return 'Otomatik: devre arası';
+  if (elapsed < AUTO_FULL) return `Otomatik: 2. yarı ${elapsed - AUTO_BREAK + 1}'`;
+  return 'Otomatik: bitti';
+}
+
 const EVENT_OPTIONS = [
   { value: 'goal', label: 'Gol' },
   { value: 'yellow_card', label: 'Sarı kart' },
@@ -691,6 +708,11 @@ function ManageMatch({ match, onChange }) {
             {match.stage ? ` · ${match.stage}` : ''} · {formatDateTime(match.kickoff)} ·{' '}
             <code>#{match.id}</code>
           </span>
+          {autoStatusHint(match) && (
+            <span className="small" style={{ color: 'var(--live)', marginLeft: 6 }}>
+              · {autoStatusHint(match)}
+            </span>
+          )}
         </div>
       </div>
 

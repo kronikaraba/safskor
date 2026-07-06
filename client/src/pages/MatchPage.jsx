@@ -66,11 +66,19 @@ export default function MatchPage() {
     loadMatch(true);
   }, [loadMatch]);
 
+  // Canlıyken yenile; ayrıca başlamak üzere olan (yakın kickoff) maçlarda da
+  // yenile ki maç saati gelince sayfa elle yenilemeden canlıya geçsin.
+  const shouldPoll =
+    !!match &&
+    !match.isFinished &&
+    (match.isLive ||
+      (!!match.utcDate &&
+        new Date(match.utcDate).getTime() - Date.now() < 3 * 60 * 60 * 1000));
   useEffect(() => {
-    if (!match?.isLive) return undefined;
+    if (!shouldPoll) return undefined;
     const t = setInterval(() => loadMatch(false), 60000);
     return () => clearInterval(t);
-  }, [match?.isLive, loadMatch]);
+  }, [shouldPoll, loadMatch]);
 
   if (loading) {
     return (

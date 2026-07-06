@@ -195,15 +195,44 @@ function toIsoDate(v) {
   return v instanceof Date ? v.toISOString() : String(v);
 }
 
+// Standart maç zaman çizelgesi (dk). Admin durumu elle değiştirmediyse
+// (status hâlâ 'NS'), maç başlangıç saatine göre otomatik ilerler:
+// başlamadı → 1. yarı → devre arası → 2. yarı → bitti. Admin herhangi bir
+// durumu (1H/HT/FT/PST...) girer girmez otomatik türetme durur ve admin'in
+// değeri esas alınır.
+const MANUAL_HALF = 45; // bir yarı
+const MANUAL_BREAK = 15; // devre arası
+const MANUAL_FULL = 2 * MANUAL_HALF + MANUAL_BREAK; // 105 dk sonrası → bitti
+
+/**
+ * Yalnızca 'NS' durumundaki manuel maçın efektif durumunu saate göre türetir.
+ * Döndürür: { short, minute }. minute yalnızca canlı yarılarda doludur.
+ */
+export function deriveManualStatus(row) {
+  const stored = row.status ?? 'NS';
+  if (stored !== 'NS') return { short: stored, minute: row.minute ?? null };
+
+  const kickoffMs = row.kickoff ? new Date(row.kickoff).getTime() : NaN;
+  if (Number.isNaN(kickoffMs)) return { short: 'NS', minute: null };
+
+  const elapsed = Math.floor((Date.now() - kickoffMs) / 60000);
+  if (elapsed < 0) return { short: 'NS', minute: null };
+  if (elapsed < MANUAL_HALF) return { short: '1H', minute: elapsed + 1 }; // 1..45
+  if (elapsed < MANUAL_HALF + MANUAL_BREAK) return { short: 'HT', minute: null };
+  if (elapsed < MANUAL_FULL) return { short: '2H', minute: elapsed - MANUAL_BREAK + 1 }; // 46..90
+  return { short: 'FT', minute: null };
+}
+
 /** manual_matches satırını normalizeFixture ile aynı şekle çevirir. */
 export function manualToMatch(row) {
-  const short = row.status ?? 'NS';
+  const { short, minute } = deriveManualStatus(row);
   const group = statusGroup(short);
 
   const hs = row.home_score;
   const as = row.away_score;
+  const hasScores = Number.isInteger(hs) && Number.isInteger(as);
   let winner = null;
-  if (group === 'finished') {
+  if (group === 'finished' && hasScores) {
     if (hs > as) winner = 'HOME_TEAM';
     else if (as > hs) winner = 'AWAY_TEAM';
     else winner = 'DRAW';
@@ -215,7 +244,7 @@ export function manualToMatch(row) {
     status: short,
     statusGroup: group,
     statusLabel: STATUS_LABEL[short] ?? short,
-    minute: row.minute ?? null,
+    minute,
     matchday: null,
     stage: row.stage ?? null,
     competition: {
