@@ -198,6 +198,14 @@ export function initDb() {
       )
     `;
     await sql`CREATE INDEX IF NOT EXISTS idx_password_resets_token ON password_resets(token_hash)`;
+
+    await sql`
+      CREATE TABLE IF NOT EXISTS app_settings (
+        key        TEXT PRIMARY KEY,
+        value      TEXT NOT NULL,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `;
   })();
   return initPromise;
 }

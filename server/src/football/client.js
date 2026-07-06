@@ -1,6 +1,7 @@
 import { config } from '../config.js';
 import { ApiError } from '../utils/http.js';
 import { cacheGetEntry, cacheSet } from './cache.js';
+import { isFootballApiSuspended } from '../store/settings.js';
 
 // API-Football (api-sports.io) ücretsiz plan: günde 100 istek + ~10 istek/dk.
 // Agresif cache + stale-while-revalidate ile bu limitleri korur, yüklemeyi
@@ -38,6 +39,12 @@ function errorsToMessage(errs) {
 }
 
 async function rawRequest(pathAndQuery) {
+  // Admin kill-switch: askıdayken upstream'e hiç çıkılmaz (kota harcanmaz).
+  // Taze/bayat cache apiGet katmanında yine servis edilir; maç listesi de
+  // manuel maçlarla "apiDegraded" modunda çalışmaya devam eder.
+  if (await isFootballApiSuspended()) {
+    throw new ApiError(503, 'Futbol API yönetici tarafından askıya alındı.', PUBLIC_GENERIC);
+  }
   if (!config.football.apiKey) {
     throw new ApiError(
       503,

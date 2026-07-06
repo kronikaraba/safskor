@@ -20,6 +20,14 @@ footballRouter.get(
   })
 );
 
+// GET /api/football/manual-upcoming — ileri tarihli manuel (özel) maçlar
+footballRouter.get(
+  '/manual-upcoming',
+  asyncHandler(async (_req, res) => {
+    res.json({ matches: await svc.getUpcomingManualMatches() });
+  })
+);
+
 // GET /api/football/matches/:id
 footballRouter.get(
   '/matches/:id',

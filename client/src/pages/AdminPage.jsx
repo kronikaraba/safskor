@@ -426,6 +426,72 @@ function parseLineup(text, isStarter) {
     .filter(Boolean);
 }
 
+/**
+ * Futbol API kill-switch: askıdayken sunucu API-Football'a hiç istek atmaz
+ * (kota harcanmaz); üyeler yalnızca elle eklenen maçları görür.
+ */
+function ApiSwitchPanel() {
+  const [suspended, setSuspended] = useState(null); // null = yükleniyor
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    api
+      .get('/admin/settings')
+      .then((r) => setSuspended(!!r.footballApiSuspended))
+      .catch((e) => setError(e.message));
+  }, []);
+
+  const toggle = async () => {
+    const next = !suspended;
+    if (
+      next &&
+      !window.confirm(
+        'Futbol API askıya alınsın mı? Üyeler yalnızca elle eklenen maçları görür.'
+      )
+    ) {
+      return;
+    }
+    setBusy(true);
+    setError('');
+    try {
+      await api.post('/admin/settings/football-api', { suspended: next });
+      setSuspended(next);
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="panel" style={{ marginBottom: 12 }}>
+      <div className="panel__head">
+        <span>
+          API-Football{' '}
+          {suspended === null ? (
+            <span className="muted small">· kontrol ediliyor…</span>
+          ) : suspended ? (
+            <span className="small" style={{ color: 'var(--live)' }}>· askıda</span>
+          ) : (
+            <span className="muted small">· etkin</span>
+          )}
+        </span>
+        {suspended !== null && (
+          <button className="btn btn--sm" onClick={toggle} disabled={busy}>
+            {suspended ? "API'yi etkinleştir" : "API'yi askıya al"}
+          </button>
+        )}
+      </div>
+      <p className="muted small" style={{ margin: '6px 0 0' }}>
+        Askıdayken sunucu API-Football'a istek atmaz (kota harcanmaz); ana sayfada yalnızca elle
+        eklenen maçlar görünür.
+      </p>
+      {error && <ErrorBox>{error}</ErrorBox>}
+    </div>
+  );
+}
+
 function MatchesPanel() {
   const [matches, setMatches] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -450,6 +516,7 @@ function MatchesPanel() {
 
   return (
     <>
+      <ApiSwitchPanel />
       <CreateMatchForm onCreated={load} />
       <div className="panel">
         <div className="panel__head">

@@ -51,6 +51,20 @@ export async function listManualMatchesByDate(date) {
   `;
 }
 
+/**
+ * İleri tarihli manuel maçlar (ana sayfa "özel maçlar" bölümü). Ana sayfanın
+ * tarih penceresi +7 günle sınırlı olduğundan, daha uzak maçlar bu listeyle
+ * üyelere duyurulur.
+ */
+export async function listUpcomingManualMatches({ limit = 20 } = {}) {
+  return sql`
+    SELECT * FROM manual_matches
+    WHERE kickoff > NOW() AND status NOT IN ('CANC', 'ABD', 'PST')
+    ORDER BY kickoff ASC
+    LIMIT ${limit}
+  `;
+}
+
 /** Yönetim paneli için tüm manuel maçlar (yeni → eski). */
 export async function listManualMatches({ limit = 100 } = {}) {
   return sql`

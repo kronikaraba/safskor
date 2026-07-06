@@ -19,6 +19,7 @@ import {
   listRecentSuggestions,
 } from '../store/suggestions.js';
 import { logModeration, listModeration } from '../store/moderation.js';
+import { isFootballApiSuspended, setFootballApiSuspended } from '../store/settings.js';
 import { getIo } from '../realtime/io.js';
 import { suggestionsRoom } from '../realtime/rooms.js';
 
@@ -207,6 +208,30 @@ adminRouter.post(
     await setBanned(id, false);
     await logModeration({ adminId: req.user.id, action: 'unban', targetUserId: id });
     res.json({ ok: true, user: await adminUserView(await getUserById(id)) });
+  })
+);
+
+// --- Ayarlar (Futbol API kill-switch) ---
+adminRouter.get(
+  '/settings',
+  asyncHandler(async (_req, res) => {
+    res.json({ footballApiSuspended: await isFootballApiSuspended() });
+  })
+);
+
+adminRouter.post(
+  '/settings/football-api',
+  asyncHandler(async (req, res) => {
+    const suspended = req.body?.suspended;
+    if (typeof suspended !== 'boolean') {
+      throw new ApiError(400, 'suspended (true/false) gerekli.');
+    }
+    await setFootballApiSuspended(suspended);
+    await logModeration({
+      adminId: req.user.id,
+      action: suspended ? 'football_api_suspend' : 'football_api_resume',
+    });
+    res.json({ ok: true, footballApiSuspended: suspended });
   })
 );
 

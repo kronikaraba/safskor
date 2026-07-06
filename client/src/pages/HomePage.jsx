@@ -1,8 +1,9 @@
 import { useEffect, useState, useCallback, useMemo } from 'react';
+import { Link } from 'react-router-dom';
 import { api } from '../lib/api.js';
 import MatchList from '../components/MatchList.jsx';
 import { Loading, Empty, ErrorBox } from '../components/ui.jsx';
-import { todayStr, addDays, dateLabel } from '../lib/format.js';
+import { todayStr, addDays, dateLabel, messageTime } from '../lib/format.js';
 import { getLeaguePref, setLeaguePref, matchHasFav } from '../lib/prefs.js';
 
 const FILTERS = [
@@ -27,6 +28,49 @@ function Section({ title, matches }) {
   );
 }
 
+/** Bir ISO tarihin yerel gün dizesi (YYYY-MM-DD) — seçili günle kıyas için. */
+function localDateStr(iso) {
+  const d = new Date(iso);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(
+    d.getDate()
+  ).padStart(2, '0')}`;
+}
+
+/**
+ * Adminin eklediği ileri tarihli maçlar. Tarih penceresi (+7 gün) dışında
+ * kalabildikleri için seçili günden bağımsız ayrı bir bölümde duyurulur;
+ * seçili günün listesinde zaten görünenler tekrarlanmaz.
+ */
+function SpecialMatches({ matches, currentDate }) {
+  const list = (matches || []).filter((m) => localDateStr(m.utcDate) !== currentDate);
+  if (list.length === 0) return null;
+  return (
+    <>
+      <div className="section-title">Özel Maçlar</div>
+      <div className="comp-group">
+        {list.map((m) => (
+          <Link key={m.id} to={`/match/${m.id}`} className="match-row">
+            <div className="match-row__time">
+              <span className="num">{messageTime(m.utcDate)}</span>
+            </div>
+            <div className="match-row__teams">
+              <div className="team-line">
+                <span className="team-line__name">{m.homeTeam?.name}</span>
+              </div>
+              <div className="team-line">
+                <span className="team-line__name">{m.awayTeam?.name}</span>
+              </div>
+            </div>
+            <div className="match-row__score num">
+              <span className="s s--dim">{m.competition?.name || ''}</span>
+            </div>
+          </Link>
+        ))}
+      </div>
+    </>
+  );
+}
+
 export default function HomePage() {
   const [date, setDate] = useState(todayStr());
   const [league, setLeague] = useState(getLeaguePref());
@@ -37,6 +81,15 @@ export default function HomePage() {
   const [search, setSearch] = useState('');
   const [onlyFav, setOnlyFav] = useState(false);
   const [favVersion, setFavVersion] = useState(0);
+  const [specials, setSpecials] = useState([]);
+
+  // Adminin eklediği ileri tarihli maçlar (tarih penceresinden bağımsız).
+  useEffect(() => {
+    api
+      .get('/football/manual-upcoming')
+      .then((res) => setSpecials(res.matches || []))
+      .catch(() => {});
+  }, []);
 
   // Favori değişince listeyi yeniden değerlendir.
   useEffect(() => {
@@ -97,7 +150,13 @@ export default function HomePage() {
   const applyFilters = useCallback(
     (arr) => {
       let list = arr || [];
-      if (league) list = list.filter((m) => String(m.competition?.id) === String(league));
+      // Manuel maçların lig ID'si yok (competition.id = null) ve açılır listede
+      // seçilemezler; lig filtresi onları elememeli.
+      if (league) {
+        list = list.filter(
+          (m) => m.isManual || m.competition?.id == null || String(m.competition.id) === String(league)
+        );
+      }
       const q = search.trim().toLocaleLowerCase('tr');
       if (q) {
         list = list.filter(
@@ -195,6 +254,14 @@ export default function HomePage() {
           </button>
         ))}
       </div>
+
+      {data?.apiDegraded && !loading && !error && (
+        <p className="muted small" style={{ marginTop: 0 }}>
+          Canlı maç verileri şu an alınamıyor; yalnızca elle eklenen maçlar gösteriliyor.
+        </p>
+      )}
+
+      {!loading && <SpecialMatches matches={specials} currentDate={date} />}
 
       {loading ? (
         <Loading text="Maçlar yükleniyor..." />

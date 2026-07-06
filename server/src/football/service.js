@@ -3,6 +3,7 @@ import { ApiError } from '../utils/http.js';
 import * as N from './normalize.js';
 import {
   listManualMatchesByDate,
+  listUpcomingManualMatches,
   getManualMatchRow,
   getManualLineupRows,
   listManualEvents,
@@ -47,22 +48,42 @@ export async function getMatchesByDate(date) {
   // Geçmiş günler değişmez → çok uzun cache; bugün/gelecek → kısa. (Tek istek,
   // tüm ligleri getirir; sonra izinli liglere göre filtreleriz.)
   const ttlMs = date < todayUtc() ? TTL.matchesPast : TTL.matchesToday;
-  const data = await apiGet(`/fixtures?date=${date}`, { ttlMs });
-  const matches = (data.response ?? [])
-    .map(N.normalizeFixture)
-    .filter(isAllowed);
 
-  const groups = { live: [], upcoming: [], finished: [], other: [] };
-  for (const m of matches) groups[m.statusGroup].push(m);
+  // Upstream API hatası (kota, askıya alınmış hesap, ağ) manuel maçları
+  // engellememeli — admin tam da API çalışmadığında elle maç girer. Hata
+  // durumunda manuel maçlarla devam ederiz; gösterecek manuel maç da yoksa
+  // hatayı olduğu gibi iletiriz.
+  let matches = [];
+  let apiError = null;
+  try {
+    const data = await apiGet(`/fixtures?date=${date}`, { ttlMs });
+    matches = (data.response ?? []).map(N.normalizeFixture).filter(isAllowed);
+  } catch (err) {
+    apiError = err;
+  }
 
   // Admin'in elle girdiği maçlar (lig filtresine takılmaz) aynı gruplara katılır.
   const manual = (await listManualMatchesByDate(date)).map(N.manualToMatch);
+  if (apiError && manual.length === 0) throw apiError;
+
+  const groups = { live: [], upcoming: [], finished: [], other: [] };
+  for (const m of matches) groups[m.statusGroup].push(m);
   for (const m of manual) groups[m.statusGroup].push(m);
 
   const byKickoff = (a, b) => new Date(a.utcDate) - new Date(b.utcDate);
   for (const k of Object.keys(groups)) groups[k].sort(byKickoff);
 
-  return { date, count: matches.length + manual.length, ...groups };
+  return {
+    date,
+    count: matches.length + manual.length,
+    apiDegraded: Boolean(apiError),
+    ...groups,
+  };
+}
+
+/** İleri tarihli manuel maçlar (API'den bağımsız; ana sayfa "özel maçlar"). */
+export async function getUpcomingManualMatches() {
+  return (await listUpcomingManualMatches()).map(N.manualToMatch);
 }
 
 export async function getMatch(id) {
