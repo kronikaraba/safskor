@@ -290,18 +290,33 @@ export function manualLineupTeam(rows, teamName) {
 
 /** manual_events satırlarını istemcinin beklediği olay şekline çevirir. */
 export function manualEventsToClient(rows, homeName, awayName) {
-  return (rows ?? []).map((e) => ({
-    type: e.type,
-    minute: e.minute ?? null,
-    extra: null,
-    teamId: null,
-    teamName: e.side === 'home' ? homeName : awayName,
-    player: e.player ?? null,
-    playerId: null,
-    assist: null,
-    playerOut: e.player_out ?? null,
-    detail: e.detail ?? null,
-  }));
+  // Gol olaylarına o ana kadarki koşan skoru ekle (Events görünümü gösterir).
+  // Kendi kalesine gol (detail 'OWN') rakip takıma yazılır. Satırlar dakikaya
+  // göre sıralı geldiğinden (store: listManualEvents) tek geçişte hesaplanır.
+  let h = 0;
+  let a = 0;
+  return (rows ?? []).map((e) => {
+    let score = null;
+    if (e.type === 'goal') {
+      const scoringHome = (e.side === 'home') !== (e.detail === 'OWN');
+      if (scoringHome) h += 1;
+      else a += 1;
+      score = { home: h, away: a };
+    }
+    return {
+      type: e.type,
+      minute: e.minute ?? null,
+      extra: null,
+      teamId: null,
+      teamName: e.side === 'home' ? homeName : awayName,
+      player: e.player ?? null,
+      playerId: null,
+      assist: null,
+      playerOut: e.player_out ?? null,
+      detail: e.detail ?? null,
+      score,
+    };
+  });
 }
 
 export function normalizeStandings(response) {

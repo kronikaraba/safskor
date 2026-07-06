@@ -749,6 +749,8 @@ function EventsEditor({ match, onChange }) {
   const [type, setType] = useState('goal');
   const [minute, setMinute] = useState('');
   const [player, setPlayer] = useState('');
+  const [playerOut, setPlayerOut] = useState('');
+  const [detail, setDetail] = useState(''); // gol: '' | 'PENALTY' | 'OWN'
   const [busy, setBusy] = useState(false);
 
   const add = async () => {
@@ -760,9 +762,13 @@ function EventsEditor({ match, onChange }) {
         type,
         minute: minute === '' ? null : Number(minute),
         player,
+        playerOut: type === 'substitution' && playerOut.trim() ? playerOut.trim() : null,
+        detail: type === 'goal' && detail ? detail : null,
       });
       setPlayer('');
+      setPlayerOut('');
       setMinute('');
+      setDetail('');
       onChange?.();
     } catch {
       /* yok say */
@@ -812,8 +818,30 @@ function EventsEditor({ match, onChange }) {
             </option>
           ))}
         </select>
+        {type === 'goal' && (
+          <select className="select" value={detail} onChange={(e) => setDetail(e.target.value)}>
+            <option value="">Normal</option>
+            <option value="PENALTY">Penaltı</option>
+            <option value="OWN">Kendi kalesine</option>
+          </select>
+        )}
         <input className="select" style={{ width: 60 }} placeholder="Dk" value={minute} onChange={(e) => setMinute(e.target.value)} />
-        <input className="select" placeholder="Oyuncu" value={player} onChange={(e) => setPlayer(e.target.value)} style={{ flex: '1 1 120px' }} />
+        <input
+          className="select"
+          placeholder={type === 'substitution' ? 'Giren oyuncu' : 'Oyuncu'}
+          value={player}
+          onChange={(e) => setPlayer(e.target.value)}
+          style={{ flex: '1 1 120px' }}
+        />
+        {type === 'substitution' && (
+          <input
+            className="select"
+            placeholder="Çıkan oyuncu"
+            value={playerOut}
+            onChange={(e) => setPlayerOut(e.target.value)}
+            style={{ flex: '1 1 120px' }}
+          />
+        )}
         <button className="btn btn--sm" onClick={add} disabled={busy}>
           Ekle
         </button>
