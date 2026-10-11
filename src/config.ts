@@ -40,6 +40,8 @@ export const config = {
     detailMs: num(process.env.FOCUS_DETAIL_MS, 10 * 60_000),
     /** Diğer canlı maçların (yalnızca izleniyorsa) tam detay yenileme aralığı */
     otherDetailMs: num(process.env.OTHER_DETAIL_MS, 60 * 60_000),
+    /** Lobide puan durumu gösterilen lig (API-Football kimliği; varsayılan Süper Lig 203, boş: kapalı) */
+    standingsLeague: process.env.STANDINGS_LEAGUE ?? '203',
   },
   demoTickMs: num(process.env.DEMO_TICK_MS, 4000),
   dbPath: process.env.DB_PATH || './data/safskor.db',

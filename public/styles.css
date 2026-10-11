@@ -132,6 +132,8 @@ button { cursor: pointer; }
 
 /* ---------------------------------------------------------------- match page */
 .match-layout { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 16px; align-items: start; }
+/* sağ sütun maç sütunu kadar uzasın ki sohbet aşağı kaydırınca ekranda (sticky) kalsın */
+.chat-col { align-self: stretch; }
 .back { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 14px; margin-bottom: 10px; }
 .back:hover { color: var(--text); }
 
@@ -188,6 +190,16 @@ button { cursor: pointer; }
 .tl-ev .ic { font-size: 16px; flex: none; }
 .tl-ev .sub { color: var(--muted); font-size: 12px; }
 .tl-ev.goal .who { font-weight: 700; }
+.tl-team { display: none; }
+@media (max-width: 640px) {
+  .timeline::before { left: 20px; }
+  .tl-row { grid-template-columns: 40px minmax(0, 1fr); gap: 8px; }
+  .tl-row > div:empty { display: none; }
+  .tl-min { order: -1; }
+  .tl-ev, .tl-ev.home { justify-content: flex-start; text-align: left; }
+  .tl-ev .tl-team { display: inline-flex; flex: none; }
+  .tl-ev .tl-txt { flex: 1; min-width: 0; }
+}
 .tl-sep { text-align: center; color: var(--muted); font-size: 12px; margin: 6px 0; position: relative; z-index: 1; }
 .tl-sep span { background: var(--surface); padding: 2px 10px; border: 1px solid var(--border); border-radius: 999px; }
 
@@ -630,6 +642,48 @@ button { cursor: pointer; }
 .panel-link { color: var(--accent); font-size: 13.5px; font-weight: 600; }
 .side-rank .lb-row { padding: 8px 4px; }
 .side-rules { margin: 10px 0 0; }
+
+/* ana sayfa sekmeleri: Bugün / Yarın / Puan durumu */
+.day-tabs { display: flex; gap: 4px; }
+.day-tab { padding: 7px 14px; border-radius: 999px; font-weight: 600; font-size: 15px; color: var(--muted); white-space: nowrap; }
+.day-tab:hover { color: var(--text); }
+.day-tab.active { background: var(--surface-2); color: var(--text); }
+.list-note { margin: 0 0 10px; }
+
+/* puan durumu */
+.st-wrap { overflow-x: auto; }
+.st-table { width: 100%; border-collapse: collapse; font-size: 14px; font-variant-numeric: tabular-nums; }
+.st-table th { font-size: 12px; color: var(--muted); font-weight: 600; text-align: center; padding: 8px 6px; white-space: nowrap; }
+.st-table td { text-align: center; padding: 7px 6px; border-top: 1px solid var(--border); white-space: nowrap; }
+.st-table .st-team { text-align: left; width: 100%; max-width: 0; }
+.st-team span { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.st-team b { font-weight: 500; overflow: hidden; text-overflow: ellipsis; }
+.st-table .st-rank { width: 36px; position: relative; font-weight: 700; color: var(--muted); }
+.st-table tr[class*="z-"] .st-rank::before { content: ""; position: absolute; left: 0; top: 7px; bottom: 7px; width: 3px; border-radius: 2px; background: var(--z); }
+.st-table .st-pts { font-weight: 800; }
+.st-table .st-g { color: var(--muted); }
+.st-table tr.mine td { background: rgba(0, 137, 254, 0.1); }
+.st-table tr.mine .st-team b { font-weight: 700; }
+.st-legend { display: flex; flex-wrap: wrap; gap: 8px 16px; padding: 12px 16px; font-size: 12.5px; color: var(--muted); border-top: 1px solid var(--border); }
+.st-legend i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; background: var(--z); margin-right: 6px; vertical-align: -1px; }
+.z-ucl { --z: #0089fe; } .z-ucl-q { --z: #5aa9ff; } .z-uel { --z: #ff8a3d; } .z-uel-q { --z: #ffb37a; }
+.z-uecl { --z: #2fbf71; } .z-uecl-q { --z: #7fd9a6; } .z-rel { --z: #ff4d5e; }
+@media (max-width: 640px) {
+  .day-tab { font-size: 15px; padding: 7px 13px; }
+  .st-table { font-size: 13px; }
+  .st-table th, .st-table td { padding: 7px 3px; }
+  .st-table .st-rank { width: 28px; }
+  .st-table .st-g { display: none; }
+  .st-team span { gap: 6px; }
+}
+@media (min-width: 641px) {
+  .lobby-head .day-tabs { align-self: stretch; gap: 20px; }
+  .lobby-head .day-tab { position: relative; display: flex; align-items: center; height: 52px; padding: 0 4px; border-radius: 0; background: transparent; }
+  .lobby-head .day-tab.active { color: var(--accent); }
+  .lobby-head .day-tab.active::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 3px; border-radius: 3px 3px 0 0; background: var(--accent); }
+  .lobby-main .list-note { margin: 0; padding: 10px 16px; border-top: 1px solid var(--border); }
+  .lobby-main .st .comp-head { padding-bottom: 10px; }
+}
 
 /* Büyük 4: hep görünen takım kısayolları */
 .big4 { padding: 12px; margin-bottom: 14px; }

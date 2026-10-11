@@ -1,5 +1,6 @@
 import { EventEmitter } from 'node:events';
-import type { FootballProvider, Match, MatchEvent, MatchSummary, TeamFixtures } from '../types.js';
+import { istanbulDay } from '../providers/apiFootball.js';
+import type { FootballProvider, Match, MatchEvent, MatchSummary, Standings, TeamFixtures } from '../types.js';
 
 const MIN = 60_000;
 
@@ -17,8 +18,9 @@ const MIN = 60_000;
  *
  * - Öncelikli takımların bir sonraki/son maçı (bugün oynamasalar da lobide gösterilsin diye) 6 saatte bir,
  *   ya da bilinen sonraki maçları bitince yenilenir: takım başına 2 istek.
+ * - Yarının maçları saatte bir (gün dönünce hemen) tek istekle; puan durumu 3 saatte bir ya da ligde maç bitince.
  *
- * Olaylar: 'list' (MatchSummary[]), 'match' (Match), 'events' (matchId, MatchEvent[] yeni olaylar), 'clubs'
+ * Olaylar: 'list' (MatchSummary[]), 'match' (Match), 'events' (matchId, MatchEvent[] yeni olaylar), 'clubs', 'tomorrow', 'standings'
  */
 export class MatchService extends EventEmitter {
   private list: MatchSummary[] = [];
@@ -34,15 +36,25 @@ export class MatchService extends EventEmitter {
   private clubs = new Map<string, TeamFixtures>();
   private clubsAt = 0;
   private clubsJson = '';
+  private extraTimer?: NodeJS.Timeout;
+  private tomorrow: MatchSummary[] = [];
+  private tomorrowDay = '';
+  private tomorrowAt = 0;
+  private table: Standings | null = null;
+  private tableAt = 0;
+  /** Son puan durumu çekiminde bitmiş görünen lig maçları */
+  private tableSeen = new Set<string>();
+  private standingsLeague: string;
   private focus: Set<string>;
   private focusDetailMs: number;
   private otherDetailMs: number;
 
   constructor(
     private provider: FootballProvider,
-    opts: { teams?: string[]; detailMs?: number; otherDetailMs?: number } = {},
+    opts: { teams?: string[]; detailMs?: number; otherDetailMs?: number; standingsLeague?: string } = {},
   ) {
     super();
+    this.standingsLeague = opts.standingsLeague ?? '203';
     this.focus = new Set(opts.teams ?? []);
     this.focusDetailMs = opts.detailMs ?? 10 * MIN;
     this.otherDetailMs = opts.otherDetailMs ?? 60 * MIN;
@@ -105,6 +117,12 @@ export class MatchService extends EventEmitter {
       this.clubsTimer = setTimeout(loopClubs, 10 * MIN);
     };
     this.clubsTimer = setTimeout(loopClubs, 20_000);
+    const loopExtra = async () => {
+      await this.refreshTomorrow().catch((e) => console.error('[matches] yarının maçları hatası', e));
+      await this.refreshStandings().catch((e) => console.error('[matches] puan durumu hatası', e));
+      this.extraTimer = setTimeout(loopExtra, 5 * MIN);
+    };
+    this.extraTimer = setTimeout(loopExtra, 30_000);
   }
 
   stop() {
@@ -113,10 +131,21 @@ export class MatchService extends EventEmitter {
     clearTimeout(this.liveTimer);
     clearTimeout(this.focusTimer);
     clearTimeout(this.clubsTimer);
+    clearTimeout(this.extraTimer);
   }
 
   getList() {
     return this.list;
+  }
+
+  /** null: henüz alınmadı (ya da sağlayıcı yarının listesini vermiyor) */
+  getTomorrow() {
+    // gün döndüyse eldeki liste artık "bugün"ün listesi: yenisi gelene kadar gösterme
+    return this.tomorrowDay === istanbulDay(1) ? this.tomorrow : null;
+  }
+
+  getStandings() {
+    return this.table;
   }
 
   /** Öncelikli takımın bilinen sonraki/son maçı (bugünün listesinde yoksa lobi bunları gösterir) */
@@ -300,6 +329,38 @@ export class MatchService extends EventEmitter {
       this.clubsJson = json;
       this.emit('clubs');
     }
+  }
+
+  /** Yarının maçları: saatte bir; gün dönünce (dünün "yarın"ı bugün olunca) hemen */
+  private async refreshTomorrow() {
+    if (!this.provider.tomorrowMatches || this.provider.isDemo || this.pressure() === 'critical') return;
+    const day = istanbulDay(1);
+    if (this.tomorrowDay === day && Date.now() - this.tomorrowAt < 60 * MIN) return;
+    const list = await this.provider.tomorrowMatches();
+    if (!list) return;
+    const changed = this.tomorrowDay !== day || JSON.stringify(list) !== JSON.stringify(this.tomorrow);
+    this.tomorrow = list;
+    this.tomorrowDay = day;
+    this.tomorrowAt = Date.now();
+    if (changed) this.emit('tomorrow', list);
+  }
+
+  /** Puan durumu: 3 saatte bir; ligde bugün yeni bir maç bitince 10 dk sonra */
+  private async refreshStandings() {
+    if (!this.standingsLeague || !this.provider.standings || this.provider.isDemo || this.pressure() === 'critical') return;
+    const now = Date.now();
+    const ft = this.list.filter((m) => m.competition.id === this.standingsLeague && m.status === 'FT').map((m) => m.id);
+    const fresh = ft.some((id) => !this.tableSeen.has(id));
+    // API tabloyu maç bitiminden biraz sonra günceller: yeni biten maçtan 10 dk sonra çek
+    const due = !this.tableAt || now - this.tableAt > 3 * 60 * MIN || (fresh && now - this.tableAt > 10 * MIN);
+    if (!due) return;
+    const table = await this.provider.standings(this.standingsLeague);
+    if (!table) return;
+    const changed = JSON.stringify(table.rows) !== JSON.stringify(this.table?.rows);
+    this.table = table;
+    this.tableAt = now;
+    this.tableSeen = new Set(ft);
+    if (changed) this.emit('standings', table);
   }
 
   private async refreshWatched() {

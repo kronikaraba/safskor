@@ -31,7 +31,8 @@ app.use((_req, res, next) => {
 const withViewers = () => matches.getList().map((m) => ({ ...m, viewers: roomSize(m.id) }));
 
 app.get('/api/health', (_req, res) => res.json({ ok: true, provider: matches.providerInfo }));
-app.get('/api/matches', (_req, res) => res.json({ provider: matches.providerInfo, matches: withViewers(), clubs: clubsPayload() }));
+app.get('/api/matches', (_req, res) => res.json({ provider: matches.providerInfo, matches: withViewers(), clubs: clubsPayload(), tomorrow: matches.getTomorrow() }));
+app.get('/api/standings', (_req, res) => res.json({ standings: matches.getStandings() }));
 app.get('/api/matches/:id', async (req, res) => {
   const m = await matches.getMatch(req.params.id);
   if (!m) return res.status(404).json({ error: 'Maç bulunamadı' });
@@ -253,7 +254,7 @@ io.on('connection', (socket: Socket) => {
     store.touchUser(data.userId, data.nick, data.team?.id ?? null);
     socket.join(userRoom(data.userId)); // özel mesajlar kullanıcının açık tüm sekmelerine gider
   }
-  socket.emit('hello', { provider: matches.providerInfo, matches: withViewers(), clubs: clubsPayload() });
+  socket.emit('hello', { provider: matches.providerInfo, matches: withViewers(), clubs: clubsPayload(), tomorrow: matches.getTomorrow() });
   // tarayıcıdaki favori takım sunucudakiyle eşleşsin (ör. listeden kaldırılmış eski bir takım); uid: herkese açık kimlik
   socket.emit('profile', { team: data.team, uid: store.pubId(data.userId), account: canDm ? store.account(data.userId) : null });
   if (canDm) socket.emit('dm:unread', { count: store.dmUnread(data.userId) });
@@ -377,6 +378,7 @@ io.on('connection', (socket: Socket) => {
   });
 
   socket.on('teams:list', (_p, ack) => safeAck(ack)({ ok: true, teams: PICKABLE_TEAMS }));
+  socket.on('standings:get', (_p, ack) => safeAck(ack)({ ok: true, standings: matches.getStandings() }));
 
   socket.on('leaderboard:get', (p, ack) => {
     const week = typeof p?.week === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(p.week) ? p.week : weekKey(Date.now());
@@ -666,6 +668,9 @@ io.on('connection', (socket: Socket) => {
 
 matches.on('list', lobbyUpdate);
 matches.on('clubs', lobbyUpdate);
+// yarının listesi ve puan durumu seyrek değişir: herkese (maç odasındakiler dahil) gönder ki lobiye dönünce güncel olsun
+matches.on('tomorrow', (list) => io.emit('tomorrow', list));
+matches.on('standings', (table) => io.emit('standings', table));
 
 // ------------------------------------------------------------------ takımlar ve tahmin puanlama
 

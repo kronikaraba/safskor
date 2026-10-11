@@ -1,4 +1,4 @@
-import type { FootballProvider, TeamFixtures, Lineup, Match, MatchEvent, MatchStatus, MatchSummary, Player, StatLine, Side } from '../types.js';
+import type { FootballProvider, TeamFixtures, Standings, Lineup, Match, MatchEvent, MatchStatus, MatchSummary, Player, StatLine, Side } from '../types.js';
 
 /** Günlük istek hakkı bitti; gün dönümüne (00:00 UTC) kadar istek atılmaz. */
 export class QuotaError extends Error {
@@ -108,14 +108,19 @@ export class ApiFootballProvider implements FootballProvider {
     return body.response ?? [];
   }
 
-  async listMatches(): Promise<MatchSummary[]> {
-    const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Istanbul' });
-    const rows = await this.get('/fixtures', { date: today, timezone: 'Europe/Istanbul' });
+  /** Bir günün (İstanbul saatiyle) takip edilen liglerdeki ve öncelikli takımların maçları; tek istek */
+  private async dayFixtures(date: string): Promise<any[]> {
+    const rows = await this.get('/fixtures', { date, timezone: 'Europe/Istanbul' });
     const leagues = new Set(this.opts.leagues);
     const focus = new Set(this.opts.focusTeams ?? []);
     const isFocus = (r: any) => focus.has(String(r.teams?.home?.id)) || focus.has(String(r.teams?.away?.id));
     // tarih sorgusu zaten tüm maçları getirir: öncelikli takımların kupa/Avrupa maçları ek istek olmadan listeye girer
-    const picked = rows.filter((r) => !leagues.size || leagues.has(String(r.league?.id)) || isFocus(r));
+    return rows.filter((r) => !leagues.size || leagues.has(String(r.league?.id)) || isFocus(r));
+  }
+
+  async listMatches(): Promise<MatchSummary[]> {
+    const leagues = new Set(this.opts.leagues);
+    const picked = await this.dayFixtures(istanbulDay(0));
     this.extraLeagues = new Set(picked.filter((r) => leagues.size && !leagues.has(String(r.league?.id))).map((r) => String(r.league?.id)));
     const list = picked.map(toSummary);
     const soon = Date.now() + 30 * 60_000;
@@ -128,6 +133,42 @@ export class ApiFootballProvider implements FootballProvider {
     const live = this.opts.leagues.length ? [...new Set([...this.opts.leagues, ...this.extraLeagues])].join('-') : 'all';
     const rows = await this.get('/fixtures', { live, timezone: 'Europe/Istanbul' });
     return rows.map(toMatch);
+  }
+
+  /** Yarının maçları (tek istek; seyrek çağrılır) */
+  async tomorrowMatches(): Promise<MatchSummary[]> {
+    const rows = await this.dayFixtures(istanbulDay(1));
+    return rows.map(toSummary).sort((a, b) => a.kickoff.localeCompare(b.kickoff));
+  }
+
+  /** Ligin güncel sezon puan durumu (tek istek) */
+  async standings(leagueId: string): Promise<Standings | null> {
+    const now = new Date();
+    // Avrupa ligleri yaz ortasında başlar: Temmuz'dan itibaren yeni sezon
+    const season = now.getUTCMonth() >= 6 ? now.getUTCFullYear() : now.getUTCFullYear() - 1;
+    const rows = await this.get('/standings', { league: leagueId, season: String(season) });
+    const l = rows[0]?.league;
+    const table: any[] = l?.standings?.[0] ?? [];
+    if (!table.length) return null;
+    const t = (x: any) => ({ id: String(x.id), name: x.name, short: abbreviate(x.name), logo: x.logo });
+    return {
+      league: { id: String(l.id), name: l.name, country: trCountry(l.country, l.name), logo: l.logo, season: l.season ?? season },
+      rows: table.map((r) => ({
+        rank: r.rank,
+        team: t(r.team),
+        points: r.points ?? 0,
+        played: r.all?.played ?? 0,
+        win: r.all?.win ?? 0,
+        draw: r.all?.draw ?? 0,
+        lose: r.all?.lose ?? 0,
+        goalsFor: r.all?.goals?.for ?? 0,
+        goalsAgainst: r.all?.goals?.against ?? 0,
+        goalsDiff: r.goalsDiff ?? 0,
+        form: r.form ?? undefined,
+        description: r.description ?? undefined,
+      })),
+      updatedAt: new Date().toISOString(),
+    };
   }
 
   /** Takımın bir sonraki ve son maçı (iki istek; seyrek çağrılır) */
@@ -145,6 +186,27 @@ export class ApiFootballProvider implements FootballProvider {
 }
 
 const utcDay = () => new Date().toISOString().slice(0, 10);
+/** API-Football ülke adları İngilizce gelir; sık görülenleri Türkçeleştir */
+const COUNTRY_TR: Record<string, string> = {
+  Turkey: 'Türkiye',
+  England: 'İngiltere',
+  Spain: 'İspanya',
+  Germany: 'Almanya',
+  Italy: 'İtalya',
+  France: 'Fransa',
+  Netherlands: 'Hollanda',
+  Portugal: 'Portekiz',
+  Belgium: 'Belçika',
+  Scotland: 'İskoçya',
+  World: 'Dünya',
+};
+/** UEFA turnuvaları API'de "World" görünür: Avrupa yaz */
+const trCountry = (c?: string, league?: string) => (!c ? undefined : c === 'World' && /UEFA/i.test(league ?? '') ? 'Avrupa' : (COUNTRY_TR[c] ?? c));
+
+/** İstanbul saatine göre bugünden `offset` gün sonrasının tarihi (YYYY-MM-DD) */
+export function istanbulDay(offset: number) {
+  return new Date(Date.now() + offset * 24 * 60 * 60_000).toLocaleDateString('sv-SE', { timeZone: 'Europe/Istanbul' });
+}
 function nextUtcMidnight() {
   const d = new Date();
   return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() + 1));
@@ -166,7 +228,7 @@ function toSummary(r: any): MatchSummary {
   const t = (x: any) => ({ id: String(x.id), name: x.name, short: abbreviate(x.name), logo: x.logo });
   return {
     id: String(r.fixture.id),
-    competition: { name: r.league?.name, country: r.league?.country, logo: r.league?.logo, round: r.league?.round },
+    competition: { id: r.league?.id != null ? String(r.league.id) : undefined, name: r.league?.name, country: trCountry(r.league?.country, r.league?.name), logo: r.league?.logo, round: r.league?.round },
     status: mapStatus(r.fixture.status?.short),
     minute: r.fixture.status?.elapsed ?? null,
     extra: r.fixture.status?.extra ?? null,

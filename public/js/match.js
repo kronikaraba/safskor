@@ -287,7 +287,8 @@ export function renderMatch(root, matchId) {
       bubbleIcon(),
       n ? h('span', {}, n) : null,
     );
-    const ev = h('div.tl-ev', { class: `${e.side} ${goal ? 'goal' : ''}` }, h('span.ic', {}, EV_ICON[e.type] ?? '•'), h('div', {}, text.map((t, i) => (i ? [h('br'), t] : t))), cm);
+    // tl-team: telefonda olaylar tek sütunda; hangi takımın olduğu armadan anlaşılır
+    const ev = h('div.tl-ev', { class: `${e.side} ${goal ? 'goal' : ''}` }, h('span.tl-team', {}, crest(m[e.side], 'xs')), h('span.ic', {}, EV_ICON[e.type] ?? '•'), h('div.tl-txt', {}, text.map((t, i) => (i ? [h('br'), t] : t))), cm);
     return h('li.tl-row', {}, e.side === 'home' ? ev : h('div'), h('div.tl-min', {}, `${e.minute}${e.extra ? '+' + e.extra : ''}'`), e.side === 'away' ? ev : h('div'));
   }
 
@@ -414,7 +415,7 @@ export function renderMatch(root, matchId) {
               h('div.muted.small', { style: { marginTop: '12px' } }, 'En çok tahmin edilen skorlar'),
               h('div.pick', {}, st.top.map((x) => h('span.chip', {}, `${x.home}-${x.away} · ${x.count}`))),
             )
-          : h('div.card', {}, h('p.muted', { style: { margin: 0 } }, isOpen() ? 'Henüz kimse tahmin yapmadı. İlk sen ol!' : 'Bu maç için tahmin yapılmadı.')),
+          : h('div.card', {}, h('p.muted', { style: { margin: 0 } }, isOpen() ? 'Henüz kimse tahmin yapmadı. İlk sen ol!' : 'Bu maçta kimse tahmin yapmadı.')),
       );
     };
     mount(el, main, extra);

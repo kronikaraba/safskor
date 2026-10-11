@@ -66,7 +66,7 @@ export interface StatLine {
 
 export interface MatchSummary {
   id: string;
-  competition: { name: string; country?: string; logo?: string; round?: string };
+  competition: { id?: string; name: string; country?: string; logo?: string; round?: string };
   status: MatchStatus;
   minute: number | null;
   /** Uzatma dakikası (45+2 → minute 45, extra 2) */
@@ -85,6 +85,29 @@ export interface Match extends MatchSummary {
 }
 
 /** Modüler futbol veri sağlayıcısı arayüzü. Yeni bir API eklemek için bunu uygulayın. */
+export interface StandingRow {
+  rank: number;
+  team: Team;
+  points: number;
+  played: number;
+  win: number;
+  draw: number;
+  lose: number;
+  goalsFor: number;
+  goalsAgainst: number;
+  goalsDiff: number;
+  /** Son maçların sonuçları (API-Football biçimi, ör. "WDLWW") */
+  form?: string;
+  /** Bölge açıklaması (ör. "Promotion - Champions League", "Relegation") */
+  description?: string;
+}
+
+export interface Standings {
+  league: { id: string; name: string; country?: string; logo?: string; season: number };
+  rows: StandingRow[];
+  updatedAt: string;
+}
+
 export interface TeamFixtures {
   next: MatchSummary | null;
   last: MatchSummary | null;
@@ -102,6 +125,10 @@ export interface FootballProvider {
   liveMatches?(): Promise<Match[] | null>;
   /** İsteğe bağlı: takımın bir sonraki ve son maçı (bugün listede olmayan maçlar için). null: şu an kullanılamıyor */
   teamFixtures?(teamId: string): Promise<TeamFixtures | null>;
+  /** İsteğe bağlı: yarının maçları (bugünkü listeyle aynı lig/takım filtresi). null: şu an kullanılamıyor */
+  tomorrowMatches?(): Promise<MatchSummary[] | null>;
+  /** İsteğe bağlı: ligin güncel puan durumu. null: şu an kullanılamıyor */
+  standings?(leagueId: string): Promise<Standings | null>;
   /** Önerilen yoklama aralığı (ms); demo için kısa, gerçek API için kota dostu */
   readonly pollMs: { list: number; detail: number; live?: number };
 }

@@ -11,7 +11,20 @@ const FILTERS = [
 const isLive = (m) => m.status === 'LIVE' || m.status === 'HT';
 const hasStarted = (m) => m.status !== 'SCHEDULED' && m.status !== 'POSTPONED';
 
-export function renderLobby(root) {
+const TABS = [
+  ['today', 'Bugün', '#/'],
+  ['tomorrow', 'Yarın', '#/yarin'],
+  ['table', 'Puan durumu', '#/puan'],
+];
+const hhmm = (iso) => new Date(iso).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' });
+const dateLabel = (offset) => {
+  const d = new Date();
+  d.setDate(d.getDate() + offset);
+  return d.toLocaleDateString('tr-TR', { day: 'numeric', month: 'long' });
+};
+
+/** tab: 'today' (bugünün maçları), 'tomorrow' (yarının maçları), 'table' (puan durumu) */
+export function renderLobby(root, tab = 'today') {
   let filter = storage.get('safskor.filter', 'all');
   let featuredId = null; // sağ sütunda gösterilen maç
   let board = null; // haftalık sıralama özeti
@@ -22,7 +35,7 @@ export function renderLobby(root) {
   const clubs = h('section.panel.big4', { 'aria-label': 'Büyük 4' });
   const featured = h('div');
   const ranks = h('div');
-  const today = new Date().toLocaleDateString('tr-TR', { day: 'numeric', month: 'long' });
+  const dateEl = h('span.lobby-date');
   const side = h('aside.lobby-side', {}, featured, ranks);
   const lobby = h(
     'div.lobby',
@@ -30,7 +43,13 @@ export function renderLobby(root) {
     h(
       'section.lobby-main',
       {},
-      h('div.lobby-head', {}, h('div', {}, h('h1', {}, 'Bugünün maçları'), h('p.muted.small', {}, 'Bir maç odasına gir: canlı sohbet et, oyuncuları puanla, taktik öner.')), h('span.lobby-date', {}, `Bugün · ${today}`), chips),
+      h(
+        'div.lobby-head',
+        {},
+        h('nav.day-tabs', { 'aria-label': 'Maç günü' }, TABS.map(([key, label, href]) => h('a.day-tab', { href, class: key === tab ? 'active' : '', 'aria-current': key === tab ? 'page' : null }, label))),
+        dateEl,
+        tab === 'today' ? chips : null,
+      ),
       list,
     ),
     side,
@@ -86,6 +105,9 @@ export function renderLobby(root) {
   }
 
   function drawList() {
+    if (tab === 'tomorrow') return drawTomorrow();
+    if (tab === 'table') return drawTable();
+    mount(dateEl, `Bugün · ${dateLabel(0)}`);
     const all = app.matches || [];
     mount(
       chips,
@@ -104,13 +126,94 @@ export function renderLobby(root) {
       mount(list, h('div.empty', {}, all.length ? 'Bu filtrede maç yok.' : app.provider ? 'Bugün takip edilen liglerde maç yok.' : 'Maçlar yükleniyor…'));
       return;
     }
-    const groups = new Map();
-    for (const m of shown) {
+    mount(list, groups(shown));
+  }
+
+  function groups(ms) {
+    const by = new Map();
+    for (const m of ms) {
       const key = m.competition.name || 'Diğer';
-      if (!groups.has(key)) groups.set(key, []);
-      groups.get(key).push(m);
+      if (!by.has(key)) by.set(key, []);
+      by.get(key).push(m);
     }
-    mount(list, [...groups.entries()].map(([name, ms]) => compSection(name, ms)));
+    return [...by.entries()].map(([name, xs]) => compSection(name, xs));
+  }
+
+  // ---------------------------------------------------------------- yarının maçları
+  function drawTomorrow() {
+    mount(dateEl, `Yarın · ${dateLabel(1)}`);
+    const all = app.tomorrow;
+    if (!all?.length) {
+      const text = app.provider?.demo ? 'Demo modunda yarının maçları gösterilmiyor.' : all ? 'Yarın takip edilen liglerde maç yok.' : 'Yarının maçları yükleniyor…';
+      return mount(list, h('div.empty', {}, text));
+    }
+    mount(list, h('p.muted.small.list-note', {}, 'Maç odasına girip skor tahminini şimdiden yapabilirsin.'), groups(all));
+  }
+
+  // ---------------------------------------------------------------- puan durumu
+  let tableAsked = false;
+  function drawTable() {
+    const t = app.standings;
+    if (!t) {
+      if (!tableAsked) {
+        tableAsked = true;
+        app.socket.timeout(8000).emit('standings:get', {}, (err, r) => {
+          if (!err && r?.ok && r.standings) app.standings = r.standings;
+          drawList();
+        });
+      }
+      mount(dateEl);
+      return mount(list, h('div.empty', {}, tableAsked && app.socket.connected && !app.provider?.demo ? 'Puan durumu yükleniyor…' : 'Puan durumu şu an alınamıyor.'));
+    }
+    const season = `${t.league.season}/${String(t.league.season + 1).slice(2)}`;
+    mount(dateEl, `${season} sezonu`);
+    const mine = app.me.team?.id;
+    const zones = new Map();
+    const rows = t.rows.map((r) => {
+      const z = zoneOf(r.description);
+      if (z) zones.set(z.key, z);
+      return h(
+        'tr',
+        { class: [z ? `z-${z.key}` : '', r.team.id === mine ? 'mine' : ''].join(' ').trim() },
+        h('td.st-rank', {}, r.rank),
+        h('td.st-team', {}, h('span', {}, crest(r.team, 'sm'), h('b', {}, r.team.name))),
+        h('td', {}, r.played),
+        h('td.st-w', {}, r.win),
+        h('td.st-w', {}, r.draw),
+        h('td.st-w', {}, r.lose),
+        h('td.st-g', {}, `${r.goalsFor}:${r.goalsAgainst}`),
+        h('td', {}, r.goalsDiff > 0 ? `+${r.goalsDiff}` : r.goalsDiff),
+        h('td.st-pts', {}, r.points),
+      );
+    });
+    mount(
+      list,
+      h(
+        'section.comp-card.st',
+        {},
+        h(
+          'header.comp-head',
+          {},
+          t.league.logo ? h('img', { src: t.league.logo, alt: '' }) : h('span.comp-dot'),
+          h('div.comp-name', {}, h('b', {}, t.league.name), h('span', {}, `${t.league.country ? `${t.league.country} · ` : ''}${season}`)),
+        ),
+        h(
+          'div.st-wrap',
+          {},
+          h(
+            'table.st-table',
+            {},
+            h(
+              'thead',
+              {},
+              h('tr', {}, h('th.st-rank', { title: 'Sıra' }, '#'), h('th.st-team', {}, 'Takım'), h('th', { title: 'Oynanan' }, 'O'), h('th.st-w', { title: 'Galibiyet' }, 'G'), h('th.st-w', { title: 'Beraberlik' }, 'B'), h('th.st-w', { title: 'Mağlubiyet' }, 'M'), h('th.st-g', { title: 'Atılan:yenilen gol' }, 'Gol'), h('th', { title: 'Averaj' }, 'Av'), h('th.st-pts', { title: 'Puan' }, 'P')),
+            ),
+            h('tbody', {}, rows),
+          ),
+        ),
+        zones.size ? h('div.st-legend', {}, [...zones.values()].map((z) => h('span', { class: `z-${z.key}` }, h('i'), z.label))) : null,
+      ),
+    );
   }
 
   function compSection(name, ms) {
@@ -138,7 +241,7 @@ export function renderLobby(root) {
     return h(
       'a.mrow',
       { href: `#/m/${m.id}`, class: live ? 'live' : '', 'aria-label': `${m.home.name} - ${m.away.name}` },
-      h('div.mrow-time', {}, h('span', {}, kickoffText(m.kickoff)), h('span.mrow-state', { class: m.status.toLowerCase() }, state)),
+      h('div.mrow-time', {}, h('span', {}, hhmm(m.kickoff)), h('span.mrow-state', { class: m.status.toLowerCase() }, state)),
       h(
         'div.mrow-teams',
         {},
@@ -254,6 +357,7 @@ export function renderLobby(root) {
   drawList();
   drawSide();
   app.onMatches = draw;
+  app.onStandings = () => tab === 'table' && drawList();
   return {
     destroy() {
       wide.removeEventListener('change', onResize);
@@ -264,4 +368,15 @@ export function renderLobby(root) {
       if (wide.matches) loadRanks();
     },
   };
+}
+
+/** API-Football bölge açıklamasını Türkçe etikete ve renge çevirir */
+function zoneOf(d) {
+  if (!d) return null;
+  const q = /qualif|play-?off|elem/i.test(d) ? ' elemesi' : '';
+  if (/champions league/i.test(d)) return { key: q ? 'ucl-q' : 'ucl', label: `Şampiyonlar Ligi${q}` };
+  if (/europa league/i.test(d)) return { key: q ? 'uel-q' : 'uel', label: `Avrupa Ligi${q}` };
+  if (/conference league/i.test(d)) return { key: q ? 'uecl-q' : 'uecl', label: `Konferans Ligi${q}` };
+  if (/relegation/i.test(d)) return { key: 'rel', label: 'Küme düşme' };
+  return null;
 }

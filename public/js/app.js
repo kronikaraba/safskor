@@ -244,8 +244,17 @@ app.socket.on('profile', (p) => {
 app.socket.on('hello', (d) => {
   app.matches = d.matches;
   app.clubs = d.clubs || [];
+  app.tomorrow = d.tomorrow || [];
   setProvider(d.provider);
   app.onMatches?.();
+});
+app.socket.on('tomorrow', (list) => {
+  app.tomorrow = list || [];
+  app.onMatches?.();
+});
+app.socket.on('standings', (t) => {
+  app.standings = t;
+  app.onStandings?.();
 });
 app.socket.on('matches', (d) => {
   app.matches = d.matches;
@@ -279,10 +288,13 @@ function route() {
   current = hash;
   app.view?.destroy?.();
   app.onMatches = null;
+  app.onStandings = null;
   closeSheet();
   window.scrollTo(0, 0);
   const m = hash.match(/^#\/m\/([\w-]+)/);
-  app.view = m ? renderMatch(root, m[1]) : hash.startsWith('#/siralama') ? renderLeaderboard(root) : renderLobby(root);
+  // ana sayfa sekmeleri: #/ bugün, #/yarin yarının maçları, #/puan puan durumu
+  const tab = hash.startsWith('#/yarin') ? 'tomorrow' : hash.startsWith('#/puan') ? 'table' : 'today';
+  app.view = m ? renderMatch(root, m[1]) : hash.startsWith('#/siralama') ? renderLeaderboard(root) : renderLobby(root, tab);
   const rank = hash.startsWith('#/siralama');
   document.querySelector('.rank-link')?.classList.toggle('active', rank);
   document.querySelector('.home-link')?.classList.toggle('active', !rank);
