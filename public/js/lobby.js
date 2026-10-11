@@ -74,7 +74,9 @@ export function renderLobby(root, tab = 'today') {
     if (!cs.length) return clubs.remove();
     if (wide.matches) side.prepend(clubs);
     else lobby.prepend(clubs);
-    mount(clubs, h('div.big4-grid', {}, cs.map(clubTile)));
+    // Maç tarihine göre: en yakın maç önce, maçı olmayan sona
+    const at = (c) => Date.parse(clubMatch(c)?.kickoff) || Infinity;
+    mount(clubs, h('div.big4-grid', {}, [...cs].sort((a, b) => at(a) - at(b)).map(clubTile)));
   }
 
   /** Takımın gösterilecek maçı: bugünkü (canlı > yaklaşan > biten), yoksa sıradaki, o da yoksa son maçı */
@@ -264,12 +266,12 @@ export function renderLobby(root, tab = 'today') {
     if (!board) loadRanks();
   }
 
-  /** Öne çıkan maçlar: önce canlılar (en kalabalık oda önce), sonra yaklaşanlar, sonra bitenler */
+  /** Öne çıkan maçlar: odadaki taraftar sayısı çoktan aza; eşitse canlılar, yaklaşanlar, bitenler */
   function picks() {
     const order = (m) => (isLive(m) ? 0 : m.status === 'SCHEDULED' ? 1 : 2);
     const time = (m) => Date.parse(m.kickoff) || 0;
     return [...(app.matches || [])]
-      .sort((a, b) => order(a) - order(b) || (order(a) === 0 ? (b.viewers ?? 0) - (a.viewers ?? 0) : 0) || (order(a) === 2 ? time(b) - time(a) : time(a) - time(b)))
+      .sort((a, b) => (b.viewers ?? 0) - (a.viewers ?? 0) || order(a) - order(b) || (order(a) === 2 ? time(b) - time(a) : time(a) - time(b)))
       .slice(0, 5);
   }
 
