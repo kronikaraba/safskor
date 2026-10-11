@@ -314,15 +314,15 @@ button { cursor: pointer; }
 .chat-head { padding: 12px 14px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; }
 .chat-head b { font-size: 15px; }
 .chat-list { flex: 1; overflow-y: auto; padding: 10px 12px; display: flex; flex-direction: column; gap: 6px; overscroll-behavior: contain; }
-.msg { max-width: 88%; align-self: flex-start; }
+.msg { max-width: 88%; align-self: flex-start; display: flex; flex-direction: column; align-items: flex-start; }
 .msg .bubble { background: var(--surface-2); border: 1px solid var(--border); border-radius: 12px 12px 12px 4px; padding: 6px 10px; font-size: 14px; word-wrap: break-word; overflow-wrap: anywhere; }
 .msg .who { font-size: 11.5px; font-weight: 700; margin: 0 0 2px 4px; color: var(--nc, var(--muted)); }
 .msg .time { font-size: 10.5px; color: var(--faint); margin-left: 6px; font-weight: 600; cursor: default; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; padding: 2px 0; }
 .msg .time.clock { color: var(--muted); font-weight: 400; }
-.msg.me { align-self: flex-end; }
+.msg.me { align-self: flex-end; align-items: flex-end; } /* balon yazı kadar genişlesin, üst satıra uzamasın */
 .msg.me .bubble { background: rgba(0, 137, 254, 0.15); border-color: rgba(0, 137, 254, 0.35); border-radius: 12px 12px 4px 12px; }
 .msg.me .who { text-align: right; margin: 0 4px 2px 0; }
-.msg.sys { align-self: center; max-width: 100%; }
+.msg.sys { align-self: center; align-items: center; max-width: 100%; }
 .msg.sys .bubble { background: transparent; border: 1px dashed var(--border); color: var(--muted); font-size: 12.5px; border-radius: 999px; padding: 4px 12px; text-align: center; }
 .msg.sys.goal .bubble { color: var(--accent); border-color: rgba(0, 137, 254, 0.5); font-weight: 700; }
 .chat-quick { display: flex; gap: 6px; padding: 6px 12px 0; overflow-x: auto; scrollbar-width: none; }
