@@ -12,7 +12,7 @@ import type { Match, MatchEvent, Player, Side } from './types.js';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const provider = createProvider();
-const matches = new MatchService(provider);
+const matches = new MatchService(provider, config.focus);
 const store = new FanStore(config.dbPath);
 
 const app = express();

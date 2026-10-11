@@ -27,6 +27,20 @@ export const config = {
     dailyLimit: num(process.env.API_DAILY_LIMIT, 100),
     reserve: num(process.env.API_RESERVE, 5),
   },
+  /**
+   * Öncelikli takımlar (API-Football kimlikleri; varsayılan GS 645, FB 611, BJK 549, TS 998).
+   * Maçları her turnuvada listelenir ve kota önce bunlara harcanır.
+   */
+  focus: {
+    teams: (process.env.FOCUS_TEAMS ?? '645,611,549,998')
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean),
+    /** Öncelikli canlı maçların tam detay (kadro, istatistik, oyuncu puanı) yenileme aralığı */
+    detailMs: num(process.env.FOCUS_DETAIL_MS, 10 * 60_000),
+    /** Diğer canlı maçların (yalnızca izleniyorsa) tam detay yenileme aralığı */
+    otherDetailMs: num(process.env.OTHER_DETAIL_MS, 60 * 60_000),
+  },
   demoTickMs: num(process.env.DEMO_TICK_MS, 4000),
   dbPath: process.env.DB_PATH || './data/safskor.db',
 };

@@ -103,5 +103,5 @@ export function createProvider(): FootballProvider & { lastError?: string | null
     return demo;
   }
   console.log('[provider] API-Football kullanılıyor (hata durumunda demo veriye düşer)');
-  return new FallbackProvider(new ApiFootballProvider(config.apiFootball), demo);
+  return new FallbackProvider(new ApiFootballProvider({ ...config.apiFootball, focusTeams: config.focus.teams }), demo);
 }

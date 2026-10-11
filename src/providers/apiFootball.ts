@@ -13,6 +13,7 @@ export interface QuotaInfo {
   limit: number;
   used: number;
   remaining: number | null;
+  reserve: number;
   resetsAt: string;
 }
 
@@ -26,6 +27,8 @@ type Opts = {
   livePollMs: number;
   dailyLimit: number;
   reserve: number;
+  /** Bu takımların maçları, lig listesinde olmasa da (kupa, Avrupa) listelenir */
+  focusTeams?: string[];
 };
 
 /**
@@ -41,6 +44,8 @@ export class ApiFootballProvider implements FootballProvider {
   private used = 0;
   private remaining: number | null = null;
   private busy = false; // son listede canlı ya da yakında başlayacak maç var mı
+  /** Öncelikli takımların, takip listesi dışındaki ligleri (canlı akışa eklenir) */
+  private extraLeagues = new Set<string>();
 
   constructor(private opts: Opts) {}
 
@@ -50,7 +55,7 @@ export class ApiFootballProvider implements FootballProvider {
 
   quota(): QuotaInfo {
     this.rollDay();
-    return { limit: this.opts.dailyLimit, used: this.used, remaining: this.remaining, resetsAt: nextUtcMidnight().toISOString() };
+    return { limit: this.opts.dailyLimit, used: this.used, remaining: this.remaining, reserve: this.opts.reserve, resetsAt: nextUtcMidnight().toISOString() };
   }
 
   private rollDay() {
@@ -107,7 +112,12 @@ export class ApiFootballProvider implements FootballProvider {
     const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Istanbul' });
     const rows = await this.get('/fixtures', { date: today, timezone: 'Europe/Istanbul' });
     const leagues = new Set(this.opts.leagues);
-    const list = rows.filter((r) => !leagues.size || leagues.has(String(r.league?.id))).map(toSummary);
+    const focus = new Set(this.opts.focusTeams ?? []);
+    const isFocus = (r: any) => focus.has(String(r.teams?.home?.id)) || focus.has(String(r.teams?.away?.id));
+    // tarih sorgusu zaten tüm maçları getirir: öncelikli takımların kupa/Avrupa maçları ek istek olmadan listeye girer
+    const picked = rows.filter((r) => !leagues.size || leagues.has(String(r.league?.id)) || isFocus(r));
+    this.extraLeagues = new Set(picked.filter((r) => leagues.size && !leagues.has(String(r.league?.id))).map((r) => String(r.league?.id)));
+    const list = picked.map(toSummary);
     const soon = Date.now() + 30 * 60_000;
     this.busy = list.some((m) => m.status === 'LIVE' || m.status === 'HT' || (m.status === 'SCHEDULED' && Date.parse(m.kickoff) <= soon));
     return list;
@@ -115,7 +125,7 @@ export class ApiFootballProvider implements FootballProvider {
 
   /** Takip edilen liglerde oynanan tüm maçlar tek istekte (olaylar dahil, kadro/istatistik hariç) */
   async liveMatches(): Promise<Match[]> {
-    const live = this.opts.leagues.length ? this.opts.leagues.join('-') : 'all';
+    const live = this.opts.leagues.length ? [...new Set([...this.opts.leagues, ...this.extraLeagues])].join('-') : 'all';
     const rows = await this.get('/fixtures', { live, timezone: 'Europe/Istanbul' });
     return rows.map(toMatch);
   }

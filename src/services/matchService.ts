@@ -11,6 +11,9 @@ const MIN = 60_000;
  * - Kadro/istatistik için tam detay yalnızca izleyicisi olan maçlarda, seyrek çekilir; maç bitince bir kez daha.
  * - Canlı akış ve liste aralıkları kalan hakka göre ayarlanır: kalan istekler günün son maçının bitişine kadar
  *   eşit yayılır, böylece kota gün içinde tükenmez (bütçe bolsa alt sınırlar kullanılır).
+ * - Öncelikli takımlar (GS, FB, BJK, TS): maçlarının kadroları açıklanır açıklanmaz çekilir, canlıyken tam detayı
+ *   kimse izlemese de sık yenilenir. Diğer maçlarda tam detay yalnızca izleniyorsa ve seyrek çekilir.
+ * - Kota sıkışırsa önce diğer maçlar, en son öncelikli maçlar yavaşlar.
  *
  * Olaylar: 'list' (MatchSummary[]), 'match' (Match), 'events' (matchId, MatchEvent[] yeni olaylar)
  */
@@ -23,9 +26,24 @@ export class MatchService extends EventEmitter {
   private listTimer?: NodeJS.Timeout;
   private detailTimer?: NodeJS.Timeout;
   private liveTimer?: NodeJS.Timeout;
+  private focusTimer?: NodeJS.Timeout;
+  private focus: Set<string>;
+  private focusDetailMs: number;
+  private otherDetailMs: number;
 
-  constructor(private provider: FootballProvider) {
+  constructor(
+    private provider: FootballProvider,
+    opts: { teams?: string[]; detailMs?: number; otherDetailMs?: number } = {},
+  ) {
     super();
+    this.focus = new Set(opts.teams ?? []);
+    this.focusDetailMs = opts.detailMs ?? 10 * MIN;
+    this.otherDetailMs = opts.otherDetailMs ?? 60 * MIN;
+  }
+
+  /** 2: iki öncelikli takımın derbisi, 1: öncelikli takımın maçı, 0: diğer */
+  focusLevel(m: { home: { id: string }; away: { id: string } }) {
+    return Number(this.focus.has(m.home.id)) + Number(this.focus.has(m.away.id));
   }
 
   get providerInfo() {
@@ -41,6 +59,10 @@ export class MatchService extends EventEmitter {
         listEveryMin: Math.round(this.listInterval() / MIN),
         // null: şu an oynanan maç yok, canlı akış beklemede
         liveEveryMin: this.liveFeedOn() && this.liveDue() ? Math.round(this.liveInterval() / MIN) : null,
+        pressure: this.pressure(),
+        focusEveryMin: Math.round(this.focusInterval() / MIN),
+        otherEveryMin: Math.round(this.otherInterval() / MIN),
+        focusMatches: this.list.filter((m) => this.focusLevel(m) > 0).map((m) => `${m.home.short}-${m.away.short} ${m.status}`),
       },
     };
   }
@@ -63,15 +85,21 @@ export class MatchService extends EventEmitter {
       }
       this.liveTimer = setTimeout(loopLive, wait);
     };
+    const loopFocus = async () => {
+      await this.refreshFocus().catch((e) => console.error('[matches] öncelikli maç hatası', e));
+      this.focusTimer = setTimeout(loopFocus, 30_000);
+    };
     this.listTimer = setTimeout(loopList, this.listInterval());
     this.detailTimer = setTimeout(loopDetail, this.provider.pollMs.detail);
     this.liveTimer = setTimeout(loopLive, 5_000);
+    this.focusTimer = setTimeout(loopFocus, 10_000);
   }
 
   stop() {
     clearTimeout(this.listTimer);
     clearTimeout(this.detailTimer);
     clearTimeout(this.liveTimer);
+    clearTimeout(this.focusTimer);
   }
 
   getList() {
@@ -90,10 +118,12 @@ export class MatchService extends EventEmitter {
     if (m.status === 'FT' || m.status === 'POSTPONED') return 6 * 60 * MIN;
     if (m.status === 'SCHEDULED') {
       const until = Date.parse(m.kickoff) - Date.now();
-      // kadrolar genelde maçtan ~1 saat önce açıklanır
+      // kadrolar genelde maçtan ~1 saat önce açıklanır; öncelikli maçta açıklanana kadar 10 dk'da bir bak
+      if (this.focusLevel(m) && until <= 75 * MIN && !m.lineups) return 10 * MIN;
       return until > 90 * MIN ? 60 * MIN : 15 * MIN;
     }
-    return this.liveFeedOn() ? 60 * MIN : this.provider.pollMs.detail;
+    if (!this.liveFeedOn()) return this.provider.pollMs.detail;
+    return this.focusLevel(m) ? this.focusInterval() : this.otherInterval();
   }
 
   watch(id: string) {
@@ -128,12 +158,41 @@ export class MatchService extends EventEmitter {
   private budget() {
     const q = (this.provider as any).quota?.();
     if (!q) return null;
-    const left = (q.remaining ?? q.limit - q.used) - 5;
+    const left = (q.remaining ?? q.limit - q.used) - (q.reserve ?? 5);
     const open = this.list.filter((m) => m.status !== 'FT' && m.status !== 'POSTPONED');
     const until = Math.max(MIN, Math.min(this.windowEnd(), Date.parse(q.resetsAt)) - Date.now());
-    // diğer harcamalar için ayır: maç başına ~2 tam detay (izlenirse kadro + bitiş), saatte bir liste
-    const others = open.length * 2 + Math.ceil(until / (60 * MIN));
+    // diğer harcamalar için ayır: diğer maç başına ~2 tam detay (kadro + bitiş), öncelikli maçlar için
+    // kalan süreleri boyunca detay yenilemeleri + kadro kontrolü, saatte bir liste
+    const focusNeed = open
+      .filter((m) => this.focusLevel(m))
+      .reduce((a, m) => a + 8 + Math.ceil(Math.max(0, Date.parse(m.kickoff) + 130 * MIN - Date.now()) / this.focusInterval(true)), 0);
+    const others = open.filter((m) => !this.focusLevel(m)).length * 2 + focusNeed + Math.ceil(until / (60 * MIN));
     return { left, forLive: left - others, until };
+  }
+
+  /**
+   * Kota baskısı: kalan hak, günün kalan kısmına düşen paya göre.
+   * ok: rahat · tight: diğer maçlar yavaşlar · critical: öncelikli maçlar da yavaşlar
+   */
+  private pressure(): 'ok' | 'tight' | 'critical' {
+    const q = (this.provider as any).quota?.();
+    if (!q) return 'ok';
+    const left = (q.remaining ?? q.limit - q.used) - (q.reserve ?? 5);
+    const dayLeft = Math.max(0.05, (Date.parse(q.resetsAt) - Date.now()) / (24 * 60 * MIN));
+    const ratio = left / (q.limit * dayLeft);
+    return ratio < 0.2 ? 'critical' : ratio < 0.5 ? 'tight' : 'ok';
+  }
+
+  /** Öncelikli canlı maçların tam detay aralığı (base: baskıyı hesaba katmadan, bütçe tahmini için) */
+  private focusInterval(base = false) {
+    const p = base ? 'ok' : this.pressure();
+    return this.focusDetailMs * (p === 'critical' ? 10 : p === 'tight' ? 3 : 1);
+  }
+
+  /** Diğer (izlenen) canlı maçların tam detay aralığı */
+  private otherInterval() {
+    const p = this.pressure();
+    return p === 'critical' ? 6 * 60 * MIN : p === 'tight' ? Math.min(3 * 60 * MIN, this.otherDetailMs * 3) : this.otherDetailMs;
   }
 
   private liveInterval() {
@@ -147,7 +206,7 @@ export class MatchService extends EventEmitter {
   private listInterval() {
     const base = this.provider.pollMs.list;
     // canlı akış açıkken liste yalnızca yeni maçları/saat değişikliklerini yakalamak için
-    if (this.liveFeedOn() && this.liveDue()) return Math.max(base, 60 * MIN);
+    if (this.liveFeedOn() && this.liveDue()) return Math.max(base, this.pressure() === 'ok' ? 15 * MIN : 60 * MIN);
     const b = this.budget();
     if (b && b.left < 15) return Math.max(base, 2 * 60 * MIN);
     return base;
@@ -158,7 +217,8 @@ export class MatchService extends EventEmitter {
   private async refreshList() {
     const list = await this.provider.listMatches();
     const order = { LIVE: 0, HT: 0, SCHEDULED: 1, FT: 2, POSTPONED: 3 } as const;
-    list.sort((a, b) => order[a.status] - order[b.status] || a.kickoff.localeCompare(b.kickoff));
+    // aynı durumdaki maçlarda öncelikli takımların maçları (ve ligleri) üstte
+    list.sort((a, b) => order[a.status] - order[b.status] || this.focusLevel(b) - this.focusLevel(a) || a.kickoff.localeCompare(b.kickoff));
     const info = this.providerInfo;
     const json = JSON.stringify(list) + `|${info.demo}|${info.stale}`; // sağlayıcı durumu değişince de yayınla
     if (json !== this.listJson) {
@@ -183,6 +243,23 @@ export class MatchService extends EventEmitter {
     const recent = (id: string) => Date.now() - (this.details.get(id)?.fullAt ?? 0) < 15 * MIN;
     const ended = this.list.filter((m) => (m.status === 'LIVE' || m.status === 'HT') && !ids.has(m.id) && !recent(m.id)).map((m) => m.id);
     for (const id of ended) await this.fetchDetail(id);
+  }
+
+  /** Öncelikli maçlar: kimse izlemese de kadroyu erken çek, canlıyken tam detayı sık yenile (oda hazır olsun) */
+  private async refreshFocus() {
+    if (!this.focus.size || !this.liveFeedOn()) return;
+    const now = Date.now();
+    for (const m of this.list) {
+      if (!this.focusLevel(m)) continue;
+      const cached = this.details.get(m.id);
+      const age = now - (cached?.fullAt ?? 0);
+      const until = Date.parse(m.kickoff) - now;
+      const due =
+        m.status === 'LIVE' || m.status === 'HT'
+          ? age >= this.focusInterval()
+          : m.status === 'SCHEDULED' && until <= 75 * MIN && until > -10 * MIN && !cached?.match.lineups && age >= 10 * MIN;
+      if (due) await this.fetchDetail(m.id);
+    }
   }
 
   private async refreshWatched() {
