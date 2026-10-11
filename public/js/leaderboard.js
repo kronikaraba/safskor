@@ -1,5 +1,5 @@
 import { app } from './app.js';
-import { h, mount, teamBadge } from './util.js';
+import { h, mount, teamBadge, icon } from './util.js';
 
 const DAY = 86_400_000;
 /** Pazartesi başlangıçlı hafta anahtarı (Türkiye saati), sunucudaki weekKey ile aynı */
@@ -33,7 +33,7 @@ export function renderLeaderboard(root) {
       h(
         'div.lb-head',
         {},
-        h('div', {}, h('h1', {}, '🏆 Haftalık tahmin sıralaması'), h('p.muted.small', {}, `${fmtDay(start)} – ${fmtDay(r.endsAt - 1)}${current ? ` · ${resetText(left)}` : ''}`)),
+        h('div', {}, h('h1.h-ic', {}, icon('oyuncu-kupasi', 'lg'), 'Haftalık tahmin sıralaması'), h('p.muted.small', {}, `${fmtDay(start)} – ${fmtDay(r.endsAt - 1)}${current ? ` · ${resetText(left)}` : ''}`)),
         h(
           'div.seg',
           {},

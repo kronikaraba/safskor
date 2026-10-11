@@ -1,7 +1,8 @@
 import { app, editNick } from './app.js';
-import { h, mount, crest, statusPill, minuteText, ratingPill, timeText, toast, openSheet, colorFor, storage, POS_TR, kickoffText, roundText, dayText, teamBadge } from './util.js';
+import { h, mount, crest, statusPill, minuteText, ratingPill, timeText, toast, openSheet, colorFor, storage, POS_TR, kickoffText, roundText, dayText, teamBadge, icon } from './util.js';
 import { openShare } from './share.js';
 
+const TAB_ICON = { tactics: 'taktik-oner', subs: 'degisiklik-talebi', polls: 'anketler' };
 const TABS = [
   ['chat', 'Sohbet'],
   ['summary', 'Özet'],
@@ -158,6 +159,7 @@ export function renderMatch(root, matchId) {
             'aria-selected': String(key === s.tab),
             onclick: () => setTab(key),
           },
+          TAB_ICON[key] ? icon(TAB_ICON[key]) : null,
           label,
           key === 'chat' && s.unread ? h('span.badge', {}, s.unread > 99 ? '99+' : s.unread) : null,
         ),
@@ -270,7 +272,7 @@ export function renderMatch(root, matchId) {
       h('h3', {}, 'Taraftarın nabzı'),
       best ? motm(best) : h('p.muted.small', {}, 'Henüz oyuncu puanı yok. "Puanla" sekmesinden ilk puanı sen ver!'),
       winner && winner.total ? pollResult(winner) : null,
-      h('div.pick', {}, s.match.status === 'FT' && h('button.btn.sm', { onclick: openCard }, '📤 Kartımı paylaş'), s.match.status === 'SCHEDULED' && h('button.btn.sm', { onclick: () => setTab('predict') }, '🎯 Skor tahmini yap'), h('button.btn.ghost.sm', { onclick: () => setTab('tactics') }, '🧠 Taktik öner'), h('button.btn.ghost.sm', { onclick: () => setTab('subs') }, '🔁 Değişiklik iste'), h('button.btn.ghost.sm', { onclick: () => setTab('polls') }, '📊 Anketler')),
+      h('div.pick', {}, s.match.status === 'FT' && h('button.btn.sm', { onclick: openCard }, '📤 Kartımı paylaş'), s.match.status === 'SCHEDULED' && h('button.btn.sm', { onclick: () => setTab('predict') }, '🎯 Skor tahmini yap'), h('button.btn.ghost.sm', { onclick: () => setTab('tactics') }, icon('taktik-oner'), 'Taktik öner'), h('button.btn.ghost.sm', { onclick: () => setTab('subs') }, icon('degisiklik-talebi'), 'Değişiklik iste'), h('button.btn.ghost.sm', { onclick: () => setTab('polls') }, icon('anketler'), 'Anketler')),
     );
   }
 
@@ -377,7 +379,7 @@ export function renderMatch(root, matchId) {
                   ]
                 : h('p.muted.small', {}, ft ? 'Puanın hesaplanıyor…' : 'Maç bitince puanın burada görünecek.'),
             ),
-        ft ? h('div.pick', { style: { marginTop: '12px' } }, h('button.btn.sm', { onclick: openCard }, '📤 Kartımı paylaş'), h('a.btn.ghost.sm', { href: '#/siralama' }, '🏆 Sıralama')) : null,
+        ft ? h('div.pick', { style: { marginTop: '12px' } }, h('button.btn.sm', { onclick: openCard }, '📤 Kartımı paylaş'), h('a.btn.ghost.sm', { href: '#/siralama' }, icon('oyuncu-kupasi'), 'Sıralama')) : null,
       );
     };
     const drawExtra = () => {
@@ -652,7 +654,7 @@ export function renderMatch(root, matchId) {
         );
       mount(
         formCard,
-        h('h3', {}, 'Taktik önerin', sideToggle('tactics', () => (drawForm(), drawResults()))),
+        h('h3', {}, h('span.h-ic', {}, icon('taktik-oner'), 'Taktik önerin'), sideToggle('tactics', () => (drawForm(), drawResults()))),
         h(
           'form.form',
           {
@@ -731,7 +733,7 @@ export function renderMatch(root, matchId) {
       };
       mount(
         formCard,
-        h('h3', {}, 'Değişiklik talep et', sideToggle('subs', () => ((draft.out = draft.in = ''), drawForm(), drawResults()))),
+        h('h3', {}, h('span.h-ic', {}, icon('degisiklik-talebi'), 'Değişiklik talep et'), sideToggle('subs', () => ((draft.out = draft.in = ''), drawForm(), drawResults()))),
         !open
           ? h('p.muted', {}, m.status === 'FT' ? 'Maç bitti; talepler aşağıda arşivlendi.' : 'Değişiklik talepleri maç başlayınca açılır.')
           : h(
@@ -819,7 +821,7 @@ export function renderMatch(root, matchId) {
     const list = h('div.card');
     const drawList = () => {
       const polls = s.fan?.polls ?? [];
-      mount(list, h('h3', {}, 'Anketler', h('span.muted', {}, 'Oy verdikten sonra fikrini değiştirebilirsin')), polls.map((p) => pollCard(p)));
+      mount(list, h('h3', {}, h('span.h-ic', {}, icon('anketler'), 'Anketler'), h('span.muted', {}, 'Oy verdikten sonra fikrini değiştirebilirsin')), polls.map((p) => pollCard(p)));
     };
     mount(el, list);
     return { el, update: drawList };
@@ -861,7 +863,7 @@ export function renderMatch(root, matchId) {
     return h(
       'div.motm',
       {},
-      h('span.trophy', {}, '🏆'),
+      icon('oyuncu-kupasi', 'trophy'),
       h('div', {}, h('div.muted.small', {}, 'Taraftarın maçın adamı'), h('b', {}, p.name), h('div.muted.small', {}, `${s.match[side].name} · ${fan.count} oy`)),
       h('span.big', {}, fan.avg.toFixed(1)),
     );

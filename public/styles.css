@@ -263,7 +263,7 @@ button { cursor: pointer; }
 .fbar.mine .fbar-head { color: var(--accent); font-weight: 600; }
 
 .motm { display: flex; align-items: center; gap: 12px; background: linear-gradient(90deg, rgba(255, 197, 66, 0.14), transparent); border: 1px solid rgba(255, 197, 66, 0.3); border-radius: var(--radius); padding: 12px 14px; margin-bottom: 12px; }
-.motm .trophy { font-size: 28px; }
+.motm .trophy { width: 40px; height: 40px; flex: none; }
 .motm .big { font-size: 22px; font-weight: 800; color: var(--gold); margin-left: auto; }
 
 .team-avg { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 12px; }
@@ -464,3 +464,11 @@ button { cursor: pointer; }
   .chips::-webkit-scrollbar { display: none; }
   .chip { padding: 8px 14px; font-size: 14px; }
 }
+
+/* taraftar ikonları (emoji yerine şeffaf PNG) */
+.fan-icon { width: 20px; height: 20px; object-fit: contain; display: inline-block; vertical-align: middle; flex: none; pointer-events: none; user-select: none; }
+.fan-icon.lg { width: 32px; height: 32px; }
+.tab .fan-icon { width: 18px; height: 18px; margin: -2px 6px 0 0; }
+.btn .fan-icon { margin-right: 6px; }
+.h-ic { display: inline-flex; align-items: center; gap: 8px; }
+.rank-link .fan-icon { width: 18px; height: 18px; }

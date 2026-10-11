@@ -25,6 +25,11 @@ function append(el, children) {
   }
 }
 
+/** Taraftar ikonu (şeffaf PNG), emoji yerine */
+export function icon(name, cls = '') {
+  return h(`img.fan-icon${cls ? '.' + cls : ''}`, { src: `/img/icons/${name}.png`, alt: '', 'aria-hidden': 'true', draggable: 'false' });
+}
+
 export function mount(el, ...children) {
   el.replaceChildren();
   append(el, children);

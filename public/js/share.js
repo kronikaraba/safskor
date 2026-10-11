@@ -68,11 +68,12 @@ async function drawCard(canvas, card, format) {
   canvas.height = H;
   const x = canvas.getContext('2d');
   const m = card.match;
-  const [logo, hc, ac, tb] = await Promise.all([
+  const [logo, hc, ac, tb, trophy] = await Promise.all([
     loadImg('/img/logo.png'),
     loadImg(crestUrl(m.home.logo)),
     loadImg(crestUrl(m.away.logo)),
     loadImg(crestUrl(card.team?.logo)),
+    loadImg('/img/icons/oyuncu-kupasi.png'),
   ]);
 
   // zemin
@@ -132,7 +133,7 @@ async function drawCard(canvas, card, format) {
 
   // kart satırları
   const lines = [];
-  if (card.motm) lines.push(['🏆', 'Maçın adamım', `${card.motm.name} · ${card.motm.score}`, C.gold]);
+  if (card.motm) lines.push([trophy || '🏆', 'Maçın adamım', `${card.motm.name} · ${card.motm.score}`, C.gold]);
   if (card.prediction) {
     const p = card.prediction;
     lines.push(['🎯', 'Skor tahminim', `${p.home}-${p.away}${p.points != null ? ` · ${p.points} puan` : ''}`, C.accent]);
@@ -145,7 +146,11 @@ async function drawCard(canvas, card, format) {
     x.fill();
     x.textAlign = 'left';
     x.font = `${story ? 56 : 46}px ${FONT}`;
-    x.fillText(ic, 100, y + (rowH - 24) / 2 + (story ? 20 : 16));
+    if (typeof ic === 'string') x.fillText(ic, 100, y + (rowH - 24) / 2 + (story ? 20 : 16));
+    else {
+      const sz = story ? 72 : 58;
+      x.drawImage(ic, 96, y + (rowH - 24 - sz) / 2, sz, sz);
+    }
     x.fillStyle = C.muted;
     x.font = `600 ${story ? 30 : 26}px ${FONT}`;
     x.fillText(label, 190, y + (story ? 52 : 40));
