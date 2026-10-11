@@ -43,7 +43,10 @@ button { cursor: pointer; }
   background: rgba(11, 15, 20, 0.85); backdrop-filter: blur(12px);
   border-bottom: 1px solid var(--border);
 }
-.brand { display: flex; align-items: center; gap: 8px; font-size: 19px; letter-spacing: -0.02em; }
+.topbar-in { display: flex; align-items: center; gap: 10px; width: 100%; }
+.brand { display: flex; align-items: center; gap: 8px; font-size: 19px; letter-spacing: -0.02em; margin-right: auto; }
+.topnav { display: flex; align-items: center; gap: 10px; }
+.home-link { display: none; }
 .brand-logo { display: block; height: 30px; width: auto; }
 .topbar-right { display: flex; align-items: center; gap: 10px; }
 .conn { width: 9px; height: 9px; border-radius: 50%; background: var(--faint); }
@@ -74,25 +77,6 @@ button { cursor: pointer; }
 .chip.active { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 600; }
 .chip .count { opacity: 0.7; margin-left: 4px; }
 
-.comp { margin-top: 18px; }
-.comp-title { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; margin: 0 0 8px 2px; }
-.comp-title img { width: 18px; height: 18px; object-fit: contain; }
-.grid { display: grid; gap: 10px; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); }
-
-.mcard {
-  display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 10px;
-  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
-  padding: 14px; position: relative; transition: border-color 0.15s, transform 0.15s;
-}
-.mcard:hover { border-color: #3a4a62; transform: translateY(-1px); }
-.mcard.live { border-color: rgba(255, 77, 94, 0.35); }
-.mcard .team { display: flex; flex-direction: column; align-items: center; gap: 6px; text-align: center; min-width: 0; }
-.mcard .team .name { font-weight: 600; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
-.mcard .mid { text-align: center; min-width: 86px; }
-.mcard .score { font-size: 26px; font-weight: 800; letter-spacing: 0.02em; font-variant-numeric: tabular-nums; }
-.mcard .meta { position: absolute; left: 14px; right: 14px; bottom: -1px; display: none; }
-.mcard-foot { grid-column: 1 / -1; display: flex; justify-content: space-between; color: var(--muted); font-size: 12px; border-top: 1px dashed var(--border); padding-top: 8px; margin-top: 2px; }
-
 .crest {
   width: 40px; height: 40px; border-radius: 50%; display: grid; place-items: center; flex: none; position: relative;
   font-weight: 800; font-size: 12px; letter-spacing: -0.02em; color: #fff;
@@ -114,7 +98,7 @@ button { cursor: pointer; }
 .status.ft { background: var(--surface-3); color: var(--muted); }
 @keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(255, 77, 94, 0.7); } 70% { box-shadow: 0 0 0 7px rgba(255, 77, 94, 0); } 100% { box-shadow: 0 0 0 0 rgba(255, 77, 94, 0); } }
 
-/* compact list (phones): one card per league, one row per match */
+/* compact list: one card per league, one row per match (desktop puts them all in one panel) */
 .comp-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); margin-top: 12px; overflow: hidden; }
 .comp-head { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-bottom: 1px solid var(--border); background: var(--surface-2); }
 .comp-head img { width: 22px; height: 22px; object-fit: contain; flex: none; }
@@ -141,6 +125,8 @@ button { cursor: pointer; }
 .mrow-fans { font-size: 11px; color: var(--accent); white-space: nowrap; }
 .mrow-go { color: var(--faint); font-size: 22px; line-height: 1; }
 .chip.has-live:not(.active) { color: #ff8994; border-color: rgba(255, 77, 94, 0.4); background: rgba(255, 77, 94, 0.1); }
+
+.lobby-date, .lobby-side { display: none; }
 
 .empty { text-align: center; color: var(--muted); padding: 40px 16px; border: 1px dashed var(--border); border-radius: var(--radius); }
 
@@ -444,7 +430,6 @@ button { cursor: pointer; }
 @media (max-width: 520px) {
   .app { padding: 12px; }
   .sb-score { min-width: 0; }
-  .grid { grid-template-columns: 1fr; }
   .sb-score { font-size: 36px; }
   .crest.lg { width: 44px; height: 44px; font-size: 14px; }
   .sb-team .name { font-size: 14px; }
@@ -535,3 +520,113 @@ button { cursor: pointer; }
 .dm-list .msg .time { margin: 2px 4px 0; }
 .dm-form { margin-top: 4px; }
 .toast.dm { cursor: pointer; border-color: rgba(0, 137, 254, 0.5); }
+
+/* ---------------------------------------------------------------- masaüstü: Sofascore düzeni (koyu) */
+@media (min-width: 641px) {
+  body { background: var(--bg); }
+  .topbar {
+    padding: 0 20px; border-bottom: 0; backdrop-filter: none;
+    background: linear-gradient(180deg, #0c2f60 0%, #0a2650 100%);
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.3);
+  }
+  .topbar-in { max-width: 1200px; margin: 0 auto; height: 64px; display: grid; grid-template-columns: 1fr auto 1fr; gap: 16px; }
+  .brand { margin-right: 0; justify-self: start; }
+  .brand-logo { height: 32px; }
+  .topnav { gap: 6px; }
+  .nav-link, .rank-link {
+    display: inline-flex; align-items: center; gap: 8px; height: 40px; padding: 0 16px; border: 0; border-radius: 6px; background: transparent;
+    color: #fff; font-size: 14px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.04em;
+  }
+  .nav-link svg { width: 18px; height: 18px; }
+  .nav-link:hover { background: rgba(255, 255, 255, 0.1); }
+  .nav-link.active, .rank-link.active { background: #fff; color: #0a2650; border-color: transparent; }
+  .topbar-right { justify-self: end; }
+  .topbar .dm-btn, .topbar .nick-btn { background: rgba(255, 255, 255, 0.1); border-color: rgba(255, 255, 255, 0.16); color: #fff; }
+  .topbar .dm-btn { width: 38px; height: 36px; }
+  .topbar .nick-btn { padding: 8px 14px; font-weight: 600; }
+  .topbar .dm-btn .dm-badge { border: 2px solid #0b2a57; }
+  .toasts { top: 76px; }
+
+  .banner { max-width: 1200px; width: calc(100% - 40px); }
+  .app { max-width: 1240px; }
+  .app { padding: 20px; }
+  .panel, .card, .comp-card, .scoreboard, .chat, .empty { border-radius: 16px; }
+
+  /* ana sayfa: maç listesi tek panelde, lig başlıkları arada */
+  .lobby-main { background: var(--surface); border: 1px solid var(--border); border-radius: 16px; overflow: hidden; }
+  .lobby-head { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 0 12px; margin: 0; padding: 0 16px; }
+  .lobby-head > div:first-child { align-self: stretch; display: flex; }
+  .lobby-head h1 {
+    position: relative; display: flex; align-items: center; height: 52px; padding: 0 4px; font-size: 15px; letter-spacing: 0; color: var(--accent);
+  }
+  .lobby-head h1::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 3px; border-radius: 3px 3px 0 0; background: var(--accent); }
+  .lobby-head p { display: none; }
+  .lobby-date {
+    display: inline-flex; align-items: center; height: 34px; padding: 0 14px; border: 1px solid var(--border); border-radius: 8px;
+    background: var(--surface-2); color: var(--blue); font-size: 13.5px; font-weight: 600; white-space: nowrap;
+  }
+  .lobby-head .chips { grid-column: 1 / -1; margin: 0 -16px; padding: 12px 16px; border-top: 1px solid var(--border); }
+  .chip { border: 0; background: var(--surface-3); color: var(--text); padding: 7px 14px; font-weight: 500; }
+  .chip.active { background: var(--accent); }
+  .chip.has-live:not(.active) { border: 0; }
+  .lobby-main .comp-card { margin: 0; border: 0; border-top: 1px solid var(--border); border-radius: 0; background: transparent; overflow: visible; }
+  .lobby-main .comp-head { background: transparent; border-bottom: 0; padding: 12px 16px 6px; }
+  .lobby-main .comp-head img { width: 28px; height: 28px; }
+  .lobby-main .comp-name b { font-size: 14.5px; }
+  .lobby-main .mrow { grid-template-columns: 54px minmax(0, 1fr) auto 40px; padding: 7px 16px; gap: 12px; }
+  .lobby-main .mrow + .mrow { border-top: 0; }
+  .lobby-main .mrow:hover { background: var(--surface-2); }
+  .lobby-main .mrow.live::before { top: 6px; bottom: 6px; }
+  .lobby-main .mrow-time { align-self: stretch; justify-content: center; border-right: 1px solid var(--border); padding-right: 10px; }
+  .lobby-main .mrow-team { font-size: 14.5px; }
+  .lobby-main .mrow-score { font-weight: 600; }
+  .lobby-main .empty { border: 0; border-top: 1px solid var(--border); border-radius: 0; }
+
+  /* maç sayfası */
+  .scoreboard { background: var(--surface); box-shadow: none; padding: 0 20px 18px; }
+  .scoreboard::before { display: none; }
+  .sb-comp { text-align: left; color: var(--text); font-size: 14px; font-weight: 600; padding: 14px 0 12px; margin: 0 -20px 16px; padding-left: 20px; border-bottom: 1px solid var(--border); }
+  .sb-score.live { color: var(--live); }
+  .tabs {
+    top: 64px; gap: 0; margin: 16px 0 12px; padding: 0 8px; background: var(--surface); border: 1px solid var(--border); border-radius: 14px;
+    box-shadow: 0 -10px 0 var(--bg);
+  }
+  .tab { border-radius: 0; padding: 14px 16px; position: relative; }
+  .tab.active { background: transparent; color: var(--accent); }
+  .tab.active::after { content: ""; position: absolute; left: 12px; right: 12px; bottom: 0; height: 3px; border-radius: 3px 3px 0 0; background: var(--accent); }
+  .chat { top: 84px; height: calc(100vh - 104px); }
+}
+
+@media (min-width: 921px) {
+  .lobby { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); gap: 16px; align-items: start; }
+  .lobby-side { display: grid; gap: 16px; }
+}
+
+/* sağ sütun: öne çıkan maç ve haftalık sıralama özeti */
+.panel { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); }
+.feat { padding: 16px 16px 12px; }
+.feat-comp { display: flex; align-items: center; gap: 10px; font-size: 14px; }
+.feat-comp img { width: 28px; height: 28px; object-fit: contain; flex: none; }
+.feat-comp > span:last-child { display: flex; flex-direction: column; line-height: 1.3; min-width: 0; }
+.feat-comp .muted { font-size: 12.5px; }
+.feat-main { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: 12px; padding: 24px 0 20px; }
+.feat-team { display: flex; flex-direction: column; align-items: center; gap: 10px; text-align: center; font-weight: 700; font-size: 15px; min-width: 0; }
+.feat-team .crest.lg { width: 64px; height: 64px; font-size: 17px; }
+.feat-mid { text-align: center; min-width: 110px; }
+.feat-score { font-size: 40px; font-weight: 800; line-height: 1.1; letter-spacing: 0.02em; font-variant-numeric: tabular-nums; }
+.feat-score.live { color: var(--live); }
+.feat-state { margin-top: 4px; font-size: 14px; font-weight: 600; color: var(--muted); }
+.feat-state.live { color: var(--live); }
+.feat-state.ht { color: var(--gold); }
+.feat-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 10px 10px 14px; border-radius: 12px; background: var(--surface-2); }
+.feat-nav { display: flex; align-items: center; justify-content: space-between; margin-top: 10px; }
+.feat-nav > button { border: 0; background: transparent; color: var(--accent); font-size: 14px; font-weight: 600; padding: 4px 2px; }
+.feat-dots { display: flex; gap: 8px; }
+.feat-dots button { width: 8px; height: 8px; padding: 0; border: 0; border-radius: 50%; background: var(--surface-3); }
+.feat-dots button.on { background: var(--accent); }
+.side-rank { padding: 14px 16px; }
+.panel-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 6px; }
+.panel-head h2 { margin: 0; font-size: 16px; }
+.panel-link { color: var(--accent); font-size: 13.5px; font-weight: 600; }
+.side-rank .lb-row { padding: 8px 4px; }
+.side-rules { margin: 10px 0 0; }

@@ -150,7 +150,9 @@ function route() {
   window.scrollTo(0, 0);
   const m = hash.match(/^#\/m\/([\w-]+)/);
   app.view = m ? renderMatch(root, m[1]) : hash.startsWith('#/siralama') ? renderLeaderboard(root) : renderLobby(root);
-  document.querySelector('.rank-link')?.classList.toggle('active', hash.startsWith('#/siralama'));
+  const rank = hash.startsWith('#/siralama');
+  document.querySelector('.rank-link')?.classList.toggle('active', rank);
+  document.querySelector('.home-link')?.classList.toggle('active', !rank);
 }
 
 window.addEventListener('hashchange', route);

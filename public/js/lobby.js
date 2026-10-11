@@ -1,5 +1,6 @@
 import { app } from './app.js';
-import { h, mount, crest, statusPill, kickoffText, storage, roundText } from './util.js';
+import { h, mount, crest, kickoffText, storage, roundText, minuteText, dayText, icon } from './util.js';
+import { lbRow } from './leaderboard.js';
 
 const FILTERS = [
   ['all', 'Tümü', () => true],
@@ -7,32 +8,53 @@ const FILTERS = [
   ['upcoming', 'Yaklaşan', (m) => m.status === 'SCHEDULED'],
   ['done', 'Biten', (m) => m.status === 'FT' || m.status === 'POSTPONED'],
 ];
+const isLive = (m) => m.status === 'LIVE' || m.status === 'HT';
+const hasStarted = (m) => m.status !== 'SCHEDULED' && m.status !== 'POSTPONED';
 
 export function renderLobby(root) {
   let filter = storage.get('safskor.filter', 'all');
+  let featuredId = null; // sağ sütunda gösterilen maç
+  let board = null; // haftalık sıralama özeti
   app.socket.emit('lobby:join');
 
   const chips = h('div.chips', { role: 'tablist' });
-  const list = h('div');
+  const list = h('div.lobby-list');
+  const featured = h('div');
+  const ranks = h('div');
+  const today = new Date().toLocaleDateString('tr-TR', { day: 'numeric', month: 'long' });
   mount(
     root,
-    h('div.lobby-head', {}, h('div', {}, h('h1', {}, 'Bugünün maçları'), h('p.muted.small', {}, 'Bir maç odasına gir: canlı sohbet et, oyuncuları puanla, taktik öner.')), chips),
-    list,
+    h(
+      'div.lobby',
+      {},
+      h(
+        'section.lobby-main',
+        {},
+        h('div.lobby-head', {}, h('div', {}, h('h1', {}, 'Bugünün maçları'), h('p.muted.small', {}, 'Bir maç odasına gir: canlı sohbet et, oyuncuları puanla, taktik öner.')), h('span.lobby-date', {}, `Bugün · ${today}`), chips),
+        list,
+      ),
+      h('aside.lobby-side', {}, featured, ranks),
+    ),
   );
 
-  // Telefonda Sofascore/Mackolik tarzı sıkı liste, geniş ekranda kartlar
-  const compact = window.matchMedia('(max-width: 640px)');
-  const onResize = () => draw();
-  compact.addEventListener('change', onResize);
+  // Masaüstünde (Sofascore düzeni) solda maç listesi, sağda öne çıkan maç ve haftalık sıralama
+  const wide = window.matchMedia('(min-width: 921px)');
+  const onResize = () => drawSide();
+  wide.addEventListener('change', onResize);
 
   function draw() {
+    drawList();
+    drawFeatured();
+  }
+
+  function drawList() {
     const all = app.matches || [];
     mount(
       chips,
       FILTERS.map(([key, label, fn]) =>
         h(
           'button.chip',
-          { class: [key === filter ? 'active' : '', key === 'live' && all.some(fn) ? 'has-live' : ''].join(' ').trim(), role: 'tab', 'aria-selected': String(key === filter), onclick: () => ((filter = key), storage.set('safskor.filter', key), draw()) },
+          { class: [key === filter ? 'active' : '', key === 'live' && all.some(fn) ? 'has-live' : ''].join(' ').trim(), role: 'tab', 'aria-selected': String(key === filter), onclick: () => ((filter = key), storage.set('safskor.filter', key), drawList()) },
           label,
           h('span.count', {}, all.filter(fn).length),
         ),
@@ -50,21 +72,7 @@ export function renderLobby(root) {
       if (!groups.has(key)) groups.set(key, []);
       groups.get(key).push(m);
     }
-    if (compact.matches) {
-      mount(list, [...groups.entries()].map(([name, ms]) => compSection(name, ms)));
-      return;
-    }
-    mount(
-      list,
-      [...groups.entries()].map(([name, ms]) =>
-        h(
-          'section.comp',
-          {},
-          h('h2.comp-title', {}, ms[0].competition.logo && h('img', { src: ms[0].competition.logo, alt: '' }), name, ms[0].competition.country && h('span', { style: { fontWeight: 400 } }, `· ${ms[0].competition.country}`)),
-          h('div.grid', {}, ms.map(card)),
-        ),
-      ),
-    );
+    mount(list, [...groups.entries()].map(([name, ms]) => compSection(name, ms)));
   }
 
   function compSection(name, ms) {
@@ -84,8 +92,8 @@ export function renderLobby(root) {
   }
 
   function row(m) {
-    const live = m.status === 'LIVE' || m.status === 'HT';
-    const started = m.status !== 'SCHEDULED' && m.status !== 'POSTPONED';
+    const live = isLive(m);
+    const started = hasStarted(m);
     const state =
       m.status === 'LIVE' ? `${m.minute ?? ''}${m.extra ? '+' + m.extra : ''}'` : m.status === 'HT' ? 'İY' : m.status === 'FT' ? 'MS' : m.status === 'POSTPONED' ? 'Ert.' : '';
     const lead = (side) => started && m.score[side] > m.score[side === 'home' ? 'away' : 'home'];
@@ -104,33 +112,117 @@ export function renderLobby(root) {
     );
   }
 
-  function card(m) {
-    const live = m.status === 'LIVE' || m.status === 'HT';
-    const started = m.status !== 'SCHEDULED' && m.status !== 'POSTPONED';
-    return h(
-      'a.mcard',
-      { href: `#/m/${m.id}`, class: live ? 'live' : '', 'aria-label': `${m.home.name} - ${m.away.name}` },
-      h('div.team', {}, crest(m.home), h('span.name', {}, m.home.name)),
-      h('div.mid', {}, h('div.score', {}, started ? `${m.score.home} - ${m.score.away}` : 'vs'), statusPill(m)),
-      h('div.team', {}, crest(m.away), h('span.name', {}, m.away.name)),
+  // ---------------------------------------------------------------- sağ sütun (yalnızca geniş ekran)
+  function drawSide() {
+    if (!wide.matches) return;
+    drawFeatured();
+    drawRanks();
+    if (!board) loadRanks();
+  }
+
+  /** Öne çıkan maçlar: önce canlılar (en kalabalık oda önce), sonra yaklaşanlar, sonra bitenler */
+  function picks() {
+    const order = (m) => (isLive(m) ? 0 : m.status === 'SCHEDULED' ? 1 : 2);
+    const time = (m) => Date.parse(m.kickoff) || 0;
+    return [...(app.matches || [])]
+      .sort((a, b) => order(a) - order(b) || (order(a) === 0 ? (b.viewers ?? 0) - (a.viewers ?? 0) : 0) || (order(a) === 2 ? time(b) - time(a) : time(a) - time(b)))
+      .slice(0, 5);
+  }
+
+  function drawFeatured() {
+    if (!wide.matches) return;
+    const ms = picks();
+    if (!ms.length) return mount(featured);
+    const i = Math.max(0, ms.findIndex((x) => x.id === featuredId));
+    const m = ms[i];
+    featuredId = m.id;
+    const started = hasStarted(m);
+    const href = `#/m/${m.id}`;
+    const show = (id) => ((featuredId = id), drawFeatured());
+    mount(
+      featured,
       h(
-        'div.mcard-foot',
+        'section.panel.feat',
         {},
-        h('span', {}, roundText(m.competition.round) || kickoffText(m.kickoff)),
-        h('span', {}, m.viewers ? `👥 ${m.viewers} taraftar odada` : live ? 'Odaya ilk sen gir' : ''),
+        h(
+          'a.feat-comp',
+          { href },
+          m.competition.logo ? h('img', { src: m.competition.logo, alt: '' }) : h('span.comp-dot'),
+          h('span', {}, h('b', {}, m.competition.name), roundText(m.competition.round) && h('span.muted', {}, roundText(m.competition.round))),
+        ),
+        h(
+          'a.feat-main',
+          { href, 'aria-label': `${m.home.name} - ${m.away.name} maç odası` },
+          h('div.feat-team', {}, crest(m.home, 'lg'), h('span', {}, m.home.name)),
+          h(
+            'div.feat-mid',
+            {},
+            h('div.feat-score', { class: isLive(m) ? 'live' : '' }, started ? `${m.score.home} - ${m.score.away}` : kickoffText(m.kickoff)),
+            h('div.feat-state', { class: m.status.toLowerCase() }, started || m.status === 'POSTPONED' ? minuteText(m) : dayText(m.kickoff)),
+          ),
+          h('div.feat-team', {}, crest(m.away, 'lg'), h('span', {}, m.away.name)),
+        ),
+        h(
+          'div.feat-foot',
+          {},
+          h('span.muted.small', {}, m.viewers ? `👥 ${m.viewers} taraftar odada` : isLive(m) ? 'Odaya ilk sen gir' : m.venue ? `🏟️ ${m.venue}` : ''),
+          h('a.btn', { href }, 'Maç odasına gir'),
+        ),
+        ms.length > 1 &&
+          h(
+            'div.feat-nav',
+            {},
+            h('button', { type: 'button', onclick: () => show(ms[(i - 1 + ms.length) % ms.length].id) }, '‹ Önceki'),
+            h(
+              'div.feat-dots',
+              {},
+              ms.map((x, j) => h('button', { type: 'button', class: j === i ? 'on' : '', 'aria-label': `${x.home.name} - ${x.away.name}`, onclick: () => show(x.id) })),
+            ),
+            h('button', { type: 'button', onclick: () => show(ms[(i + 1) % ms.length].id) }, 'Sonraki ›'),
+          ),
       ),
     );
   }
 
-  draw();
+  function loadRanks() {
+    app.socket.timeout(8000).emit('leaderboard:get', {}, (err, r) => {
+      if (err || !r?.ok) return;
+      board = r;
+      drawRanks();
+    });
+  }
+
+  function drawRanks() {
+    if (!wide.matches) return;
+    const head = h('div.panel-head', {}, h('h2.h-ic', {}, icon('haftalik-siralama-kupa'), 'Haftalık sıralama'), h('a.panel-link', { href: '#/siralama' }, 'Tümü ›'));
+    if (!board) return mount(ranks, h('section.panel.side-rank', {}, head, h('p.muted.small', {}, 'Sıralama yükleniyor…')));
+    const top = board.rows.slice(0, 5);
+    const mine = board.me ?? board.rows.find((x) => x.me);
+    mount(
+      ranks,
+      h(
+        'section.panel.side-rank',
+        {},
+        head,
+        top.length
+          ? h('ol.lb-list', {}, top.map(lbRow), mine && !top.includes(mine) ? [h('li.lb-gap', {}, '⋯'), lbRow(mine)] : null)
+          : h('p.muted.small', {}, 'Bu hafta henüz tahmin yok. Başlamamış bir maçta Taraftar > Anketler bölümünden ilk tahmini sen yap!'),
+        h('p.muted.small.side-rules', {}, "Tam skor 3 puan · doğru sonuç 1 puan · ilk 11'de doğru bilinen her oyuncu +1 puan."),
+      ),
+    );
+  }
+
+  drawList();
+  drawSide();
   app.onMatches = draw;
   return {
     destroy() {
-      compact.removeEventListener('change', onResize);
+      wide.removeEventListener('change', onResize);
       app.socket.emit('lobby:leave');
     },
     rejoin() {
       app.socket.emit('lobby:join');
+      if (wide.matches) loadRanks();
     },
   };
 }

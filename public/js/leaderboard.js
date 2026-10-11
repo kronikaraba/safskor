@@ -47,22 +47,13 @@ export function renderLeaderboard(root) {
       mount(body, h('div.empty', {}, current ? 'Bu hafta henüz tahmin yok. Başlamamış bir maçta Taraftar > Anketler bölümünden ilk tahmini sen yap!' : 'Bu hafta tahmin yapılmamış.'));
       return;
     }
-    const row = (x) =>
-      h(
-        'li.lb-row',
-        { class: `${x.me ? 'me' : ''} ${x.rank <= 3 ? `top${x.rank}` : ''}` },
-        h('span.lb-rank', {}, x.rank <= 3 ? h('span.lb-medal', { title: `${x.rank}.` }, icon('haftalik-siralama-madalya'), h('b', {}, x.rank)) : x.rank),
-        h('span.lb-name', {}, teamBadge(x.team), h('b', {}, x.nick), x.me ? h('span.lb-you', {}, 'Sen') : null),
-        h('span.lb-n.muted', { title: 'Tahmin sayısı' }, `${x.predictions} tahmin`),
-        h('span.lb-pts', {}, h('b', {}, x.points), h('small', {}, 'puan')),
-      );
     mount(
       body,
       h(
         'div.card.lb',
         {},
         h('h3', {}, 'Sıralama', h('span.muted', {}, `${r.players} taraftar`)),
-        h('ol.lb-list', {}, r.rows.map(row), r.me ? [h('li.lb-gap', {}, '⋯'), row(r.me)] : null),
+        h('ol.lb-list', {}, r.rows.map(lbRow), r.me ? [h('li.lb-gap', {}, '⋯'), lbRow(r.me)] : null),
       ),
     );
   }
@@ -72,6 +63,18 @@ export function renderLeaderboard(root) {
     rejoin: load,
     destroy() {},
   };
+}
+
+/** Sıralama satırı; ana sayfadaki özet kartı da kullanır */
+export function lbRow(x) {
+  return h(
+    'li.lb-row',
+    { class: `${x.me ? 'me' : ''} ${x.rank <= 3 ? `top${x.rank}` : ''}` },
+    h('span.lb-rank', {}, x.rank <= 3 ? h('span.lb-medal', { title: `${x.rank}.` }, icon('haftalik-siralama-madalya'), h('b', {}, x.rank)) : x.rank),
+    h('span.lb-name', {}, teamBadge(x.team), h('b', {}, x.nick), x.me ? h('span.lb-you', {}, 'Sen') : null),
+    h('span.lb-n.muted', { title: 'Tahmin sayısı' }, `${x.predictions} tahmin`),
+    h('span.lb-pts', {}, h('b', {}, x.points), h('small', {}, 'puan')),
+  );
 }
 
 function resetText(ms) {
