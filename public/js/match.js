@@ -250,7 +250,6 @@ export function renderMatch(root, matchId) {
             evs.length ? h('ul.timeline', {}, rows) : h('p.muted', {}, m.status === 'SCHEDULED' ? `Maç ${kickoffText(m.kickoff)}'de başlayacak. Bu sırada taktik önerini yap ve anketlere katıl!` : 'Henüz önemli bir olay yok.'),
           ),
           m.stats.length ? (stats.update(), stats.el) : null,
-          fanSnapshot(),
         );
       },
     };
@@ -267,21 +266,6 @@ export function renderMatch(root, matchId) {
           ];
     const ev = h('div.tl-ev', { class: `${e.side} ${goal ? 'goal' : ''}` }, h('span.ic', {}, EV_ICON[e.type] ?? '•'), h('div', {}, text.map((t, i) => (i ? [h('br'), t] : t))));
     return h('li.tl-row', {}, e.side === 'home' ? ev : h('div'), h('div.tl-min', {}, `${e.minute}${e.extra ? '+' + e.extra : ''}'`), e.side === 'away' ? ev : h('div'));
-  }
-
-  function fanSnapshot() {
-    const f = s.fan;
-    if (!f) return null;
-    const best = topRated(1)[0];
-    const winner = f.polls.find((p) => p.question.startsWith('Maçı kim kazanır'));
-    return h(
-      'div.card',
-      {},
-      h('h3', {}, 'Taraftarın nabzı'),
-      best ? motm(best) : h('p.muted.small', {}, 'Henüz oyuncu puanı yok. "Taraftar" sekmesinden ilk puanı sen ver!'),
-      winner && winner.total ? pollResult(winner) : null,
-      h('div.pick', {}, s.match.status === 'FT' && h('button.btn.sm', { onclick: openCard }, '📤 Kartımı paylaş'), s.match.status === 'SCHEDULED' && h('button.btn.sm', { onclick: () => setTab('predict') }, '🎯 Skor tahmini yap'), h('button.btn.ghost.sm', { onclick: () => setTab('tactics') }, icon('taktik-oner'), 'Taktik öner'), h('button.btn.ghost.sm', { onclick: () => setTab('subs') }, icon('degisiklik-talebi'), 'Değişiklik iste'), h('button.btn.ghost.sm', { onclick: () => setTab('polls') }, icon('anketler'), 'Anketler')),
-    );
   }
 
   // --- Tahmin: skor + isteğe bağlı ilk 11 (maç başlayınca kilitlenir, bitince puanlanır)
@@ -883,15 +867,6 @@ export function renderMatch(root, matchId) {
           h('span.lbl', {}, h('span', {}, mine === i ? `✓ ${o.label}` : o.label), voted ? h('span.pct', {}, `${pct}%`) : null),
         );
       }),
-    );
-  }
-
-  function pollResult(p) {
-    return h(
-      'div',
-      { style: { margin: '6px 0 12px' } },
-      h('div.muted.small', {}, `${p.question} (${p.total} oy)`),
-      p.options.map((o) => fbar(o.label, p.total ? Math.round((o.votes / p.total) * 100) : 0, `${p.total ? Math.round((o.votes / p.total) * 100) : 0}%`, s.mine?.polls?.[p.id] === p.options.indexOf(o))),
     );
   }
 
