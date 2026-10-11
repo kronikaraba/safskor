@@ -174,8 +174,6 @@ export function renderMatch(root, matchId) {
     chatCol.classList.toggle('show', key === 'chat');
     if (key === 'chat') {
       scrollChat();
-      // telefonda sohbeti sekme çubuğunun hemen altına getir: yazı kutusu ekranın altında görünür kalsın
-      if (isNarrow()) requestAnimationFrame(() => chatCol.scrollIntoView({ block: 'start' }));
     }
   }
 
@@ -967,12 +965,17 @@ export function renderMatch(root, matchId) {
         {},
         chatHead,
         chatList,
-        h('div.chat-quick', {}, QUICK.map((q) => h('button', { type: 'button', onclick: () => sendChat(q) }, q))),
+        // telefonda ekranın altına yapışan alt kısım: hızlı tepkiler + yazı kutusu
         h(
-          'form.chat-form',
-          { onsubmit: (e) => (e.preventDefault(), sendChat(chatInput.value)) },
-          chatInput,
-          h('button.btn', { type: 'submit' }, 'Gönder'),
+          'div.chat-foot',
+          {},
+          h('div.chat-quick', {}, QUICK.map((q) => h('button', { type: 'button', onclick: () => sendChat(q) }, q))),
+          h(
+            'form.chat-form',
+            { onsubmit: (e) => (e.preventDefault(), sendChat(chatInput.value)) },
+            chatInput,
+            h('button.btn', { type: 'submit' }, 'Gönder'),
+          ),
         ),
       ),
     );
@@ -996,15 +999,23 @@ export function renderMatch(root, matchId) {
       h('div.bubble', {}, msg.text),
     );
   }
+  // Telefonda sohbet ayrı bir kaydırma kutusu değil, sayfanın kendisi kayar (her yerden sürüklenebilsin)
+  const pageScroll = () => isNarrow();
   function appendChat(msg) {
-    const nearBottom = chatList.scrollHeight - chatList.scrollTop - chatList.clientHeight < 80;
+    const el = document.documentElement;
+    const nearBottom = pageScroll()
+      ? window.innerHeight + window.scrollY >= el.scrollHeight - 160
+      : chatList.scrollHeight - chatList.scrollTop - chatList.clientHeight < 80;
     if (chatList.firstChild?.tagName === 'P') chatList.replaceChildren();
     chatList.append(chatMsg(msg));
     while (chatList.childElementCount > 300) chatList.firstChild.remove();
     if (nearBottom || msg.userId === app.me.userId) scrollChat();
   }
   function scrollChat() {
-    requestAnimationFrame(() => (chatList.scrollTop = chatList.scrollHeight));
+    requestAnimationFrame(() => {
+      if (!pageScroll()) chatList.scrollTop = chatList.scrollHeight;
+      else if (s.tab === 'chat') window.scrollTo(0, document.documentElement.scrollHeight);
+    });
   }
 
   // ---------------------------------------------------------------- yardımcılar
