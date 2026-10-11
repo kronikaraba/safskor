@@ -81,7 +81,11 @@ export class ApiFootballProvider implements FootballProvider {
     const res = await fetch(url, { headers, signal: AbortSignal.timeout(10_000) });
     const rem = res.headers.get('x-ratelimit-requests-remaining');
     if (rem != null && rem !== '' && !Number.isNaN(Number(rem))) this.remaining = Number(rem);
-    if (res.status === 429) throw new QuotaError('API-Football istek sınırı (HTTP 429)');
+    if (res.status === 429) {
+      // günlük hak gerçekten bittiyse kota hatası; değilse dakikalık sınır: geçici hata olarak kısa süre sonra tekrar dene
+      if (this.remaining === 0) throw new QuotaError('Günlük API kotası doldu (HTTP 429)');
+      throw new Error('API-Football dakikalık istek sınırı (HTTP 429)');
+    }
     if (res.status === 401 || res.status === 403) throw new PlanError(`API-Football HTTP ${res.status}`);
     if (!res.ok) throw new Error(`API-Football HTTP ${res.status}`);
     const body: any = await res.json();
