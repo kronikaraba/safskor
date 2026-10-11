@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { Server, type Socket } from 'socket.io';
 import { config } from './config.js';
 import { createProvider } from './providers/index.js';
-import { FanStore, FORMATIONS, STYLES, weekKey, normalizePhone, type TeamBadge } from './services/fanStore.js';
+import { FanStore, FORMATIONS, STYLES, weekKey, normalizePhone, weakPin, type TeamBadge } from './services/fanStore.js';
 import { MatchService } from './services/matchService.js';
 import type { Match, MatchEvent, Player, Side } from './types.js';
 
@@ -156,10 +156,15 @@ class Limiter {
     this.hits.set(key, arr);
     return true;
   }
+  /** Kaydetmeden sınıra ulaşıldı mı (yalnızca hatalı denemeleri saymak için) */
+  full(key: string) {
+    const now = Date.now();
+    return (this.hits.get(key) ?? []).filter((t) => now - t < this.windowMs).length >= this.max;
+  }
 }
 const chatLimit = new Limiter(5, 10_000);
 const actionLimit = new Limiter(30, 10_000);
-const loginLimit = new Limiter(10, 10 * 60_000); // IP başına giriş/kayıt denemesi
+const loginFails = new Limiter(20, 10 * 60_000); // IP başına hatalı giriş/kayıt denemesi (başarılılar sayılmaz)
 
 // Her maç için taraftar durumu yayınını grupla (çok sık oy gelirse yükü azaltır)
 const pendingFan = new Map<string, NodeJS.Timeout>();
@@ -181,6 +186,7 @@ interface SocketData {
   nick: string;
   team: TeamBadge | null;
   matchId?: string;
+  session?: string | null; // hesaba giriş yapılmış cihazın oturum anahtarı
 }
 
 /** Sunucu yeniden başlayınca veriler sıfırlanabilir: profil yoksa istemcinin bildirdiği (doğrulanmış) takımı kullan */
@@ -190,14 +196,47 @@ function restoreTeam(userId: string, claimed: unknown): TeamBadge | null {
   return typeof claimed === 'string' ? (pickable.get(claimed) ?? null) : null;
 }
 
+// Hesaba bağlı bir kimlik yalnızca o cihaza verilmiş oturum anahtarıyla açılır: eski, sızmış ya da çıkış yapılmış
+// bir tarayıcı kimliği hesaba erişemez. İstemci "session_expired" alınca yeni bir anonim kimlikle bağlanır.
+io.use((socket, next) => {
+  const auth = socket.handshake.auth ?? {};
+  if (auth.session != null && auth.session !== '') {
+    const userId = typeof auth.session === 'string' ? store.sessionUser(auth.session) : null;
+    if (!userId) return next(new Error('session_expired'));
+    socket.data = { sessionUserId: userId };
+    return next();
+  }
+  if (isUserId(auth.userId) && store.hasAccount(auth.userId)) return next(new Error('session_expired'));
+  next();
+});
+
+/** Kapatılan oturumlarla bağlı sekmeleri hemen düşürür; yeniden bağlanırken oturumları geçersiz çıkar */
+async function kickOtherSessions(userId: string, keep: string | null) {
+  for (const s of await io.in(userRoom(userId)).fetchSockets()) {
+    if ((s.data as SocketData).session !== keep) s.disconnect(true);
+  }
+}
+
+const durationText = (ms: number) => (ms < 3_600_000 ? `${Math.ceil(ms / 60_000)} dakika` : `${Math.ceil(ms / 3_600_000)} saat`);
+/** Girişte eski 4-5 haneli şifreler de kabul edilir; yeni şifreler 6 haneli ve kolay tahmin edilemez olmalı */
+const pinFormat = (pin: unknown): pin is string => typeof pin === 'string' && /^\d{4,6}$/.test(pin);
+const newPinError = (pin: unknown, phone: string) =>
+  typeof pin !== 'string' || !/^\d{6}$/.test(pin)
+    ? 'Şifre 6 haneli bir sayı olmalı.'
+    : weakPin(pin, phone)
+      ? 'Bu şifre kolay tahmin edilir (ör. 123456, 112233 ya da numarandaki rakamlar). Başka bir şifre seç.'
+      : null;
+
 io.on('connection', (socket: Socket) => {
   const auth = socket.handshake.auth ?? {};
+  const sessionUserId: string | undefined = socket.data?.sessionUserId;
   const data: SocketData = {
-    userId: isUserId(auth.userId) ? auth.userId : `anon-${socket.id}`,
+    userId: sessionUserId ?? (isUserId(auth.userId) ? auth.userId : `anon-${socket.id}`),
     nick: clean(auth.nick, 20) || 'Taraftar',
     team: null,
+    session: sessionUserId ? auth.session : null,
   };
-  data.team = isUserId(auth.userId) ? restoreTeam(data.userId, auth.teamId) : null;
+  data.team = sessionUserId || isUserId(auth.userId) ? restoreTeam(data.userId, auth.teamId) : null;
   socket.data = data;
   const canDm = isUserId(data.userId);
   if (canDm) {
@@ -243,39 +282,88 @@ io.on('connection', (socket: Socket) => {
     a({ ok: true, nick, team });
   });
 
-  // --- üyelik: telefon + isim + PIN (SMS doğrulaması henüz yok; gelince PIN yerine kod gelecek)
-  const ip = String(socket.handshake.headers['x-forwarded-for'] ?? socket.handshake.address).split(',')[0].trim();
-  const pinOk = (pin: unknown): pin is string => typeof pin === 'string' && /^\d{4,6}$/.test(pin);
+  // --- üyelik: telefon + isim + şifre (SMS doğrulaması henüz yok; gelince şifrenin yerine kod gelecek)
+  // Hatalı denemeler istemcinin IP'sine sayılır. Hangi başlığın gerçek IP olduğu barındırmaya göre değiştiği için
+  // hepsine sayılır ve biri sınırı aşınca durdurulur; asıl koruma numara başına kilittir.
+  const h = socket.handshake.headers;
+  const ipKeys = [String(h['x-forwarded-for'] ?? '').split(',')[0], h['true-client-ip'], h['cf-connecting-ip']].map((v) => String(v ?? '').trim()).filter(Boolean);
+  const failKeys = ipKeys.length ? [...new Set(ipKeys)] : [socket.handshake.address];
+  const tooManyFails = () => failKeys.some((k) => loginFails.full(k));
+  const countFail = () => failKeys.forEach((k) => loginFails.ok(k));
+  const TOO_MANY = 'Çok fazla hatalı deneme. Birkaç dakika sonra tekrar dene.';
+  const lockedText = (ms: number) => `Çok fazla hatalı deneme. Bu hesap ${durationText(ms)} kilitlendi.`;
 
   socket.on('account:register', (p, ack) => {
     const a = safeAck(ack);
     if (!isUserId(data.userId)) return a({ ok: false, error: 'Tarayıcı kimliği bulunamadı, sayfayı yenile.' });
-    if (!loginLimit.ok(ip)) return a({ ok: false, error: 'Çok fazla deneme. Birkaç dakika sonra tekrar dene.' });
+    if (tooManyFails()) return a({ ok: false, error: TOO_MANY });
     const phone = normalizePhone(p?.phone);
     if (!phone) return a({ ok: false, error: 'Geçerli bir cep numarası yaz (ör. 0532 123 45 67).' });
     const name = clean(p?.name, 20);
     if (name.length < 2) return a({ ok: false, error: 'İsim en az 2 karakter olmalı.' });
-    if (!pinOk(p?.pin)) return a({ ok: false, error: 'Şifre 4-6 haneli bir sayı olmalı.' });
+    const pinError = newPinError(p?.pin, phone);
+    if (pinError) return a({ ok: false, error: pinError });
     const r = store.register(data.userId, phone, name, p.pin);
-    if (r === 'phone_taken') return a({ ok: false, error: 'Bu numarayla zaten üyelik var. Giriş yap.' });
+    if (r === 'phone_taken') return countFail(), a({ ok: false, error: 'Bu numarayla zaten üyelik var. Giriş yap.' });
     if (r === 'has_account') return a({ ok: false, error: 'Bu tarayıcı zaten bir hesaba bağlı.' });
+    // bundan sonra bu kimlik yalnızca oturum anahtarıyla açılır
+    data.session = store.createSession(data.userId);
     data.nick = name;
     store.saveProfile(data.userId, name, data.team?.id ?? null);
     store.touchUser(data.userId, name, data.team?.id ?? null);
-    a({ ok: true, nick: name, account: store.account(data.userId) });
+    a({ ok: true, nick: name, session: data.session, account: store.account(data.userId) });
   });
 
   socket.on('account:login', (p, ack) => {
     const a = safeAck(ack);
-    if (!loginLimit.ok(ip)) return a({ ok: false, error: 'Çok fazla deneme. Birkaç dakika sonra tekrar dene.' });
+    if (tooManyFails()) return a({ ok: false, error: TOO_MANY });
     const phone = normalizePhone(p?.phone);
-    if (!phone || !pinOk(p?.pin)) return a({ ok: false, error: 'Numara ya da şifre hatalı.' });
+    if (!phone || !pinFormat(p?.pin)) return a({ ok: false, error: 'Numara ya da şifre hatalı.' });
     const r = store.login(phone, p.pin);
-    if (r === 'locked') return a({ ok: false, error: 'Çok fazla hatalı deneme. Bu numara 15 dakika kilitlendi.' });
-    if (r === 'wrong') return a({ ok: false, error: 'Numara ya da şifre hatalı.' });
+    if (r === 'wrong' || 'lockedMs' in r) {
+      countFail();
+      return a({ ok: false, error: r === 'wrong' ? 'Numara ya da şifre hatalı.' : lockedText(r.lockedMs) });
+    }
+    if (data.session) store.deleteSession(data.session); // bu cihaz başka bir hesaba geçiyor
+    // hesabın kendi kimliği istemciye hiç gitmez; cihaz yalnızca kendine ait, kapatılabilir bir oturum anahtarı alır
+    const session = store.createSession(r.userId);
     const prof = store.profile(r.userId);
-    // hesabın kimliği yalnızca doğru şifreden sonra verilir; istemci bunu saklayıp yeniden bağlanır
-    a({ ok: true, userId: r.userId, nick: prof?.nick ?? r.name, team: prof?.team ?? null });
+    a({ ok: true, session, nick: prof?.nick ?? r.name, team: prof?.team ?? null });
+  });
+
+  socket.on('account:logout', (_p, ack) => {
+    if (data.session) store.deleteSession(data.session);
+    data.session = null;
+    safeAck(ack)({ ok: true });
+  });
+
+  socket.on('account:logout-others', async (_p, ack) => {
+    const a = safeAck(ack);
+    if (!data.session || !store.hasAccount(data.userId)) return a({ ok: false, error: 'Bunun için giriş yapmış olmalısın.' });
+    store.deleteOtherSessions(data.userId, data.session);
+    await kickOtherSessions(data.userId, data.session);
+    a({ ok: true, account: store.account(data.userId) });
+  });
+
+  socket.on('account:pin', async (p, ack) => {
+    const a = safeAck(ack);
+    const phone = data.session ? store.accountPhone(data.userId) : null;
+    if (!phone) return a({ ok: false, error: 'Bunun için giriş yapmış olmalısın.' });
+    if (tooManyFails()) return a({ ok: false, error: TOO_MANY });
+    if (!pinFormat(p?.old)) return a({ ok: false, error: 'Mevcut şifren hatalı.' });
+    const pinError = newPinError(p?.pin, phone);
+    if (pinError) return a({ ok: false, error: pinError });
+    if (p.pin === p.old) return a({ ok: false, error: 'Yeni şifre eskisiyle aynı olamaz.' });
+    const r = store.changePin(data.userId, p.old, p.pin);
+    if (r === 'no_account') return a({ ok: false, error: 'Bunun için giriş yapmış olmalısın.' });
+    if (r === 'wrong' || typeof r === 'object') {
+      countFail();
+      return a({ ok: false, error: r === 'wrong' ? 'Mevcut şifren hatalı.' : lockedText(r.lockedMs) });
+    }
+    // şifre değişince diğer cihazlar kapanır: şifreyi öğrenen ya da başka cihazda açık kalan oturum dışarıda kalır
+    store.deleteOtherSessions(data.userId, data.session ?? null);
+    await kickOtherSessions(data.userId, data.session ?? null);
+    a({ ok: true, account: store.account(data.userId) });
   });
 
   socket.on('teams:list', (_p, ack) => safeAck(ack)({ ok: true, teams: PICKABLE_TEAMS }));

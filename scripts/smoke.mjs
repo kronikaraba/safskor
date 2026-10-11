@@ -148,6 +148,52 @@ const mine = await (await fetch(`${BASE}/api/matches/${live.id}/fan`)).json();
 ok(mine.chat.some((c) => c.text === 'Selam millet!'), 'sohbet geçmişi kalıcı (REST)');
 ok(!JSON.stringify(mine).includes('smoke-user-'), 'REST yanıtında gizli tarayıcı kimliği yok');
 
+// üyelik: telefon + isim + şifre; her cihaza ayrı, kapatılabilir oturum
+const connectWith = (auth) =>
+  new Promise((res) => {
+    const s = io(BASE, { auth, transports: ['websocket'], reconnection: false });
+    s.on('profile', (profile) => res({ s, ok: true, profile }));
+    s.on('connect_error', (e) => res({ s, ok: false, error: e.message }));
+  });
+const phoneNo = `05${Date.now().toString().slice(-9)}`; // her çalıştırmada farklı numara
+const u = await connect('smoke-acct-uuuu', 'Uğur');
+ok(!(await call(u, 'account:register', { phone: phoneNo, name: 'Uğur', pin: '5839' })).ok, '6 haneden kısa yeni şifre reddedildi');
+ok(!(await call(u, 'account:register', { phone: phoneNo, name: 'Uğur', pin: '123456' })).ok, 'kolay şifre (123456) reddedildi');
+ok(!(await call(u, 'account:register', { phone: phoneNo, name: 'Uğur', pin: phoneNo.slice(-6) })).ok, 'numaranın son haneleri şifre olarak reddedildi');
+const reg = await call(u, 'account:register', { phone: phoneNo, name: 'Uğur', pin: '583920' });
+ok(reg.ok && reg.session && reg.account.devices === 1 && !JSON.stringify(reg).includes('smoke-acct-'), 'üye olundu, cihaza oturum anahtarı verildi');
+const raw = await connectWith({ userId: 'smoke-acct-uuuu', nick: 'Hırsız' });
+ok(!raw.ok && raw.error === 'session_expired', 'hesaba bağlanmış eski tarayıcı kimliğiyle giriş reddedildi');
+const fake = await connectWith({ session: 'x'.repeat(43), userId: 'smoke-acct-zzzz' });
+ok(!fake.ok && fake.error === 'session_expired', 'uydurma oturum anahtarı reddedildi');
+const v = await connect('smoke-acct-vvvv', 'Veli');
+ok(!(await call(v, 'account:register', { phone: phoneNo, name: 'Veli', pin: '583921' })).ok, 'aynı numarayla ikinci üyelik reddedildi');
+const lg = await call(v, 'account:login', { phone: phoneNo, pin: '583920' });
+ok(lg.ok && lg.session && lg.session !== reg.session && !('userId' in lg), 'başka cihazdan giriş: yalnızca o cihaza özel anahtar geldi');
+const dev1 = await connectWith({ session: reg.session, nick: 'Uğur' });
+const dev2 = await connectWith({ session: lg.session, nick: 'Uğur' });
+ok(dev1.ok && dev2.ok && dev1.profile.uid === dev2.profile.uid && dev2.profile.account?.devices === 2, 'iki cihaz aynı hesapta, hesap 2 cihazda açık görünüyor');
+const kicked2 = new Promise((res) => dev2.s.on('disconnect', res));
+const lo = await call(dev1.s, 'account:logout-others', {});
+ok(lo.ok && lo.account.devices === 1 && (await kicked2) === 'io server disconnect', 'diğer cihazlardan çıkış: öbür cihaz anında düştü');
+const again = await connectWith({ session: lg.session });
+ok(!again.ok && again.error === 'session_expired', 'kapatılan cihazın oturumu bir daha açılmıyor');
+ok(!(await call(dev1.s, 'account:pin', { old: '999999', pin: '640271' })).ok, 'yanlış mevcut şifreyle şifre değiştirme reddedildi');
+const dev3 = await connectWith({ session: (await call(v, 'account:login', { phone: phoneNo, pin: '583920' })).session });
+const kicked3 = new Promise((res) => dev3.s.on('disconnect', res));
+const cp = await call(dev1.s, 'account:pin', { old: '583920', pin: '640271' });
+ok(cp.ok && (await kicked3) === 'io server disconnect', 'şifre değişti, diğer cihaz anında düştü');
+ok(!(await call(v, 'account:login', { phone: phoneNo, pin: '583920' })).ok, 'eski şifre artık geçmiyor');
+ok((await call(v, 'account:login', { phone: phoneNo, pin: '640271' })).ok, 'yeni şifreyle giriş yapıldı');
+await call(dev1.s, 'account:logout', {});
+const out = await connectWith({ session: reg.session });
+ok(!out.ok && out.error === 'session_expired', 'çıkış yapınca o cihazın oturumu sunucuda da kapandı');
+for (let i = 0; i < 4; i++) await call(v, 'account:login', { phone: phoneNo, pin: '000001' });
+const locked = await call(v, 'account:login', { phone: phoneNo, pin: '000001' });
+ok(!locked.ok && locked.error.includes('15 dakika'), '5 hatalı şifrede hesap 15 dakika kilitlendi');
+ok(!(await call(v, 'account:login', { phone: phoneNo, pin: '640271' })).ok, 'kilitliyken doğru şifre de geçmiyor');
+for (const x of [u, v, dev1.s, dev2.s, dev3.s, raw.s, fake.s, again.s, out.s]) x.close();
+
 a.close();
 b.close();
 console.log('\nTüm kontroller geçti.');

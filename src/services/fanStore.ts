@@ -141,7 +141,11 @@ export class FanStore {
       CREATE TABLE IF NOT EXISTS dm_blocks (user_id TEXT NOT NULL, blocked_id TEXT NOT NULL, PRIMARY KEY (user_id, blocked_id));
       CREATE TABLE IF NOT EXISTS accounts (
         phone TEXT PRIMARY KEY, user_id TEXT NOT NULL UNIQUE, name TEXT NOT NULL, pin_hash TEXT NOT NULL,
-        created_at INTEGER NOT NULL, login_at INTEGER, fails INTEGER NOT NULL DEFAULT 0, locked_until INTEGER NOT NULL DEFAULT 0);
+        created_at INTEGER NOT NULL, login_at INTEGER, fails INTEGER NOT NULL DEFAULT 0, locked_until INTEGER NOT NULL DEFAULT 0,
+        lockouts INTEGER NOT NULL DEFAULT 0);
+      CREATE TABLE IF NOT EXISTS sessions (
+        token_hash TEXT PRIMARY KEY, user_id TEXT NOT NULL, created_at INTEGER NOT NULL, seen_at INTEGER NOT NULL);
+      CREATE INDEX IF NOT EXISTS sessions_user ON sessions (user_id);
     `);
     // herkese açık kimlikleri türetmek için sunucuya özel gizli anahtar (yeniden başlatmada değişmesin diye veritabanında)
     const saved = this.db.prepare("SELECT value FROM meta WHERE key = 'id_secret'").get() as any;
@@ -151,6 +155,8 @@ export class FanStore {
     const cols = new Set((this.db.prepare('PRAGMA table_info(chat)').all() as any[]).map((c) => c.name));
     if (!cols.has('team')) this.db.exec('ALTER TABLE chat ADD COLUMN team TEXT');
     if (!cols.has('minute')) this.db.exec('ALTER TABLE chat ADD COLUMN minute TEXT');
+    const accCols = new Set((this.db.prepare('PRAGMA table_info(accounts)').all() as any[]).map((c) => c.name));
+    if (!accCols.has('lockouts')) this.db.exec('ALTER TABLE accounts ADD COLUMN lockouts INTEGER NOT NULL DEFAULT 0');
     // yalnızca "Maçı kim kazanır?" ve "Hakem yönetimi" anketleri kalır: kaldırılan gol anketi ve kullanıcı anketlerini sil
     const dropped = "SELECT id FROM polls WHERE kind = 'user' OR auto_key NOT IN ('winner', 'referee')";
     this.db.exec(`DELETE FROM poll_votes WHERE poll_id IN (${dropped}); DELETE FROM polls WHERE id IN (${dropped});`);
@@ -351,39 +357,109 @@ export class FanStore {
   // ------------------------------------------------------------------ özel mesajlar
 
   /** Bağlanan kullanıcıyı herkese açık kimliğiyle kaydeder (mesaj alabilmesi için) */
-  // ------------------------------------------------------------------ üyelik (telefon + isim + PIN; SMS doğrulaması sonra eklenecek)
+  // ------------------------------------------------------------------ üyelik (telefon + isim + şifre; SMS doğrulaması sonra eklenecek)
 
-  /** Bu tarayıcı kimliğine bağlı hesap (telefon maskeli) */
-  account(userId: string): { phone: string; name: string } | null {
+  /** Bu kimliğe bağlı hesap: telefon maskeli, devices = hesabın açık olduğu cihaz sayısı */
+  account(userId: string): { phone: string; name: string; devices: number } | null {
     const r = this.db.prepare('SELECT phone, name FROM accounts WHERE user_id = ?').get(userId) as any;
-    return r ? { phone: maskPhone(r.phone), name: r.name } : null;
+    return r ? { phone: maskPhone(r.phone), name: r.name, devices: this.sessionCount(userId) } : null;
+  }
+
+  /** Kimlik bir hesaba bağlıysa artık yalnızca cihaza verilen oturum anahtarıyla açılabilir */
+  hasAccount(userId: string): boolean {
+    return Boolean(this.db.prepare('SELECT 1 FROM accounts WHERE user_id = ?').get(userId));
+  }
+
+  accountPhone(userId: string): string | null {
+    return (this.db.prepare('SELECT phone FROM accounts WHERE user_id = ?').get(userId) as any)?.phone ?? null;
   }
 
   /** Yeni hesap: mevcut anonim kimlik hesaba bağlanır, böylece eski veriler korunur */
   register(userId: string, phone: string, name: string, pin: string): 'ok' | 'phone_taken' | 'has_account' {
-    if (this.db.prepare('SELECT 1 FROM accounts WHERE user_id = ?').get(userId)) return 'has_account';
+    if (this.hasAccount(userId)) return 'has_account';
     if (this.db.prepare('SELECT 1 FROM accounts WHERE phone = ?').get(phone)) return 'phone_taken';
     this.db.prepare('INSERT INTO accounts (phone, user_id, name, pin_hash, created_at) VALUES (?,?,?,?,?)').run(phone, userId, name, hashPin(pin), Date.now());
     return 'ok';
   }
 
-  /** Telefon + PIN ile giriş; 5 hatalı denemede numara 15 dakika kilitlenir */
-  login(phone: string, pin: string): { userId: string; name: string } | 'wrong' | 'locked' {
+  /** Telefon + şifre ile giriş */
+  login(phone: string, pin: string): { userId: string; name: string } | 'wrong' | { lockedMs: number } {
     const r = this.db.prepare('SELECT * FROM accounts WHERE phone = ?').get(phone) as any;
     if (!r) return 'wrong';
-    const now = Date.now();
-    if (r.locked_until > now) return 'locked';
-    if (!checkPin(pin, r.pin_hash)) {
-      const fails = r.fails + 1;
-      this.db.prepare('UPDATE accounts SET fails = ?, locked_until = ? WHERE phone = ?').run(fails >= 5 ? 0 : fails, fails >= 5 ? now + 15 * 60_000 : 0, phone);
-      return fails >= 5 ? 'locked' : 'wrong';
-    }
-    this.db.prepare('UPDATE accounts SET fails = 0, locked_until = 0, login_at = ? WHERE phone = ?').run(now, phone);
+    const res = this.checkAccountPin(r, pin);
+    if (res !== 'ok') return res;
+    this.db.prepare('UPDATE accounts SET login_at = ? WHERE phone = ?').run(Date.now(), phone);
     return { userId: r.user_id, name: r.name };
+  }
+
+  /** Şifre değiştirme; mevcut şifredeki hatalı denemeler girişle aynı kilide sayılır */
+  changePin(userId: string, oldPin: string, newPin: string): 'ok' | 'wrong' | 'no_account' | { lockedMs: number } {
+    const r = this.db.prepare('SELECT * FROM accounts WHERE user_id = ?').get(userId) as any;
+    if (!r) return 'no_account';
+    const res = this.checkAccountPin(r, oldPin);
+    if (res !== 'ok') return res;
+    this.db.prepare('UPDATE accounts SET pin_hash = ? WHERE user_id = ?').run(hashPin(newPin), userId);
+    return 'ok';
+  }
+
+  /** 5 hatalı denemede hesap kilitlenir; her yeni kilit öncekinin iki katı sürer (15 dk, 30 dk, 1 sa … en çok 24 sa) */
+  private checkAccountPin(r: any, pin: string): 'ok' | 'wrong' | { lockedMs: number } {
+    const now = Date.now();
+    if (r.locked_until > now) return { lockedMs: r.locked_until - now };
+    if (checkPin(pin, r.pin_hash)) {
+      this.db.prepare('UPDATE accounts SET fails = 0, lockouts = 0, locked_until = 0 WHERE phone = ?').run(r.phone);
+      return 'ok';
+    }
+    const fails = r.fails + 1;
+    if (fails < 5) {
+      this.db.prepare('UPDATE accounts SET fails = ? WHERE phone = ?').run(fails, r.phone);
+      return 'wrong';
+    }
+    const ms = Math.min(15 * 60_000 * 2 ** Math.min(r.lockouts, 10), 24 * 3_600_000);
+    this.db.prepare('UPDATE accounts SET fails = 0, lockouts = lockouts + 1, locked_until = ? WHERE phone = ?').run(now + ms, r.phone);
+    return { lockedMs: ms };
   }
 
   renameAccount(userId: string, name: string) {
     this.db.prepare('UPDATE accounts SET name = ? WHERE user_id = ?').run(name, userId);
+  }
+
+  // Oturumlar: her girişte o cihaza özel rastgele bir anahtar verilir, sunucuda yalnızca özeti tutulur.
+  // Çıkışta, şifre değişince ya da "diğer cihazlardan çıkış"ta silinir; 180 gün kullanılmayan oturum düşer.
+
+  createSession(userId: string): string {
+    const token = crypto.randomBytes(32).toString('base64url');
+    const now = Date.now();
+    this.db.prepare('INSERT INTO sessions (token_hash, user_id, created_at, seen_at) VALUES (?,?,?,?)').run(tokenHash(token), userId, now, now);
+    return token;
+  }
+
+  /** Oturum anahtarının sahibi (geçersiz ya da süresi dolmuşsa null) */
+  sessionUser(token: string): string | null {
+    if (token.length < 20 || token.length > 100) return null;
+    const h = tokenHash(token);
+    const r = this.db.prepare('SELECT user_id, seen_at FROM sessions WHERE token_hash = ?').get(h) as any;
+    if (!r) return null;
+    const now = Date.now();
+    if (now - r.seen_at > SESSION_TTL) {
+      this.db.prepare('DELETE FROM sessions WHERE token_hash = ?').run(h);
+      return null;
+    }
+    this.db.prepare('UPDATE sessions SET seen_at = ? WHERE token_hash = ?').run(now, h);
+    return r.user_id;
+  }
+
+  deleteSession(token: string) {
+    this.db.prepare('DELETE FROM sessions WHERE token_hash = ?').run(tokenHash(token));
+  }
+
+  /** keep dışındaki tüm oturumları kapatır */
+  deleteOtherSessions(userId: string, keep: string | null) {
+    this.db.prepare('DELETE FROM sessions WHERE user_id = ? AND token_hash != ?').run(userId, keep ? tokenHash(keep) : '');
+  }
+
+  sessionCount(userId: string): number {
+    return (this.db.prepare('SELECT COUNT(*) AS n FROM sessions WHERE user_id = ? AND seen_at > ?').get(userId, Date.now() - SESSION_TTL) as any).n;
   }
 
   touchUser(userId: string, nick: string, teamId: string | null) {
@@ -672,6 +748,32 @@ export function normalizePhone(raw: unknown): string | null {
     if (!plus) return null;
   }
   return /^[1-9]\d{7,14}$/.test(d) ? '+' + d : null;
+}
+
+const SESSION_TTL = 180 * 86_400_000;
+
+function tokenHash(token: string) {
+  return crypto.createHash('sha256').update(token).digest('hex');
+}
+
+// tuş takımı desenleri ve bilinen kolay şifreler
+const COMMON_PINS = new Set([
+  '147258', '258369', '369258', '741852', '852963', '963852', '147852', '159753', '159357', '357159', '753951', '951753',
+  '147369', '963741', '123654', '789456', '456123', '102030', '010203', '135790', '246802', '112358', '142857', '314159',
+]);
+
+/** Yeni şifre kolay mı: tek rakam tekrarı, sıralı, desenli, bilinen kolaylar ya da numaranın içindeki rakamlar */
+export function weakPin(pin: string, phone: string): boolean {
+  if (COMMON_PINS.has(pin)) return true;
+  if (/^(\d)\1+$/.test(pin)) return true; // 111111
+  if (/^(\d\d)\1\1$/.test(pin) || /^(\d{3})\1$/.test(pin)) return true; // 121212, 123123
+  if (/^(\d)\1(\d)\2(\d)\3$/.test(pin) || /^(\d)\1\1(\d)\2\2$/.test(pin)) return true; // 112233, 111222
+  if (/^(\d)(\d)(\d)\3\2\1$/.test(pin)) return true; // 123321
+  const d = [...pin].map(Number);
+  const steps = new Set(d.slice(1).map((x, i) => (x - d[i] + 10) % 10));
+  if (steps.size === 1 && (steps.has(1) || steps.has(9))) return true; // 123456, 654321, 890123
+  const digits = phone.replace(/\D/g, '');
+  return digits.includes(pin) || `0${digits.slice(2)}`.includes(pin);
 }
 
 function maskPhone(p: string) {

@@ -6,15 +6,17 @@ import { renderLeaderboard } from './leaderboard.js';
 import { initDm } from './dm.js';
 
 // ------------------------------------------------------------------ kimlik
-// Hesap sistemi yok (MVP): tarayıcıya özel anonim kimlik + takma ad.
+// Herkes tarayıcıya özel anonim bir kimlikle başlar. Telefonla üye olan ya da giriş yapan cihaz bunun yerine
+// sunucunun verdiği, o cihaza özel ve kapatılabilir bir oturum anahtarıyla bağlanır.
 function uid() {
   return crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2) + Date.now().toString(36);
 }
 const me = {
   userId: storage.get('safskor.userId') || uid(),
+  session: storage.get('safskor.session', null),
   nick: storage.get('safskor.nick') || `Taraftar${Math.floor(1000 + Math.random() * 9000)}`,
   team: storage.get('safskor.team', null),
-  account: null, // { phone (maskeli), name } — telefonla üye olduysa
+  account: null, // { phone (maskeli), name, devices } — telefonla üye olduysa
   uid: null, // sunucunun verdiği herkese açık kimlik (sohbette "Sen" ayrımı ve özel mesajlar için)
 };
 storage.set('safskor.userId', me.userId);
@@ -22,7 +24,8 @@ storage.set('safskor.nick', me.nick);
 
 export const app = {
   me,
-  socket: io({ auth: { userId: me.userId, nick: me.nick, teamId: me.team?.id ?? null } }),
+  // her bağlanmada güncel kimlik gönderilir (giriş/çıkış sonrası yeniden bağlanınca da doğru olsun)
+  socket: io({ auth: (cb) => cb({ session: me.session, userId: me.userId, nick: me.nick, teamId: me.team?.id ?? null }) }),
   provider: null,
   matches: [],
   view: null, // aktif görünümün temizleme fonksiyonu
@@ -67,8 +70,6 @@ export function editNick() {
         me.team = r.team ?? null;
         storage.set('safskor.nick', me.nick);
         storage.set('safskor.team', me.team);
-        app.socket.auth.nick = me.nick;
-        app.socket.auth.teamId = me.team?.id ?? null;
         drawNick();
         app.onProfile?.();
         close();
@@ -92,45 +93,78 @@ export function editNick() {
 }
 
 // ------------------------------------------------------------------ üyelik (telefon + isim + şifre)
-// SMS doğrulaması henüz yok: kullanıcı 4-6 haneli bir şifre seçer, başka cihazda numara + şifreyle girer.
+// SMS doğrulaması henüz yok: kullanıcı 6 haneli bir şifre seçer, başka cihazda numara + şifreyle girer.
 function accountBox(nickInput) {
   const box = h('div.acct');
   const field = (label, attrs) => h('label', {}, label, h('input.input', attrs));
+  const val = (el) => el.querySelector('input').value;
   const phoneAttrs = { type: 'tel', inputmode: 'tel', autocomplete: 'tel', placeholder: '0532 123 45 67', maxlength: 20 };
-  const pinAttrs = { type: 'password', inputmode: 'numeric', pattern: '[0-9]*', maxlength: 6, placeholder: '4-6 haneli sayı' };
+  const pinAttrs = { type: 'password', inputmode: 'numeric', pattern: '[0-9]*', maxlength: 6 };
+  const send = (ev, payload) => new Promise((resolve) => app.socket.timeout(8000).emit(ev, payload, (err, r) => resolve(err ? { ok: false, error: 'Sunucu yanıt vermedi.' } : r)));
+
+  const drawAccount = (changing = false) => {
+    const n = me.account.devices ?? 1;
+    const oldPin = field('Mevcut şifre', { ...pinAttrs, autocomplete: 'current-password' });
+    const newPin = field('Yeni şifre (6 haneli)', { ...pinAttrs, autocomplete: 'new-password' });
+    const changePin = async (e) => {
+      e.preventDefault();
+      const r = await send('account:pin', { old: val(oldPin), pin: val(newPin) });
+      if (!r?.ok) return toast(r?.error || 'Şifre değiştirilemedi', 'err');
+      me.account = r.account;
+      drawAccount();
+      toast('Şifren değişti, diğer cihazlardaki oturumlar kapatıldı');
+    };
+    const logoutOthers = async () => {
+      if (!confirm('Bu cihaz dışındaki tüm cihazlarda oturumun kapatılsın mı?')) return;
+      const r = await send('account:logout-others', {});
+      if (!r?.ok) return toast(r?.error || 'İşlem başarısız', 'err');
+      me.account = r.account;
+      drawAccount();
+      toast('Diğer cihazlardaki oturumlar kapatıldı');
+    };
+    mount(
+      box,
+      h('h3', {}, 'Hesabın'),
+      h('p.muted.small', {}, `${me.account.phone} numarasıyla üyesin. Başka bir cihazda bu numara ve şifrenle girersen her şeyin seninle gelir.`),
+      h('p.acct-devices', { class: n > 1 ? 'warn' : '' }, n > 1 ? `Hesabın şu an ${n} cihazda açık. Tanımadığın bir cihaz varsa diğer cihazlardan çıkış yap ve şifreni değiştir.` : 'Hesabın şu an yalnızca bu cihazda açık.'),
+      changing
+        ? h('form.form', { onsubmit: changePin }, oldPin, newPin, h('div.acct-row', {}, h('button.btn', { type: 'submit' }, 'Şifreyi değiştir'), h('button.btn.ghost', { type: 'button', onclick: () => drawAccount() }, 'Vazgeç')))
+        : h(
+            'div.acct-row',
+            {},
+            h('button.btn.ghost', { type: 'button', onclick: () => drawAccount(true) }, 'Şifreyi değiştir'),
+            n > 1 && h('button.btn.ghost', { type: 'button', onclick: logoutOthers }, 'Diğer cihazlardan çıkış yap'),
+            h('button.btn.ghost', { type: 'button', onclick: logout }, 'Çıkış yap'),
+          ),
+    );
+  };
+
   const draw = (mode) => {
-    if (me.account) {
-      return mount(
-        box,
-        h('h3', {}, 'Hesabın'),
-        h('p.muted.small', {}, `${me.account.phone} numarasıyla üyesin. Başka bir cihazda bu numara ve şifrenle girersen her şeyin seninle gelir.`),
-        h('button.btn.ghost', { type: 'button', onclick: logout }, 'Çıkış yap'),
-      );
-    }
+    if (me.account) return drawAccount();
     const login = mode === 'login';
     const phone = field('Cep numarası', phoneAttrs);
-    const pin = field(login ? 'Şifre' : 'Şifre belirle', { ...pinAttrs, autocomplete: login ? 'current-password' : 'new-password' });
-    const submit = (e) => {
+    const pin = field(login ? 'Şifre' : 'Şifre belirle (6 haneli)', { ...pinAttrs, autocomplete: login ? 'current-password' : 'new-password', placeholder: login ? 'Şifren' : '6 haneli sayı' });
+    const submit = async (e) => {
       e.preventDefault();
-      const payload = { phone: phone.querySelector('input').value, pin: pin.querySelector('input').value, name: nickInput.value };
-      app.socket.emit(login ? 'account:login' : 'account:register', payload, (r) => {
-        if (!r?.ok) return toast(r?.error || 'İşlem başarısız', 'err');
-        if (login) {
-          // hesabın kimliğine geç: sayfa yenilenince tüm veriler o hesaptan gelir
-          storage.set('safskor.userId', r.userId);
-          storage.set('safskor.nick', r.nick);
-          storage.set('safskor.team', r.team);
-          location.reload();
-          return;
-        }
-        me.account = r.account;
-        me.nick = r.nick;
-        storage.set('safskor.nick', me.nick);
-        app.socket.auth.nick = me.nick;
-        drawNick();
-        draw();
-        toast('Üyeliğin oluşturuldu');
-      });
+      const r = await send(login ? 'account:login' : 'account:register', { phone: val(phone), pin: val(pin), name: nickInput.value });
+      if (!r?.ok) return toast(r?.error || 'İşlem başarısız', 'err');
+      setSession(r.session);
+      if (login) {
+        // sayfa yenilenince tüm veriler hesaptan gelir
+        storage.set('safskor.nick', r.nick);
+        storage.set('safskor.team', r.team);
+        location.reload();
+        return;
+      }
+      // hesaba bağlanan eski tarayıcı kimliği artık tek başına bir işe yaramaz; tarayıcıdan da kaldırılır
+      me.userId = uid();
+      storage.set('safskor.userId', me.userId);
+      me.account = r.account;
+      me.nick = r.nick;
+      storage.set('safskor.nick', me.nick);
+      drawNick();
+      drawAccount();
+      toast('Üyeliğin oluşturuldu');
     };
     mount(
       box,
@@ -144,22 +178,56 @@ function accountBox(nickInput) {
   return box;
 }
 
-function logout() {
-  if (!confirm('Çıkış yapılsın mı? Tekrar girmek için numaran ve şifren gerekecek.')) return;
-  storage.set('safskor.userId', uid());
-  storage.set('safskor.nick', `Taraftar${Math.floor(1000 + Math.random() * 9000)}`);
+function setSession(session) {
+  me.session = session ?? null;
+  storage.set('safskor.session', me.session);
+}
+
+/** Bu cihazda yeni bir anonim kimlikle baştan başlar (çıkış ya da kapatılmış oturum) */
+function resetIdentity() {
+  setSession(null);
+  me.userId = uid();
+  me.nick = `Taraftar${Math.floor(1000 + Math.random() * 9000)}`;
+  me.team = null;
+  me.account = null;
+  storage.set('safskor.userId', me.userId);
+  storage.set('safskor.nick', me.nick);
   storage.set('safskor.team', null);
+  drawNick();
+}
+
+async function logout() {
+  if (!confirm('Çıkış yapılsın mı? Tekrar girmek için numaran ve şifren gerekecek.')) return;
+  // oturum sunucuda da kapatılır; bu cihazın anahtarı bir daha işe yaramaz
+  await new Promise((resolve) => app.socket.timeout(4000).emit('account:logout', {}, () => resolve()));
+  resetIdentity();
   location.reload();
 }
+
+// Bu cihazın oturumu kapatıldıysa (başka cihazdan çıkış yapıldı, şifre değişti ya da süresi doldu)
+// sunucu bağlantıyı reddeder: yeni anonim kimlikle devam edilir, hesaba tekrar girmek için numara + şifre gerekir.
+app.socket.on('connect_error', (err) => {
+  if (err?.message !== 'session_expired') return;
+  resetIdentity();
+  toast('Oturumun kapandı. Tekrar giriş yapmak için adına dokun.');
+  app.socket.connect();
+});
+
+// Başka sekmede giriş ya da çıkış yapılırsa bu sekme de aynı kimliğe geçsin
+window.addEventListener('storage', (e) => {
+  if (e.key === 'safskor.session' && storage.get('safskor.session', null) !== me.session) location.reload();
+});
 
 app.socket.on('connect', () => {
   conn.className = 'conn on';
   conn.title = 'Canlı bağlantı';
   route(); // yeniden bağlanınca odaya tekrar katıl
 });
-app.socket.on('disconnect', () => {
+app.socket.on('disconnect', (reason) => {
   conn.className = 'conn off';
   conn.title = 'Bağlantı koptu, yeniden deneniyor…';
+  // sunucu bağlantıyı kendisi kestiyse (ör. bu cihazın oturumu kapatıldı) yeniden dene; oturum geçersizse connect_error gelir
+  if (reason === 'io server disconnect') app.socket.connect();
 });
 app.socket.on('profile', (p) => {
   me.account = p?.account ?? null;
@@ -171,7 +239,6 @@ app.socket.on('profile', (p) => {
   if (JSON.stringify(team) === JSON.stringify(me.team)) return;
   me.team = team;
   storage.set('safskor.team', team);
-  app.socket.auth.teamId = team?.id ?? null;
   drawNick();
 });
 app.socket.on('hello', (d) => {

@@ -636,3 +636,6 @@ button { cursor: pointer; }
 .acct h3 { margin: 0; font-size: 16px; }
 .acct p { margin: 0; }
 .link-btn { border: 0; background: transparent; color: var(--accent); padding: 4px 0; font-size: 13.5px; font-weight: 600; justify-self: start; }
+.acct-devices { margin: 2px 0 4px; padding: 8px 10px; border-radius: var(--radius-sm); background: var(--surface-2); font-size: 13px; color: var(--muted); }
+.acct-devices.warn { background: rgba(255, 197, 66, 0.1); border: 1px solid rgba(255, 197, 66, 0.35); color: #ffe2a0; }
+.acct-row { display: flex; flex-wrap: wrap; gap: 8px; }
