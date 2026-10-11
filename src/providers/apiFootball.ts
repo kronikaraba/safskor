@@ -181,7 +181,30 @@ export class ApiFootballProvider implements FootballProvider {
   async getMatch(id: string): Promise<Match | null> {
     const rows = await this.get('/fixtures', { id, timezone: 'Europe/Istanbul' });
     if (!rows.length) return null;
-    return toMatch(rows[0]);
+    const m = toMatch(rows[0]);
+    // Bazı liglerde (ör. Süper Lig) kadroda teknik direktör gelmiyor: takımın güncel TD'sini ayrıca bul
+    if (m.lineups) {
+      for (const side of ['home', 'away'] as Side[]) {
+        const l = m.lineups[side];
+        if (l.coach) continue;
+        const c = await this.teamCoach(m[side].id).catch(() => null);
+        if (c) Object.assign(l, { coach: c.name, coachPhoto: c.photo });
+      }
+    }
+    return m;
+  }
+
+  /** Takımın güncel teknik direktörü; takım başına günde en fazla bir istek */
+  private coaches = new Map<string, { at: number; coach: { name: string; photo?: string } | null }>();
+  private async teamCoach(teamId: string) {
+    const hit = this.coaches.get(teamId);
+    if (hit && Date.now() - hit.at < 24 * 3600_000) return hit.coach;
+    const rows = await this.get('/coachs', { team: teamId });
+    const current = (c: any) => (c.career ?? []).find((x: any) => String(x.team?.id) === teamId && !x.end);
+    const pick = rows.filter(current).sort((a: any, b: any) => String(current(b).start).localeCompare(String(current(a).start)))[0];
+    const coach = pick?.name ? { name: String(pick.name), photo: pick.photo ?? undefined } : null;
+    this.coaches.set(teamId, { at: Date.now(), coach });
+    return coach;
   }
 }
 
