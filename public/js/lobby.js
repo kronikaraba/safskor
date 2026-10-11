@@ -1,5 +1,5 @@
 import { app } from './app.js';
-import { h, mount, crest, statusPill, kickoffText, storage } from './util.js';
+import { h, mount, crest, statusPill, kickoffText, storage, roundText } from './util.js';
 
 const FILTERS = [
   ['all', 'Tümü', () => true],
@@ -87,7 +87,7 @@ export function renderLobby(root) {
     const live = m.status === 'LIVE' || m.status === 'HT';
     const started = m.status !== 'SCHEDULED' && m.status !== 'POSTPONED';
     const state =
-      m.status === 'LIVE' ? `${m.minute ?? ''}${m.extra ? '+' + m.extra : ''}'` : m.status === 'HT' ? 'İY' : m.status === 'FT' ? 'MS' : m.status === 'POSTPONED' ? 'Ert.' : '-';
+      m.status === 'LIVE' ? `${m.minute ?? ''}${m.extra ? '+' + m.extra : ''}'` : m.status === 'HT' ? 'İY' : m.status === 'FT' ? 'MS' : m.status === 'POSTPONED' ? 'Ert.' : '';
     const lead = (side) => started && m.score[side] > m.score[side === 'home' ? 'away' : 'home'];
     return h(
       'a.mrow',
@@ -116,7 +116,7 @@ export function renderLobby(root) {
       h(
         'div.mcard-foot',
         {},
-        h('span', {}, m.competition.round || kickoffText(m.kickoff)),
+        h('span', {}, roundText(m.competition.round) || kickoffText(m.kickoff)),
         h('span', {}, m.viewers ? `👥 ${m.viewers} taraftar odada` : live ? 'Odaya ilk sen gir' : ''),
       ),
     );

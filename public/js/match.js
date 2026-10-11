@@ -1,5 +1,5 @@
 import { app, editNick } from './app.js';
-import { h, mount, crest, statusPill, minuteText, ratingPill, timeText, toast, openSheet, colorFor, storage, POS_TR, kickoffText } from './util.js';
+import { h, mount, crest, statusPill, minuteText, ratingPill, timeText, toast, openSheet, colorFor, storage, POS_TR, kickoffText, roundText, dayText } from './util.js';
 
 const TABS = [
   ['summary', 'Özet'],
@@ -123,7 +123,7 @@ export function renderMatch(root, matchId) {
     const board_ = h(
       'section.scoreboard',
       { '--hc': m.home.color || 'transparent', '--ac': m.away.color || 'transparent' },
-      h('div.sb-comp', {}, [m.competition.name, m.competition.round].filter(Boolean).join(' · ')),
+      h('div.sb-comp', {}, [m.competition.name, roundText(m.competition.round)].filter(Boolean).join(' · ')),
       h(
         'div.sb-main',
         {},
@@ -132,7 +132,7 @@ export function renderMatch(root, matchId) {
           'div.sb-center',
           {},
           h('div.sb-score', { class: flash ? 'flash' : '' }, started ? `${m.score.home} - ${m.score.away}` : kickoffText(m.kickoff)),
-          statusPill(m),
+          started || m.status === 'POSTPONED' ? statusPill(m) : h('span.status', {}, dayText(m.kickoff)),
         ),
         h('div.sb-team', {}, crest(m.away, 'lg'), h('span.name', {}, m.away.name), h('div.sb-scorers', {}, scorers('away').map((t) => h('div', {}, t)))),
       ),

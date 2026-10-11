@@ -63,6 +63,31 @@ export function kickoffText(iso) {
   return `${d.toLocaleDateString('tr-TR', { day: 'numeric', month: 'short' })} ${time}`;
 }
 
+/** API-Football tur adlarını Türkçeleştirir ("Regular Season - 6" → "6. Hafta") */
+export function roundText(r) {
+  if (!r) return '';
+  let x;
+  if ((x = r.match(/^Regular Season\s*-\s*(\d+)/i))) return `${x[1]}. Hafta`;
+  if ((x = r.match(/^(?:Group Stage|League Stage)\s*-\s*(\d+)/i))) return `Lig Aşaması · ${x[1]}. Maç`;
+  if ((x = r.match(/^Group\s+([A-Z])\s*-\s*(\d+)/i))) return `${x[1]} Grubu · ${x[2]}. Maç`;
+  if ((x = r.match(/^(\d+)(?:st|nd|rd|th) (?:Qualifying )?Round/i))) return `${x[1]}. Tur`;
+  const map = {
+    'round of 32': 'Son 32', 'round of 16': 'Son 16', 'quarter-finals': 'Çeyrek Final', 'semi-finals': 'Yarı Final',
+    final: 'Final', 'knockout round play-offs': 'Play-off', 'play-offs': 'Play-off', preliminary: 'Ön Eleme',
+  };
+  return map[r.toLowerCase()] ?? r;
+}
+
+/** Başlamamış maç için gün etiketi: Bugün / Yarın / 12 Eki */
+export function dayText(iso) {
+  const d = new Date(iso);
+  const t = new Date();
+  if (d.toDateString() === t.toDateString()) return 'Bugün';
+  t.setDate(t.getDate() + 1);
+  if (d.toDateString() === t.toDateString()) return 'Yarın';
+  return d.toLocaleDateString('tr-TR', { day: 'numeric', month: 'short' });
+}
+
 export function statusPill(m) {
   const cls = m.status === 'LIVE' ? 'live' : m.status === 'HT' ? 'ht' : m.status === 'FT' ? 'ft' : '';
   return h('span.status', { class: cls }, minuteText(m));
