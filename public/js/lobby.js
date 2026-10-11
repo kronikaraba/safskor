@@ -54,7 +54,7 @@ export function renderLobby(root) {
     if (!cs.length) return clubs.remove();
     if (wide.matches) side.prepend(clubs);
     else lobby.prepend(clubs);
-    mount(clubs, h('div.panel-head', {}, h('h2', {}, 'Büyük 4')), h('div.big4-grid', {}, cs.map(clubTile)));
+    mount(clubs, h('div.big4-grid', {}, cs.map(clubTile)));
   }
 
   /** Takımın gösterilecek maçı: bugünkü (canlı > yaklaşan > biten), yoksa sıradaki, o da yoksa son maçı */

@@ -632,7 +632,7 @@ button { cursor: pointer; }
 .side-rules { margin: 10px 0 0; }
 
 /* Büyük 4: hep görünen takım kısayolları */
-.big4 { padding: 12px 14px 14px; margin-bottom: 14px; }
+.big4 { padding: 12px; margin-bottom: 14px; }
 .big4 .panel-head { margin-bottom: 10px; }
 .big4-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
 .club { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 12px 6px 10px; border-radius: 12px; background: var(--surface-2); border: 1px solid transparent; text-align: center; min-width: 0; }

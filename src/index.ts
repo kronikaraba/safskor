@@ -61,8 +61,8 @@ app.get('/api/teams', (_req, res) => res.json(PICKABLE_TEAMS));
 const BIG4 = [
   ['611', 'fb'],
   ['645', 'gs'],
-  ['998', 'ts'],
   ['549', 'bjk'],
+  ['998', 'ts'],
 ] as const;
 const clubsPayload = () =>
   BIG4.map(([id, demo]) => ({ ...pickable.get(id)!, ids: [id, demo], ...(matches.clubFixtures(id) ?? { next: null, last: null }) }));
