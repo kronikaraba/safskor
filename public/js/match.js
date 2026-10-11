@@ -759,6 +759,7 @@ export function renderMatch(root, matchId) {
       const side = s.side.subs;
       const list = s.fan?.subs?.[side] ?? [];
       const voted = new Set(s.mine?.subVotes ?? []);
+      const own = new Set(s.mine?.subOwn ?? []);
       const max = Math.max(1, ...list.map((x) => x.votes));
       const { pitch: onP } = squadState(m, side);
       mount(
@@ -786,7 +787,9 @@ export function renderMatch(root, matchId) {
                       h('span.in', {}, `🔺 ${r.inName}`),
                       h('small', {}, `${r.nick} önerdi`, made ? h('span.done-tag', {}, ' · ✅ Teknik direktör bu değişikliği yaptı!') : gone ? ' · oyuncu artık sahada değil' : ''),
                     ),
-                    h('button.vote-btn', { class: voted.has(r.id) ? 'on' : '', onclick: () => send('sub:vote', { id: r.id }), 'aria-pressed': String(voted.has(r.id)) }, `${voted.has(r.id) ? '✓ ' : '+ '}${r.votes}`),
+                    own.has(r.id)
+                      ? h('span.vote-btn.on.own', { title: 'Senin talebin, desteğin sayıldı' }, `✓ ${r.votes}`)
+                      : h('button.vote-btn', { class: voted.has(r.id) ? 'on' : '', onclick: () => send('sub:vote', { id: r.id }), 'aria-pressed': String(voted.has(r.id)) }, `${voted.has(r.id) ? '✓ ' : '+ '}${r.votes}`),
                   ),
                   h('div.fbar-track', { style: { height: '4px', marginTop: '-4px', marginBottom: '6px' } }, h('i', { style: { width: `${(r.votes / max) * 100}%` } })),
                 );

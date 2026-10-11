@@ -80,6 +80,9 @@ ok(sr.ok, `değişiklik talebi: ${outP.name} ↔ ${inP.name}`);
 const subState = waitFor(a, 'fan:state', (f) => f.subs.home.find((x) => x.id === sr.id)?.votes === 2);
 await call(b, 'sub:vote', { id: sr.id });
 ok(await subState, 'talep 2 destek aldı');
+await call(a, 'sub:vote', { id: sr.id });
+const afterOwn = await (await fetch(`${BASE}/api/matches/${live.id}/fan`)).json();
+ok(afterOwn.subs?.home?.find((x) => x.id === sr.id)?.votes === 2, 'talep eden kendi desteğini geri alamaz, talep kaybolmaz');
 ok(!(await call(a, 'sub:request', { side: 'home', outId: inP.id, inId: outP.id })).ok, 'yedekteki oyuncuyu çıkarma talebi reddedildi');
 
 const mine = await (await fetch(`${BASE}/api/matches/${live.id}/fan`)).json();

@@ -294,6 +294,7 @@ button { cursor: pointer; }
 .req .swap small { display: block; color: var(--muted); font-size: 11.5px; }
 .vote-btn { border: 1px solid var(--border); background: var(--surface-2); border-radius: 999px; padding: 5px 11px; font-size: 13px; font-weight: 700; white-space: nowrap; }
 .vote-btn.on { background: rgba(0, 137, 254, 0.15); border-color: var(--accent); color: var(--accent); }
+.vote-btn.own { cursor: default; }
 .done-tag { font-size: 11.5px; color: var(--accent); }
 
 .poll { padding: 12px 0; border-bottom: 1px solid var(--border); }

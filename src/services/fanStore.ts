@@ -312,6 +312,9 @@ export class FanStore {
   }
 
   toggleSubVote(id: number, userId: string) {
+    // talep edenin desteği geri alınamaz; yoksa oy 0'a düşer ve talep listeden kaybolur
+    const own = this.db.prepare('SELECT 1 FROM sub_requests WHERE id = ? AND created_by = ?').get(id, userId);
+    if (own) return;
     const del = this.db.prepare('DELETE FROM sub_votes WHERE request_id = ? AND user_id = ?').run(id, userId);
     if (!del.changes) this.db.prepare('INSERT INTO sub_votes (request_id, user_id) VALUES (?,?)').run(id, userId);
   }
@@ -403,6 +406,9 @@ export class FanStore {
         .prepare('SELECT v.request_id FROM sub_votes v JOIN sub_requests s ON s.id = v.request_id WHERE s.match_id = ? AND v.user_id = ?')
         .all(matchId, userId) as any[]
     ).map((r) => r.request_id);
+    const subOwn = (
+      this.db.prepare('SELECT id FROM sub_requests WHERE match_id = ? AND created_by = ?').all(matchId, userId) as any[]
+    ).map((r) => r.id);
     const pr = this.db
       .prepare('SELECT home, away, xi_side, xi, points, exact, result_ok, xi_hits FROM predictions WHERE match_id = ? AND user_id = ?')
       .get(matchId, userId) as any;
@@ -412,7 +418,7 @@ export class FanStore {
           points: pr.points, exact: Boolean(pr.exact), resultOk: Boolean(pr.result_ok), xiHits: pr.xi_hits ?? 0,
         }
       : null;
-    return { ratings, polls, tactics, tacticLikes, subVotes, prediction };
+    return { ratings, polls, tactics, tacticLikes, subVotes, subOwn, prediction };
   }
 }
 
