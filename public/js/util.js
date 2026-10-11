@@ -149,7 +149,10 @@ export function openSheet(render) {
   draw();
   mount(back, sheet);
   back.hidden = false;
-  back.onclick = (e) => e.target === back && closeSheet();
+  // dikkat: onclick'ten false dönmek tıklamayı iptal eder (form gönderilmez); bu yüzden değer döndürme
+  back.onclick = (e) => {
+    if (e.target === back) closeSheet();
+  };
   const onKey = (e) => e.key === 'Escape' && closeSheet();
   document.addEventListener('keydown', onKey);
   sheetClose = () => document.removeEventListener('keydown', onKey);
