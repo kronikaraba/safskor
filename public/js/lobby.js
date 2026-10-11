@@ -137,7 +137,9 @@ export function renderLobby(root, tab = 'today') {
       if (!by.has(key)) by.set(key, []);
       by.get(key).push(m);
     }
-    return [...by.entries()].map(([name, xs]) => compSection(name, xs));
+    // Süper Lig her zaman ilk, Premier League ikinci; diğerleri geldiği sırada
+    const rank = (xs) => ({ 203: 0, 39: 1 })[xs[0].competition.id] ?? 2;
+    return [...by.entries()].sort((a, b) => rank(a[1]) - rank(b[1])).map(([name, xs]) => compSection(name, xs));
   }
 
   // ---------------------------------------------------------------- yarının maçları
