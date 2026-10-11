@@ -15,6 +15,19 @@ export interface TeamBadge {
   color?: string;
 }
 
+/** Bir maç olayına ya da oyuncuya yazılan yorum. target: 'e:<olayId>' veya 'p:<oyuncuId>' */
+export interface Comment {
+  id: number;
+  matchId: string;
+  target: string;
+  userId: string;
+  nick: string;
+  team: TeamBadge | null;
+  text: string;
+  minute: string | null;
+  createdAt: number;
+}
+
 export interface ChatMessage {
   id: number;
   matchId: string;
@@ -60,6 +73,10 @@ export class FanStore {
         id INTEGER PRIMARY KEY AUTOINCREMENT, match_id TEXT NOT NULL, user_id TEXT, nick TEXT NOT NULL,
         text TEXT NOT NULL, kind TEXT NOT NULL DEFAULT 'user', created_at INTEGER NOT NULL);
       CREATE INDEX IF NOT EXISTS chat_match ON chat(match_id, id);
+      CREATE TABLE IF NOT EXISTS comments (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, match_id TEXT NOT NULL, target TEXT NOT NULL, user_id TEXT NOT NULL,
+        nick TEXT NOT NULL, team TEXT, text TEXT NOT NULL, minute TEXT, created_at INTEGER NOT NULL);
+      CREATE INDEX IF NOT EXISTS comments_target ON comments(match_id, target, id);
       CREATE TABLE IF NOT EXISTS ratings (
         match_id TEXT NOT NULL, player_id TEXT NOT NULL, user_id TEXT NOT NULL, score INTEGER NOT NULL,
         updated_at INTEGER NOT NULL, PRIMARY KEY (match_id, player_id, user_id));
@@ -229,6 +246,26 @@ export class FanStore {
       .map((r) => ({ id: r.id, matchId: r.match_id, userId: r.user_id, nick: r.nick, text: r.text, kind: r.kind, createdAt: r.created_at, team: r.team ? JSON.parse(r.team) : null, minute: r.minute ?? null }));
   }
 
+  // ------------------------------------------------------------------ olay ve oyuncu yorumları
+
+  addComment(matchId: string, target: string, userId: string, nick: string, team: TeamBadge | null, text: string, minute: string | null): Comment {
+    const createdAt = Date.now();
+    const info = this.db
+      .prepare('INSERT INTO comments (match_id, target, user_id, nick, team, text, minute, created_at) VALUES (?,?,?,?,?,?,?,?)')
+      .run(matchId, target, userId, nick, team ? JSON.stringify(team) : null, text, minute, createdAt);
+    return { id: Number(info.lastInsertRowid), matchId, target, userId, nick, team, text, minute, createdAt };
+  }
+
+  comments(matchId: string, target: string, limit = 100): Comment[] {
+    return (
+      this.db
+        .prepare('SELECT * FROM comments WHERE match_id = ? AND target = ? ORDER BY id DESC LIMIT ?')
+        .all(matchId, target, limit) as any[]
+    )
+      .reverse()
+      .map((r) => ({ id: r.id, matchId: r.match_id, target: r.target, userId: r.user_id, nick: r.nick, team: r.team ? JSON.parse(r.team) : null, text: r.text, minute: r.minute ?? null, createdAt: r.created_at }));
+  }
+
   // ------------------------------------------------------------------ puanlar
 
   rate(matchId: string, playerId: string, userId: string, score: number) {
@@ -380,7 +417,11 @@ export class FanStore {
       subs[r.side as Side].push({ id: r.id, outId: r.out_id, outName: r.out_name, inId: r.in_id, inName: r.in_name, nick: r.nick, votes: r.votes });
     }
 
-    return { ratings, polls, tactics, subs, predictions: this.predictionStats(matchId) };
+    const comments: Record<string, number> = {};
+    for (const r of this.db.prepare('SELECT target, COUNT(*) c FROM comments WHERE match_id = ? GROUP BY target').all(matchId) as any[])
+      comments[r.target] = r.c;
+
+    return { ratings, polls, tactics, subs, comments, predictions: this.predictionStats(matchId) };
   }
 
   /** Kullanıcının bu maçtaki kendi oyları (arayüzde seçili göstermek için). */

@@ -16,6 +16,7 @@ const FAN_TABS = [
   ['polls', 'Anketler', 'anketler'],
 ];
 
+const EV_NAME = { goal: 'Gol', penalty: 'Penaltı golü', own_goal: 'Kendi kalesine gol', missed_penalty: 'Kaçan penaltı', yellow: 'Sarı kart', red: 'Kırmızı kart', sub: 'Oyuncu değişikliği', var: 'VAR' };
 const EV_ICON = { goal: '⚽', penalty: '⚽', own_goal: '⚽', missed_penalty: '❌', yellow: '🟨', red: '🟥', sub: '🔁', var: '📺' };
 const QUICK = ['⚽ Goool!', '🔥 Bastır!', '👏 Helal olsun', '😤 Hakem!', '🧤 Kaleci döktürdü', '🔁 Değişiklik şart'];
 
@@ -96,6 +97,12 @@ export function renderMatch(root, matchId) {
       if (p.matchId !== matchId) return;
       s.presence = p.count;
       drawPresence();
+    },
+    'comment:new': (c) => {
+      if (c.matchId !== matchId) return;
+      const items = commentCache.get(c.target);
+      if (items && !items.some((x) => x.id === c.id)) items.push(c);
+      if (activeBox?.target === c.target) activeBox.drawList();
     },
     'chat:message': (msg) => {
       if (msg.matchId !== matchId) return;
@@ -264,7 +271,14 @@ export function renderMatch(root, matchId) {
             h('span.who', {}, e.player || (e.type === 'var' ? 'VAR' : '')),
             h('span.sub', {}, e.type === 'goal' && e.related ? `Asist: ${e.related}` : e.type === 'penalty' ? 'Penaltı' : e.type === 'own_goal' ? 'Kendi kalesine' : e.type === 'var' ? e.detail : e.type === 'missed_penalty' ? 'Kaçan penaltı' : ''),
           ];
-    const ev = h('div.tl-ev', { class: `${e.side} ${goal ? 'goal' : ''}` }, h('span.ic', {}, EV_ICON[e.type] ?? '•'), h('div', {}, text.map((t, i) => (i ? [h('br'), t] : t))));
+    const n = commentCount(`e:${e.id}`);
+    const cm = h(
+      'button.cm-btn',
+      { type: 'button', class: n ? 'has' : '', onclick: () => openEventComments(e), title: 'Yorumlar', 'aria-label': n ? `${n} yorum, aç` : 'Yorum yaz' },
+      bubbleIcon(),
+      n ? h('span', {}, n) : null,
+    );
+    const ev = h('div.tl-ev', { class: `${e.side} ${goal ? 'goal' : ''}` }, h('span.ic', {}, EV_ICON[e.type] ?? '•'), h('div', {}, text.map((t, i) => (i ? [h('br'), t] : t))), cm);
     return h('li.tl-row', {}, e.side === 'home' ? ev : h('div'), h('div.tl-min', {}, `${e.minute}${e.extra ? '+' + e.extra : ''}'`), e.side === 'away' ? ev : h('div'));
   }
 
@@ -896,7 +910,15 @@ export function renderMatch(root, matchId) {
   // ---------------------------------------------------------------- oyuncu kartı
   let playerSheet = null;
   function openPlayer(p, side) {
+    const target = `p:${p.id}`;
+    const cbox = commentBox(target);
     playerSheet = openSheet((close) => {
+      // taraftar durumu her güncellendiğinde sayfa yeniden çizilir; yorum yazarken odak kaybolmasın
+      const typing = document.activeElement === cbox.input;
+      queueMicrotask(() => {
+        cbox.toBottom();
+        if (typing) cbox.input.focus({ preventScroll: true });
+      });
       const m = s.match;
       const fresh = [...(m.lineups?.[side]?.startXI ?? []), ...(m.lineups?.[side]?.subs ?? [])].find((x) => x.id === p.id) ?? p;
       const st = fresh.stats ?? {};
@@ -931,8 +953,64 @@ export function renderMatch(root, matchId) {
                 h('button', { class: mine === i ? 'on' : '', role: 'radio', 'aria-checked': String(mine === i), onclick: () => send('rating:set', { playerId: p.id, score: i }) }, i),
               ),
             ),
+        h('div.cm-head', {}, h('b', {}, 'Yorumlar'), h('span.muted.small', {}, ` · ${commentCount(target)}`)),
+        cbox.el,
       ];
     });
+  }
+
+  // ---------------------------------------------------------------- yorumlar (maç olayları ve oyuncular)
+  const commentCache = new Map(); // hedef ('e:<olayId>' / 'p:<oyuncuId>') -> yorumlar
+  let activeBox = null;
+  const commentCount = (target) => s.fan?.comments?.[target] ?? 0;
+  function commentBox(target) {
+    const list = h('div.cm-list', { 'aria-live': 'polite' });
+    const input = h('input.input', { maxlength: 200, placeholder: 'Yorum yaz…', 'aria-label': 'Yorum', autocomplete: 'off', enterkeyhint: 'send' });
+    const toBottom = () => (list.scrollTop = list.scrollHeight);
+    const drawList = () => {
+      const items = commentCache.get(target);
+      mount(list, !items ? h('p.muted.small', {}, 'Yorumlar yükleniyor…') : items.length ? items.map(chatMsg) : h('p.muted.small', {}, 'Henüz yorum yok. İlk yorumu sen yaz!'));
+      toBottom();
+    };
+    const submit = async (e) => {
+      e.preventDefault();
+      const text = input.value;
+      if (!text.trim()) return;
+      const r = await send('comment:add', { target, text });
+      if (r?.ok && input.value === text) input.value = '';
+    };
+    const el = h('div.cm', {}, list, h('form.cm-form', { onsubmit: submit }, input, h('button.btn', { type: 'submit' }, 'Gönder')));
+    const box = { target, el, input, drawList, toBottom };
+    activeBox = box;
+    drawList();
+    // her açılışta tazele (bağlantı koptuysa kaçan yorumlar da gelsin)
+    send('comment:list', { target }).then((r) => {
+      if (!r?.ok) return;
+      commentCache.set(target, r.comments);
+      if (activeBox === box) drawList();
+    });
+    return box;
+  }
+  function openEventComments(e) {
+    const box = commentBox(`e:${e.id}`);
+    const who = e.type === 'sub' ? `${e.related ?? ''} ↔ ${e.player ?? ''}` : e.player;
+    openSheet((close) => [
+      h(
+        'div.sheet-head',
+        {},
+        h('span.cm-ev-ic', {}, EV_ICON[e.type] ?? '•'),
+        h('div', {}, h('h2', {}, `${EV_NAME[e.type] ?? 'Olay'}${who ? `: ${who}` : ''}`), h('div.muted.small', {}, `${e.minute}${e.extra ? '+' + e.extra : ''}' · ${s.match[e.side].name}`)),
+        h('button.x', { onclick: close, 'aria-label': 'Kapat' }, '✕'),
+      ),
+      box.el,
+    ]);
+    queueMicrotask(box.toBottom);
+  }
+  function bubbleIcon() {
+    const el = h('span.cm-ic', { 'aria-hidden': 'true' });
+    el.innerHTML =
+      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z"/></svg>';
+    return el;
   }
   const kv = (v, label) => h('div', {}, h('b', {}, v), h('span', {}, label));
 

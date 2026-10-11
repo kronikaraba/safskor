@@ -85,6 +85,21 @@ const afterOwn = await (await fetch(`${BASE}/api/matches/${live.id}/fan`)).json(
 ok(afterOwn.subs?.home?.find((x) => x.id === sr.id)?.votes === 2, 'talep eden kendi desteğini geri alamaz, talep kaybolmaz');
 ok(!(await call(a, 'sub:request', { side: 'home', outId: inP.id, inId: outP.id })).ok, 'yedekteki oyuncuyu çıkarma talebi reddedildi');
 
+// olay ve oyuncu yorumları
+const ev = cur.events[0];
+ok(ev, 'yorum için maç olayı var');
+const evTarget = `e:${ev.id}`;
+const gotComment = waitFor(b, 'comment:new', (c) => c.target === evTarget && c.text === 'Ne goldü!');
+ok((await call(a, 'comment:add', { target: evTarget, text: 'Ne goldü!' })).ok, 'olaya yorum yazıldı');
+ok(await gotComment, 'olay yorumu odadaki diğer kullanıcıya anında geldi');
+const pTarget = `p:${cur.lineups.away.startXI[0].id}`;
+ok((await call(b, 'comment:add', { target: pTarget, text: 'Bugün çok iyi' })).ok, 'oyuncuya yorum yazıldı');
+const pl = await call(a, 'comment:list', { target: pTarget });
+ok(pl.ok && pl.comments.length === 1 && pl.comments[0].nick === 'Ayşe', 'oyuncu yorumları listelendi');
+ok(!(await call(a, 'comment:add', { target: 'p:yok-boyle-oyuncu', text: 'x' })).ok, 'olmayan oyuncuya yorum reddedildi');
+const withCounts = waitFor(a, 'fan:state', (f) => f.comments?.[evTarget] === 1 && f.comments?.[pTarget] === 1);
+ok(await withCounts, 'yorum sayıları taraftar durumunda');
+
 const mine = await (await fetch(`${BASE}/api/matches/${live.id}/fan`)).json();
 ok(mine.chat.some((c) => c.text === 'Selam millet!'), 'sohbet geçmişi kalıcı (REST)');
 

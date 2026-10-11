@@ -175,14 +175,19 @@ function toMatch(r: any): Match {
   const base = toSummary(r);
   const sideOf = (teamId: any): Side => (String(teamId) === base.home.id ? 'home' : 'away');
 
-  const events: MatchEvent[] = (r.events ?? []).map((e: any, i: number) => {
+  // olay kimliği içerikten türetilir; sıra değişse de (ör. VAR iptali) olaya yazılan yorumlar doğru olayda kalır
+  const seen = new Map<string, number>();
+  const events: MatchEvent[] = (r.events ?? []).map((e: any) => {
     const detail: string = e.detail ?? '';
     let type: MatchEvent['type'] = 'var';
     if (e.type === 'Goal') type = detail === 'Own Goal' ? 'own_goal' : detail === 'Penalty' ? 'penalty' : detail === 'Missed Penalty' ? 'missed_penalty' : 'goal';
     else if (e.type === 'Card') type = /Red/i.test(detail) ? 'red' : 'yellow';
     else if (/subst/i.test(e.type)) type = 'sub';
+    const key = `${base.id}-${type}-${e.time?.elapsed ?? 0}${e.time?.extra ? `+${e.time.extra}` : ''}-${e.player?.id ?? e.team?.id ?? ''}`;
+    const n = (seen.get(key) ?? 0) + 1;
+    seen.set(key, n);
     return {
-      id: `${base.id}-${i}`,
+      id: n > 1 ? `${key}-${n}` : key,
       minute: e.time?.elapsed ?? 0,
       extra: e.time?.extra ?? undefined,
       type,

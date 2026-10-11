@@ -314,6 +314,38 @@ io.on('connection', (socket: Socket) => {
     a({ ok: true });
   });
 
+  // --- maç olaylarına ve oyunculara yorum
+  /** 'e:<olayId>' ya da 'p:<oyuncuId>' hedefi bu maçta gerçekten var mı */
+  const validTarget = (m: Match, t: unknown): string | null => {
+    const target = clean(t, 120);
+    const [kind, id] = [target.slice(0, 2), target.slice(2)];
+    if (kind === 'e:') return m.events.some((e) => e.id === id) ? target : null;
+    if (kind === 'p:') return (['home', 'away'] as Side[]).some((side) => allPlayers(m, side).some((p) => p.id === id)) ? target : null;
+    return null;
+  };
+  socket.on('comment:list', async (p, ack) => {
+    const a = safeAck(ack);
+    const m = await context(a);
+    if (!m) return;
+    const target = validTarget(m, p?.target);
+    if (!target) return a({ ok: false, error: 'Yorum yapılacak olay ya da oyuncu bulunamadı.' });
+    a({ ok: true, target, comments: store.comments(m.id, target) });
+  });
+  socket.on('comment:add', async (p, ack) => {
+    const a = safeAck(ack);
+    const m = await context(a);
+    if (!m) return;
+    const target = validTarget(m, p?.target);
+    if (!target) return a({ ok: false, error: 'Yorum yapılacak olay ya da oyuncu bulunamadı.' });
+    const text = clean(p?.text, 200);
+    if (!text) return a({ ok: false, error: 'Boş yorum gönderilemez.' });
+    if (!chatLimit.ok(data.userId)) return a({ ok: false, error: 'Çok hızlı yazıyorsun, birkaç saniye bekle.' });
+    const comment = store.addComment(m.id, target, data.userId, data.nick, data.team, text, matchMinute(m.id));
+    io.to(room(m.id)).emit('comment:new', comment);
+    broadcastFan(m.id);
+    a({ ok: true });
+  });
+
   // --- oyuncu puanı (0-10)
   socket.on('rating:set', async (p, ack) => {
     const a = safeAck(ack);
