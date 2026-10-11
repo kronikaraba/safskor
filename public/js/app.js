@@ -36,30 +36,23 @@ nickBtn.onclick = () => editNick();
 
 export function editNick() {
   let teams = null;
-  let query = '';
   let picked = me.team;
   const input = h('input.input', { value: me.nick, maxlength: 20, minlength: 2, autocomplete: 'nickname', 'aria-label': 'Takma ad' });
-  const search = h('input.input', { type: 'search', placeholder: 'Takım ara…', 'aria-label': 'Takım ara', autocomplete: 'off' });
-  const list = h('div.team-list', { role: 'listbox', 'aria-label': 'Favori takım' });
-  const chosen = h('div.team-chosen');
-  const norm = (s) => s.toLocaleLowerCase('tr').normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  const list = h('div.team-list', { role: 'radiogroup', 'aria-label': 'Favori takım' });
   const drawTeams = () => {
-    mount(chosen, picked ? [teamBadge(picked), h('b', {}, picked.name), h('button.btn.ghost.sm', { type: 'button', onclick: () => ((picked = null), drawTeams()) }, 'Kaldır')] : h('span.muted.small', {}, 'Henüz favori takım seçmedin.'));
     if (!teams) return mount(list, h('p.muted.small', {}, 'Takımlar yükleniyor…'));
-    const q = norm(query.trim());
-    const shown = teams.filter((t) => !q || norm(t.name).includes(q) || norm(t.short).includes(q)).slice(0, 60);
     mount(
       list,
-      shown.length
-        ? shown.map((t) =>
-            h('button.team-opt', { type: 'button', role: 'option', class: picked?.id === t.id ? 'on' : '', 'aria-selected': String(picked?.id === t.id), onclick: () => ((picked = t), drawTeams()) }, teamBadge(t), h('span', {}, t.name)),
-          )
-        : h('p.muted.small', {}, 'Takım bulunamadı. Liste, sitede maçı görünen takımlardan oluşur.'),
+      teams.map((t) => {
+        const on = picked?.id === t.id;
+        // seçili takıma tekrar dokunmak seçimi kaldırır
+        return h('button.team-opt', { type: 'button', role: 'radio', class: on ? 'on' : '', 'aria-checked': String(on), onclick: () => ((picked = on ? null : t), drawTeams()) }, h('img.team-logo', { src: t.logo, alt: '' }), h('span', {}, t.name));
+      }),
     );
   };
-  search.oninput = () => ((query = search.value), drawTeams());
   app.socket.emit('teams:list', {}, (r) => {
     teams = r?.teams ?? [];
+    if (picked && !teams.some((t) => t.id === picked.id)) picked = null;
     drawTeams();
   });
   openSheet((close) => {
@@ -87,7 +80,7 @@ export function editNick() {
         { onsubmit: save },
         h('label', {}, 'Takma ad', input),
         h('p.muted.small', { style: { margin: '-4px 0 0' } }, 'Sohbette, önerilerde ve sıralamada bu adla görüneceksin.'),
-        h('div.field', { role: 'group', 'aria-label': 'Favori takımın' }, h('span', {}, 'Favori takımın'), chosen, search, list),
+        h('div.field', { role: 'group', 'aria-label': 'Favori takımın' }, h('span', {}, 'Favori takımın (dokunarak seç, tekrar dokunursan kaldırılır)'), list),
         h('button.btn', { type: 'submit' }, 'Kaydet'),
       ),
     ];
@@ -102,6 +95,14 @@ app.socket.on('connect', () => {
 app.socket.on('disconnect', () => {
   conn.className = 'conn off';
   conn.title = 'Bağlantı koptu, yeniden deneniyor…';
+});
+app.socket.on('profile', (p) => {
+  const team = p?.team ?? null;
+  if (JSON.stringify(team) === JSON.stringify(me.team)) return;
+  me.team = team;
+  storage.set('safskor.team', team);
+  app.socket.auth.teamId = team?.id ?? null;
+  drawNick();
 });
 app.socket.on('hello', (d) => {
   app.matches = d.matches;

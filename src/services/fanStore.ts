@@ -121,6 +121,11 @@ export class FanStore {
     return r ? { nick: r.nick, team: r.team_id ? this.team(r.team_id) : null } : null;
   }
 
+  /** Seçilebilir listede olmayan eski favori takımları temizler */
+  keepProfileTeams(ids: string[]) {
+    this.db.prepare(`UPDATE profiles SET team_id = NULL WHERE team_id IS NOT NULL AND team_id NOT IN (${ids.map(() => '?').join(',')})`).run(...ids);
+  }
+
   saveProfile(userId: string, nick: string, teamId: string | null) {
     this.db
       .prepare(

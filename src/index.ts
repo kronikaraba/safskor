@@ -5,7 +5,6 @@ import { fileURLToPath } from 'node:url';
 import { Server, type Socket } from 'socket.io';
 import { config } from './config.js';
 import { createProvider } from './providers/index.js';
-import { DEMO_TEAMS } from './providers/demo.js';
 import { FanStore, FORMATIONS, STYLES, weekKey, type TeamBadge } from './services/fanStore.js';
 import { MatchService } from './services/matchService.js';
 import type { Match, MatchEvent, Player, Side } from './types.js';
@@ -45,7 +44,18 @@ app.get('/api/matches/:id/fan', async (req, res) => {
   res.json({ ...store.state(m.id), chat: store.chatHistory(m.id) });
 });
 app.get('/api/meta', (_req, res) => res.json({ formations: FORMATIONS, styles: STYLES }));
-app.get('/api/teams', (_req, res) => res.json(store.teams()));
+/** Favori takım olarak seçilebilen takımlar (API-Football kimlikleri ve armaları) */
+const PICKABLE_TEAMS: TeamBadge[] = [
+  { id: '611', name: 'Fenerbahçe', short: 'FB', logo: 'https://media.api-sports.io/football/teams/611.png', color: '#f5d10b' },
+  { id: '645', name: 'Galatasaray', short: 'GS', logo: 'https://media.api-sports.io/football/teams/645.png', color: '#a90432' },
+  { id: '549', name: 'Beşiktaş', short: 'BJK', logo: 'https://media.api-sports.io/football/teams/549.png', color: '#e5e5e5' },
+  { id: '998', name: 'Trabzonspor', short: 'TS', logo: 'https://media.api-sports.io/football/teams/998.png', color: '#7a1e3a' },
+];
+const pickable = new Map(PICKABLE_TEAMS.map((t) => [t.id, t]));
+store.upsertTeams(PICKABLE_TEAMS);
+store.keepProfileTeams([...pickable.keys()]);
+
+app.get('/api/teams', (_req, res) => res.json(PICKABLE_TEAMS));
 
 // Paylaşım kartı tuvale arma çizebilsin diye API-Football armalarını aynı kökenden sun (yalnızca media.api-sports.io)
 const crestCache = new Map<string, { type: string; body: Buffer }>();
@@ -163,9 +173,8 @@ interface SocketData {
 /** Sunucu yeniden başlayınca veriler sıfırlanabilir: profil yoksa istemcinin bildirdiği (doğrulanmış) takımı kullan */
 function restoreTeam(userId: string, claimed: unknown): TeamBadge | null {
   const saved = store.profile(userId);
-  if (saved) return saved.team;
-  const id = typeof claimed === 'string' ? claimed.slice(0, 40) : '';
-  return id ? store.team(id) : null;
+  if (saved) return saved.team ? (pickable.get(saved.team.id) ?? null) : null;
+  return typeof claimed === 'string' ? (pickable.get(claimed) ?? null) : null;
 }
 
 io.on('connection', (socket: Socket) => {
@@ -178,6 +187,8 @@ io.on('connection', (socket: Socket) => {
   data.team = isUserId(auth.userId) ? restoreTeam(data.userId, auth.teamId) : null;
   socket.data = data;
   socket.emit('hello', { provider: matches.providerInfo, matches: withViewers() });
+  // tarayıcıdaki favori takım sunucudakiyle eşleşsin (ör. listeden kaldırılmış eski bir takım)
+  socket.emit('profile', { team: data.team });
 
   type Ack = (r: { ok: boolean; error?: string; [k: string]: unknown }) => void;
   const safeAck = (ack: unknown): Ack => (typeof ack === 'function' ? (ack as Ack) : () => {});
@@ -200,7 +211,7 @@ io.on('connection', (socket: Socket) => {
     let team = data.team;
     if (p?.teamId === null || p?.teamId === '') team = null;
     else if (p?.teamId !== undefined) {
-      team = store.team(clean(p.teamId, 40));
+      team = pickable.get(clean(p.teamId, 40)) ?? null;
       if (!team) return a({ ok: false, error: 'Takım bulunamadı.' });
     }
     data.nick = nick;
@@ -209,7 +220,7 @@ io.on('connection', (socket: Socket) => {
     a({ ok: true, nick, team });
   });
 
-  socket.on('teams:list', (_p, ack) => safeAck(ack)({ ok: true, teams: store.teams() }));
+  socket.on('teams:list', (_p, ack) => safeAck(ack)({ ok: true, teams: PICKABLE_TEAMS }));
 
   socket.on('leaderboard:get', (p, ack) => {
     const week = typeof p?.week === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(p.week) ? p.week : weekKey(Date.now());
@@ -404,9 +415,10 @@ matches.on('list', lobbyUpdate);
 
 // ------------------------------------------------------------------ takımlar ve tahmin puanlama
 
-store.upsertTeams(DEMO_TEAMS);
 matches.on('list', (list: { status: string; home: TeamBadge; away: TeamBadge; id: string }[]) => {
-  store.upsertTeams(list.flatMap((m) => [m.home, m.away]).map(({ id, name, short, logo, color }) => ({ id, name, short, logo, color })));
+  // seçilebilir takımların adı/kısaltması sabit kalsın; diğer takımlar yalnızca kayıt için
+  const seen = list.flatMap((m) => [m.home, m.away]).filter((t) => !pickable.has(t.id));
+  store.upsertTeams(seen.map(({ id, name, short, logo, color }) => ({ id, name, short, logo, color })));
   scorePending(list);
 });
 
