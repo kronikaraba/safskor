@@ -21,6 +21,8 @@ export const config = {
     listIdlePollMs: num(process.env.LIST_IDLE_POLL_MS, 120 * 60_000),
     /** İzleyicisi olan canlı maçların detay yoklama aralığı */
     detailPollMs: num(process.env.DETAIL_POLL_MS, 10 * 60_000),
+    /** Canlı maçların toplu yoklama aralığı için alt sınır; kalan kotaya göre otomatik uzar */
+    livePollMs: num(process.env.LIVE_POLL_MS, 5 * 60_000),
     /** Günlük istek hakkı ve her zaman boşta tutulacak yedek */
     dailyLimit: num(process.env.API_DAILY_LIMIT, 100),
     reserve: num(process.env.API_RESERVE, 5),

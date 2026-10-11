@@ -23,6 +23,7 @@ type Opts = {
   listPollMs: number;
   listIdlePollMs: number;
   detailPollMs: number;
+  livePollMs: number;
   dailyLimit: number;
   reserve: number;
 };
@@ -44,7 +45,7 @@ export class ApiFootballProvider implements FootballProvider {
   constructor(private opts: Opts) {}
 
   get pollMs() {
-    return { list: this.busy ? this.opts.listPollMs : this.opts.listIdlePollMs, detail: this.opts.detailPollMs };
+    return { list: this.busy ? this.opts.listPollMs : this.opts.listIdlePollMs, detail: this.opts.detailPollMs, live: this.opts.livePollMs };
   }
 
   quota(): QuotaInfo {
@@ -106,6 +107,13 @@ export class ApiFootballProvider implements FootballProvider {
     const soon = Date.now() + 30 * 60_000;
     this.busy = list.some((m) => m.status === 'LIVE' || m.status === 'HT' || (m.status === 'SCHEDULED' && Date.parse(m.kickoff) <= soon));
     return list;
+  }
+
+  /** Takip edilen liglerde oynanan tüm maçlar tek istekte (olaylar dahil, kadro/istatistik hariç) */
+  async liveMatches(): Promise<Match[]> {
+    const live = this.opts.leagues.length ? this.opts.leagues.join('-') : 'all';
+    const rows = await this.get('/fixtures', { live, timezone: 'Europe/Istanbul' });
+    return rows.map(toMatch);
   }
 
   async getMatch(id: string): Promise<Match | null> {

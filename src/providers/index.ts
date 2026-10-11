@@ -67,6 +67,16 @@ export class FallbackProvider implements FootballProvider {
     return this.demo.listMatches();
   }
 
+  async liveMatches(): Promise<Match[] | null> {
+    if (this.isDemo || this.stale) return null;
+    try {
+      return await this.primary.liveMatches();
+    } catch (e) {
+      this.handle(e);
+      return null;
+    }
+  }
+
   async getMatch(id: string): Promise<Match | null> {
     if (id.startsWith('demo-')) return this.demo.getMatch(id);
     if (this.isDemo) return null;

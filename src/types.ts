@@ -90,6 +90,11 @@ export interface FootballProvider {
   readonly isDemo: boolean;
   listMatches(): Promise<MatchSummary[]>;
   getMatch(id: string): Promise<Match | null>;
+  /**
+   * İsteğe bağlı: oynanan tüm maçları (skor, dakika, olaylar; kadro/istatistik yok) tek istekte döndürür.
+   * null: şu an kullanılamıyor (demo modu, kota vb.).
+   */
+  liveMatches?(): Promise<Match[] | null>;
   /** Önerilen yoklama aralığı (ms); demo için kısa, gerçek API için kota dostu */
-  readonly pollMs: { list: number; detail: number };
+  readonly pollMs: { list: number; detail: number; live?: number };
 }
