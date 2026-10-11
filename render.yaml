@@ -1,13 +1,11 @@
 # Render Blueprint (https://render.com/docs/blueprint-spec).
-# Ücretsiz plan: 15 dk hareketsizlikte uyur; taraftar verileri (sohbet, puanlar, anketler) yeniden başlatmada sıfırlanır.
-# Kalıcı veri için: plan'ı starter yapın, DB_PATH satırını ve disk bölümünü ekleyin (aylık ücretli):
-#   - key: DB_PATH / value: /var/data/safskor.db
-#   disk: { name: safskor-data, mountPath: /var/data, sizeGB: 1 }
+# Starter plan: her zaman açık; taraftar verileri (sohbet, puanlar, tahminler, sıralama) 1 GB kalıcı diskte saklanır (aylık ücretli).
+# Ücretsiz denemek için: plan'ı free yapın, disk bölümünü ve DB_PATH satırını silin (veriler yeniden başlatmada sıfırlanır).
 services:
   - type: web
     name: safskor
     runtime: node
-    plan: free
+    plan: starter
     region: frankfurt
     buildCommand: npm ci --include=dev && npm run build && npm prune --omit=dev
     startCommand: node dist/index.js
@@ -22,4 +20,10 @@ services:
         sync: false # değeri Render panelinde girin; boş kalırsa demo veriyle çalışır
       - key: API_FOOTBALL_LEAGUES
         value: 203,39,140,2
+      - key: DB_PATH
+        value: /data/safskor.db
       # Yoklama aralıkları kodda günde 100 isteklik ücretsiz plana göre ayarlı; ücretli planda düşürebilirsiniz.
+    disk:
+      name: data
+      mountPath: /data
+      sizeGB: 1
