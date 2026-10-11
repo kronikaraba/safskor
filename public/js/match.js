@@ -172,7 +172,11 @@ export function renderMatch(root, matchId) {
     drawTabs();
     drawBody();
     chatCol.classList.toggle('show', key === 'chat');
-    if (key === 'chat') scrollChat();
+    if (key === 'chat') {
+      scrollChat();
+      // telefonda sohbeti sekme çubuğunun hemen altına getir: yazı kutusu ekranın altında görünür kalsın
+      if (isNarrow()) requestAnimationFrame(() => chatCol.scrollIntoView({ block: 'start' }));
+    }
   }
 
   // Her sekme bir {el, update} döndürür; update yalnızca sonuçları yeniler, formlardaki girdiyi korur.
@@ -952,9 +956,10 @@ export function renderMatch(root, matchId) {
 
   // ---------------------------------------------------------------- sohbet
   const chatList = h('div.chat-list', { 'aria-live': 'polite' });
-  const chatInput = h('input.input', { maxlength: 280, placeholder: 'Mesaj yaz…', 'aria-label': 'Sohbet mesajı', autocomplete: 'off' });
+  const chatInput = h('input.input', { maxlength: 280, placeholder: 'Mesaj yaz…', 'aria-label': 'Sohbet mesajı', autocomplete: 'off', enterkeyhint: 'send' });
   const chatHead = h('div.chat-head');
   function drawChat() {
+    const typing = document.activeElement === chatInput;
     mount(
       chatCol,
       h(
@@ -974,6 +979,7 @@ export function renderMatch(root, matchId) {
     mount(chatHead, h('b', {}, '💬 Maç odası sohbeti'), h('button.btn.ghost.sm', { onclick: editNick, title: 'Takma adını değiştir' }, app.me.nick));
     mount(chatList, s.chat.length ? s.chat.map(chatMsg) : h('p.muted.small', { style: { textAlign: 'center' } }, 'Sohbeti ilk sen başlat!'));
     scrollChat(true);
+    if (typing) chatInput.focus({ preventScroll: true }); // yeniden çizim yazmayı kesmesin
   }
   async function sendChat(text) {
     if (!text.trim()) return;

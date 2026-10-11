@@ -426,7 +426,10 @@ button { cursor: pointer; }
   .chat-col { display: none; }
   .chat-col.show { display: block; }
   .tab.chat-tab { display: inline-block; }
-  .chat { position: static; height: calc(100vh - 260px); min-height: 380px; }
+  /* telefonda sohbet, sabit sekme çubuğunun altından ekranın görünen altına kadar uzanır; yazı kutusu hep görünür */
+  .chat { position: static; height: calc(100vh - 112px); height: calc(100dvh - 112px); min-height: 320px; }
+  .chat-col.show { scroll-margin-top: 112px; }
+  .chat-form .input { font-size: 16px; } /* iOS odaklanınca yakınlaştırmasın */
 }
 @media (max-width: 520px) {
   .app { padding: 12px; }
