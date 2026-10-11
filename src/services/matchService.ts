@@ -1,5 +1,5 @@
 import { EventEmitter } from 'node:events';
-import type { FootballProvider, Match, MatchEvent, MatchSummary } from '../types.js';
+import type { FootballProvider, Match, MatchEvent, MatchSummary, TeamFixtures } from '../types.js';
 
 const MIN = 60_000;
 
@@ -15,7 +15,10 @@ const MIN = 60_000;
  *   kimse izlemese de sık yenilenir. Diğer maçlarda tam detay yalnızca izleniyorsa ve seyrek çekilir.
  * - Kota sıkışırsa önce diğer maçlar, en son öncelikli maçlar yavaşlar.
  *
- * Olaylar: 'list' (MatchSummary[]), 'match' (Match), 'events' (matchId, MatchEvent[] yeni olaylar)
+ * - Öncelikli takımların bir sonraki/son maçı (bugün oynamasalar da lobide gösterilsin diye) 6 saatte bir,
+ *   ya da bilinen sonraki maçları bitince yenilenir: takım başına 2 istek.
+ *
+ * Olaylar: 'list' (MatchSummary[]), 'match' (Match), 'events' (matchId, MatchEvent[] yeni olaylar), 'clubs'
  */
 export class MatchService extends EventEmitter {
   private list: MatchSummary[] = [];
@@ -27,6 +30,10 @@ export class MatchService extends EventEmitter {
   private detailTimer?: NodeJS.Timeout;
   private liveTimer?: NodeJS.Timeout;
   private focusTimer?: NodeJS.Timeout;
+  private clubsTimer?: NodeJS.Timeout;
+  private clubs = new Map<string, TeamFixtures>();
+  private clubsAt = 0;
+  private clubsJson = '';
   private focus: Set<string>;
   private focusDetailMs: number;
   private otherDetailMs: number;
@@ -93,6 +100,11 @@ export class MatchService extends EventEmitter {
     this.detailTimer = setTimeout(loopDetail, this.provider.pollMs.detail);
     this.liveTimer = setTimeout(loopLive, 5_000);
     this.focusTimer = setTimeout(loopFocus, 10_000);
+    const loopClubs = async () => {
+      await this.refreshClubs().catch((e) => console.error('[matches] takım fikstürü hatası', e));
+      this.clubsTimer = setTimeout(loopClubs, 10 * MIN);
+    };
+    this.clubsTimer = setTimeout(loopClubs, 20_000);
   }
 
   stop() {
@@ -100,10 +112,16 @@ export class MatchService extends EventEmitter {
     clearTimeout(this.detailTimer);
     clearTimeout(this.liveTimer);
     clearTimeout(this.focusTimer);
+    clearTimeout(this.clubsTimer);
   }
 
   getList() {
     return this.list;
+  }
+
+  /** Öncelikli takımın bilinen sonraki/son maçı (bugünün listesinde yoksa lobi bunları gösterir) */
+  clubFixtures(teamId: string): TeamFixtures | null {
+    return this.clubs.get(teamId) ?? null;
   }
 
   async getMatch(id: string): Promise<Match | null> {
@@ -259,6 +277,28 @@ export class MatchService extends EventEmitter {
           ? age >= this.focusInterval()
           : m.status === 'SCHEDULED' && until <= 75 * MIN && until > -10 * MIN && !cached?.match.lineups && age >= 10 * MIN;
       if (due) await this.fetchDetail(m.id);
+    }
+  }
+
+  private async refreshClubs() {
+    if (!this.focus.size || !this.provider.teamFixtures || this.provider.isDemo || this.pressure() === 'critical') return;
+    const now = Date.now();
+    // bilinen sonraki maç bittiyse (ör. dün akşam) yenisini öğren; yoksa 6 saatte bir
+    const ended = [...this.clubs.values()].some((c) => c.next && Date.parse(c.next.kickoff) + 150 * MIN < now && this.clubsAt < Date.parse(c.next.kickoff) + 150 * MIN);
+    if (this.clubsAt && now - this.clubsAt < 6 * 60 * MIN && !ended) return;
+    let got = 0;
+    for (const id of this.focus) {
+      const fx = await this.provider.teamFixtures(id);
+      if (!fx) continue;
+      this.clubs.set(id, fx);
+      got++;
+    }
+    if (!got) return; // alınamadı: 10 dk sonra tekrar dene
+    this.clubsAt = now;
+    const json = JSON.stringify([...this.clubs]);
+    if (json !== this.clubsJson) {
+      this.clubsJson = json;
+      this.emit('clubs');
     }
   }
 

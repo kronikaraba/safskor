@@ -1,4 +1,4 @@
-import type { FootballProvider, Lineup, Match, MatchEvent, MatchStatus, MatchSummary, Player, StatLine, Side } from '../types.js';
+import type { FootballProvider, TeamFixtures, Lineup, Match, MatchEvent, MatchStatus, MatchSummary, Player, StatLine, Side } from '../types.js';
 
 /** Günlük istek hakkı bitti; gün dönümüne (00:00 UTC) kadar istek atılmaz. */
 export class QuotaError extends Error {
@@ -128,6 +128,13 @@ export class ApiFootballProvider implements FootballProvider {
     const live = this.opts.leagues.length ? [...new Set([...this.opts.leagues, ...this.extraLeagues])].join('-') : 'all';
     const rows = await this.get('/fixtures', { live, timezone: 'Europe/Istanbul' });
     return rows.map(toMatch);
+  }
+
+  /** Takımın bir sonraki ve son maçı (iki istek; seyrek çağrılır) */
+  async teamFixtures(teamId: string): Promise<TeamFixtures> {
+    const next = await this.get('/fixtures', { team: teamId, next: '1', timezone: 'Europe/Istanbul' });
+    const last = await this.get('/fixtures', { team: teamId, last: '1', timezone: 'Europe/Istanbul' });
+    return { next: next[0] ? toSummary(next[0]) : null, last: last[0] ? toSummary(last[0]) : null };
   }
 
   async getMatch(id: string): Promise<Match | null> {

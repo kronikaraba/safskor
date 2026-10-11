@@ -631,6 +631,39 @@ button { cursor: pointer; }
 .side-rank .lb-row { padding: 8px 4px; }
 .side-rules { margin: 10px 0 0; }
 
+/* Büyük 4: hep görünen takım kısayolları */
+.big4 { padding: 12px 14px 14px; margin-bottom: 14px; }
+.big4 .panel-head { margin-bottom: 10px; }
+.big4-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.club { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 12px 6px 10px; border-radius: 12px; background: var(--surface-2); border: 1px solid transparent; text-align: center; min-width: 0; }
+a.club:hover { border-color: var(--accent); }
+.club.live, .club.ht { border-color: rgba(255, 77, 94, 0.55); }
+.club-top { display: flex; flex-direction: column; align-items: center; gap: 6px; min-width: 0; max-width: 100%; }
+.club-top b { font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+.crest.md { width: 44px; height: 44px; font-size: 13px; }
+.crest.xs { width: 18px; height: 18px; font-size: 7px; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.15); }
+.club-match { display: flex; align-items: center; justify-content: center; gap: 6px; }
+.club-mid { font-weight: 800; font-size: 14px; font-variant-numeric: tabular-nums; }
+.club.live .club-mid { color: var(--live); }
+.club-when { font-size: 12px; color: var(--muted); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+.club.live .club-when { color: var(--live); }
+.club.ht .club-when { color: var(--gold); }
+.club.none .club-when { white-space: normal; }
+@media (min-width: 921px) { .big4 { margin-bottom: 0; } }
+@media (max-width: 640px) {
+  .big4 { padding: 0; margin: 0 0 12px; background: transparent; border: 0; }
+  .big4 .panel-head { display: none; }
+  .big4-grid { gap: 6px; }
+  .club { padding: 9px 3px 8px; gap: 5px; background: var(--surface); border-color: var(--border); }
+  .club-top { gap: 5px; }
+  .club-top b { font-size: 12px; }
+  .crest.md { width: 34px; height: 34px; }
+  .crest.xs { width: 15px; height: 15px; }
+  .club-match { gap: 4px; }
+  .club-mid { font-size: 13px; }
+  .club-when { font-size: 11px; }
+}
+
 /* üyelik */
 .acct { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--border); display: grid; gap: 8px; }
 .acct h3 { margin: 0; font-size: 16px; }

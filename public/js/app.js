@@ -243,11 +243,13 @@ app.socket.on('profile', (p) => {
 });
 app.socket.on('hello', (d) => {
   app.matches = d.matches;
+  app.clubs = d.clubs || [];
   setProvider(d.provider);
   app.onMatches?.();
 });
 app.socket.on('matches', (d) => {
   app.matches = d.matches;
+  app.clubs = d.clubs || [];
   setProvider(d.provider);
   app.onMatches?.();
 });

@@ -85,6 +85,11 @@ export interface Match extends MatchSummary {
 }
 
 /** Modüler futbol veri sağlayıcısı arayüzü. Yeni bir API eklemek için bunu uygulayın. */
+export interface TeamFixtures {
+  next: MatchSummary | null;
+  last: MatchSummary | null;
+}
+
 export interface FootballProvider {
   readonly name: string;
   readonly isDemo: boolean;
@@ -95,6 +100,8 @@ export interface FootballProvider {
    * null: şu an kullanılamıyor (demo modu, kota vb.).
    */
   liveMatches?(): Promise<Match[] | null>;
+  /** İsteğe bağlı: takımın bir sonraki ve son maçı (bugün listede olmayan maçlar için). null: şu an kullanılamıyor */
+  teamFixtures?(teamId: string): Promise<TeamFixtures | null>;
   /** Önerilen yoklama aralığı (ms); demo için kısa, gerçek API için kota dostu */
   readonly pollMs: { list: number; detail: number; live?: number };
 }

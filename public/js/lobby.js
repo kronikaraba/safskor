@@ -19,32 +19,70 @@ export function renderLobby(root) {
 
   const chips = h('div.chips', { role: 'tablist' });
   const list = h('div.lobby-list');
+  const clubs = h('section.panel.big4', { 'aria-label': 'Büyük 4' });
   const featured = h('div');
   const ranks = h('div');
   const today = new Date().toLocaleDateString('tr-TR', { day: 'numeric', month: 'long' });
-  mount(
-    root,
+  const side = h('aside.lobby-side', {}, featured, ranks);
+  const lobby = h(
+    'div.lobby',
+    {},
     h(
-      'div.lobby',
+      'section.lobby-main',
       {},
-      h(
-        'section.lobby-main',
-        {},
-        h('div.lobby-head', {}, h('div', {}, h('h1', {}, 'Bugünün maçları'), h('p.muted.small', {}, 'Bir maç odasına gir: canlı sohbet et, oyuncuları puanla, taktik öner.')), h('span.lobby-date', {}, `Bugün · ${today}`), chips),
-        list,
-      ),
-      h('aside.lobby-side', {}, featured, ranks),
+      h('div.lobby-head', {}, h('div', {}, h('h1', {}, 'Bugünün maçları'), h('p.muted.small', {}, 'Bir maç odasına gir: canlı sohbet et, oyuncuları puanla, taktik öner.')), h('span.lobby-date', {}, `Bugün · ${today}`), chips),
+      list,
     ),
+    side,
   );
+  mount(root, lobby);
 
   // Masaüstünde (Sofascore düzeni) solda maç listesi, sağda öne çıkan maç ve haftalık sıralama
   const wide = window.matchMedia('(min-width: 921px)');
-  const onResize = () => drawSide();
+  const onResize = () => (drawClubs(), drawSide());
   wide.addEventListener('change', onResize);
 
   function draw() {
+    drawClubs();
     drawList();
     drawFeatured();
+  }
+
+  // ---------------------------------------------------------------- Büyük 4 (masaüstünde sağ sütunun başında, dar ekranda listenin üstünde)
+  function drawClubs() {
+    const cs = app.clubs || [];
+    if (!cs.length) return clubs.remove();
+    if (wide.matches) side.prepend(clubs);
+    else lobby.prepend(clubs);
+    mount(clubs, h('div.panel-head', {}, h('h2', {}, 'Büyük 4')), h('div.big4-grid', {}, cs.map(clubTile)));
+  }
+
+  /** Takımın gösterilecek maçı: bugünkü (canlı > yaklaşan > biten), yoksa sıradaki, o da yoksa son maçı */
+  function clubMatch(c) {
+    const ids = new Set(c.ids);
+    const todays = (app.matches || []).filter((m) => ids.has(m.home.id) || ids.has(m.away.id));
+    const today = todays.find(isLive) || todays.find((m) => m.status === 'SCHEDULED') || todays[todays.length - 1];
+    if (today) return today;
+    const ahead = c.next && Date.parse(c.next.kickoff) + 150 * 60_000 > Date.now();
+    return (ahead && c.next) || c.last || c.next || null;
+  }
+
+  function clubTile(c) {
+    const m = clubMatch(c);
+    const top = h('div.club-top', {}, crest(c, 'md'), h('b', {}, c.name));
+    if (!m) return h('div.club.none', {}, top, h('span.club-when', {}, 'Maç bilgisi yok'));
+    const started = hasStarted(m);
+    const time = new Date(m.kickoff).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' });
+    const isToday = dayText(m.kickoff) === 'Bugün';
+    const when =
+      m.status === 'LIVE' ? `Canlı · ${minuteText(m)}` : m.status === 'HT' ? 'Devre arası' : m.status === 'POSTPONED' ? 'Ertelendi' : m.status === 'FT' ? (isToday ? 'Maç sonu' : `MS · ${dayText(m.kickoff)}`) : dayText(m.kickoff);
+    return h(
+      'a.club',
+      { href: `#/m/${m.id}`, class: m.status.toLowerCase(), 'aria-label': `${c.name}: ${m.home.name} - ${m.away.name}, ${when}` },
+      top,
+      h('div.club-match', {}, crest(m.home, 'xs'), h('span.club-mid', {}, started ? `${m.score.home}-${m.score.away}` : time), crest(m.away, 'xs')),
+      h('span.club-when', {}, when),
+    );
   }
 
   function drawList() {
@@ -212,6 +250,7 @@ export function renderLobby(root) {
     );
   }
 
+  drawClubs();
   drawList();
   drawSide();
   app.onMatches = draw;

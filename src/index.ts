@@ -31,7 +31,7 @@ app.use((_req, res, next) => {
 const withViewers = () => matches.getList().map((m) => ({ ...m, viewers: roomSize(m.id) }));
 
 app.get('/api/health', (_req, res) => res.json({ ok: true, provider: matches.providerInfo }));
-app.get('/api/matches', (_req, res) => res.json({ provider: matches.providerInfo, matches: withViewers() }));
+app.get('/api/matches', (_req, res) => res.json({ provider: matches.providerInfo, matches: withViewers(), clubs: clubsPayload() }));
 app.get('/api/matches/:id', async (req, res) => {
   const m = await matches.getMatch(req.params.id);
   if (!m) return res.status(404).json({ error: 'Maç bulunamadı' });
@@ -56,6 +56,16 @@ store.upsertTeams(PICKABLE_TEAMS);
 store.keepProfileTeams([...pickable.keys()]);
 
 app.get('/api/teams', (_req, res) => res.json(PICKABLE_TEAMS));
+
+/** Lobide hep görünen Büyük 4 (Bat'ın sırası); ids: demo verisindeki karşılıkları da eşleşsin */
+const BIG4 = [
+  ['611', 'fb'],
+  ['645', 'gs'],
+  ['998', 'ts'],
+  ['549', 'bjk'],
+] as const;
+const clubsPayload = () =>
+  BIG4.map(([id, demo]) => ({ ...pickable.get(id)!, ids: [id, demo], ...(matches.clubFixtures(id) ?? { next: null, last: null }) }));
 
 // Paylaşım kartı tuvale arma çizebilsin diye API-Football armalarını aynı kökenden sun (yalnızca media.api-sports.io)
 const crestCache = new Map<string, { type: string; body: Buffer }>();
@@ -98,7 +108,7 @@ let lobbyTimer: NodeJS.Timeout | undefined;
 function lobbyUpdate() {
   lobbyTimer ??= setTimeout(() => {
     lobbyTimer = undefined;
-    io.to('lobby').emit('matches', { provider: matches.providerInfo, matches: withViewers() });
+    io.to('lobby').emit('matches', { provider: matches.providerInfo, matches: withViewers(), clubs: clubsPayload() });
   }, 1000);
 }
 function roomSize(id: string) {
@@ -243,7 +253,7 @@ io.on('connection', (socket: Socket) => {
     store.touchUser(data.userId, data.nick, data.team?.id ?? null);
     socket.join(userRoom(data.userId)); // özel mesajlar kullanıcının açık tüm sekmelerine gider
   }
-  socket.emit('hello', { provider: matches.providerInfo, matches: withViewers() });
+  socket.emit('hello', { provider: matches.providerInfo, matches: withViewers(), clubs: clubsPayload() });
   // tarayıcıdaki favori takım sunucudakiyle eşleşsin (ör. listeden kaldırılmış eski bir takım); uid: herkese açık kimlik
   socket.emit('profile', { team: data.team, uid: store.pubId(data.userId), account: canDm ? store.account(data.userId) : null });
   if (canDm) socket.emit('dm:unread', { count: store.dmUnread(data.userId) });
@@ -655,6 +665,7 @@ io.on('connection', (socket: Socket) => {
 // ------------------------------------------------------------------ canlı güncellemeler
 
 matches.on('list', lobbyUpdate);
+matches.on('clubs', lobbyUpdate);
 
 // ------------------------------------------------------------------ takımlar ve tahmin puanlama
 

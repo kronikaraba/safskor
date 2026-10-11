@@ -1,5 +1,5 @@
 import { config } from '../config.js';
-import type { FootballProvider, Match, MatchSummary } from '../types.js';
+import type { FootballProvider, Match, MatchSummary, TeamFixtures } from '../types.js';
 import { ApiFootballProvider, PlanError, QuotaError } from './apiFootball.js';
 import { DemoProvider } from './demo.js';
 
@@ -73,6 +73,17 @@ export class FallbackProvider implements FootballProvider {
       return await this.primary.liveMatches();
     } catch (e) {
       this.handle(e);
+      return null;
+    }
+  }
+
+  /** Hata siteyi demoya geçirmesin: bu bilgi yalnızca Büyük 4 kartını tamamlar */
+  async teamFixtures(teamId: string): Promise<TeamFixtures | null> {
+    if (this.isDemo || this.stale) return null;
+    try {
+      return await this.primary.teamFixtures(teamId);
+    } catch (e) {
+      console.warn(`[provider] takım fikstürü alınamadı (${teamId}): ${e instanceof Error ? e.message : e}`);
       return null;
     }
   }
