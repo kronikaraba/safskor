@@ -13,7 +13,7 @@ export function renderLeaderboard(root) {
   let week = weekKey(Date.now());
   const head = h('div');
   const body = h('div');
-  mount(root, h('a.back', { href: '#/' }, '← Tüm maçlar'), head, body);
+  mount(root, h('a.back', { href: '/' }, '← Tüm maçlar'), head, body);
 
   function load() {
     mount(body, h('div.empty', {}, 'Sıralama yükleniyor…'));

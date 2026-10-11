@@ -98,6 +98,19 @@ export function statusPill(m) {
   return h('span.status', { class: cls }, minuteText(m));
 }
 
+const TR = { ç: 'c', ğ: 'g', ı: 'i', ö: 'o', ş: 's', ü: 'u', â: 'a', î: 'i', û: 'u' };
+/** "Fenerbahçe" → "fenerbahce" (sunucudaki src/seo.ts ile aynı kural) */
+export const slug = (s) =>
+  String(s)
+    .toLocaleLowerCase('tr-TR')
+    .replace(/[çğıöşüâîû]/g, (c) => TR[c] ?? c)
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+/** Maç sayfasının adresi: /mac/123/galatasaray-fenerbahce */
+export const matchHref = (m) => `/mac/${encodeURIComponent(m.id)}/${slug(m.home.name)}-${slug(m.away.name)}`;
+
 export function crest(team, size = '') {
   if (team.logo) {
     return h('span.crest.has-img', { class: size }, h('img', { src: team.logo, alt: '', loading: 'lazy' }));

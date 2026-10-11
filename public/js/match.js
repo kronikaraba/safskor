@@ -1,5 +1,5 @@
 import { app, editNick } from './app.js';
-import { h, mount, crest, statusPill, minuteText, ratingPill, timeText, toast, openSheet, colorFor, POS_TR, kickoffText, roundText, dayText, teamBadge, icon } from './util.js';
+import { h, mount, crest, statusPill, minuteText, ratingPill, timeText, toast, openSheet, colorFor, POS_TR, kickoffText, roundText, dayText, teamBadge, icon, matchHref } from './util.js';
 import { openShare } from './share.js';
 import { openDm } from './dm.js';
 
@@ -39,12 +39,14 @@ export function renderMatch(root, matchId) {
   };
 
   const board = h('div');
+  const titleEl = h('h1.sr-only');
   const tabs = h('nav.tabs', { role: 'tablist' });
   const body = h('div');
   const chatCol = h('aside.chat-col');
   mount(
     root,
-    h('a.back', { href: '#/' }, '← Tüm maçlar'),
+    h('a.back', { href: '/' }, '← Tüm maçlar'),
+    titleEl,
     h('div.match-layout', {}, h('div', {}, board, tabs, body), chatCol),
   );
   mount(body, h('div.empty', {}, 'Maç odası yükleniyor…'));
@@ -62,10 +64,13 @@ export function renderMatch(root, matchId) {
   function join() {
     app.socket.emit('match:join', { matchId }, (r) => {
       if (!r?.ok) {
-        mount(body, h('div.empty', {}, r?.error || 'Maç bulunamadı.', h('br'), h('a', { href: '#/', style: { color: 'var(--accent)' } }, 'Maç listesine dön')));
+        mount(body, h('div.empty', {}, r?.error || 'Maç bulunamadı.', h('br'), h('a', { href: '/', style: { color: 'var(--accent)' } }, 'Maç listesine dön')));
         return;
       }
       s.match = r.match;
+      // adres takım adlarını içersin (eski bağlantılardan gelince de): /mac/123/galatasaray-fenerbahce
+      if (location.pathname.startsWith('/mac/') && location.pathname !== matchHref(r.match)) history.replaceState(null, '', matchHref(r.match));
+      mount(titleEl, `${r.match.home.name} - ${r.match.away.name}`);
       s.fan = r.fan;
       s.mine = r.mine;
       s.meta = r.meta;
@@ -369,7 +374,7 @@ export function renderMatch(root, matchId) {
           : h('p.muted.small', {}, 'Kadrolar açıklanınca (genelde maçtan ~1 saat önce) ilk 11 tahmini de yapabileceksin.'),
         h('button.btn', { style: { width: '100%' }, onclick: submit }, p ? 'Tahminimi güncelle' : 'Tahmini kaydet'),
         p ? h('p.muted.small', { style: { margin: '8px 0 0', textAlign: 'center' } }, `Kayıtlı tahminin: ${p.home}-${p.away}${p.xi?.length ? ' · ilk 11 seçili' : ''}`) : null,
-        h('p.muted.small', { style: { margin: '6px 0 0', textAlign: 'center' } }, 'Tam skor 3 puan · doğru sonuç 1 puan · ', h('a', { href: '#/siralama', style: { color: 'var(--accent)' } }, 'haftalık sıralama')),
+        h('p.muted.small', { style: { margin: '6px 0 0', textAlign: 'center' } }, 'Tam skor 3 puan · doğru sonuç 1 puan · ', h('a', { href: '/siralama', style: { color: 'var(--accent)' } }, 'haftalık sıralama')),
       );
     };
     const drawLocked = () => {
@@ -395,7 +400,7 @@ export function renderMatch(root, matchId) {
                   ]
                 : h('p.muted.small', {}, ft ? 'Puanın hesaplanıyor…' : 'Maç bitince puanın burada görünecek.'),
             ),
-        ft ? h('div.pick', { style: { marginTop: '12px' } }, h('button.btn.sm', { onclick: openCard }, '📤 Kartımı paylaş'), h('a.btn.ghost.sm', { href: '#/siralama' }, icon('haftalik-siralama-kupa'), 'Sıralama')) : null,
+        ft ? h('div.pick', { style: { marginTop: '12px' } }, h('button.btn.sm', { onclick: openCard }, '📤 Kartımı paylaş'), h('a.btn.ghost.sm', { href: '/siralama' }, icon('haftalik-siralama-kupa'), 'Sıralama')) : null,
       );
     };
     const drawExtra = () => {
@@ -1167,7 +1172,7 @@ export function renderMatch(root, matchId) {
       app.socket.emit('match:leave');
       for (const [ev, fn] of Object.entries(handlers)) app.socket.off(ev, fn);
       window.removeEventListener('resize', onResize);
-      document.title = 'Safskor · Canlı Taraftar Platformu';
+      document.title = 'Safskor · Canlı Skor ve Taraftar Platformu';
     },
     rejoin: join,
   };

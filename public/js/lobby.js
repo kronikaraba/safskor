@@ -1,5 +1,5 @@
 import { app } from './app.js';
-import { h, mount, crest, kickoffText, storage, roundText, minuteText, dayText, icon } from './util.js';
+import { h, mount, crest, kickoffText, storage, roundText, minuteText, dayText, icon, matchHref } from './util.js';
 import { lbRow } from './leaderboard.js';
 
 const FILTERS = [
@@ -12,9 +12,9 @@ const isLive = (m) => m.status === 'LIVE' || m.status === 'HT';
 const hasStarted = (m) => m.status !== 'SCHEDULED' && m.status !== 'POSTPONED';
 
 const TABS = [
-  ['today', 'Bugün', '#/'],
-  ['tomorrow', 'Yarın', '#/yarin'],
-  ['table', 'Puan durumu', '#/puan'],
+  ['today', 'Bugün', '/', 'Bugünün maçları ve canlı skorlar'],
+  ['tomorrow', 'Yarın', '/yarin', 'Yarının maçları'],
+  ['table', 'Puan durumu', '/puan-durumu', 'Süper Lig puan durumu'],
 ];
 const hhmm = (iso) => new Date(iso).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' });
 const dateLabel = (offset) => {
@@ -43,6 +43,7 @@ export function renderLobby(root, tab = 'today') {
     h(
       'section.lobby-main',
       {},
+      h('h1.sr-only', {}, TABS.find((t) => t[0] === tab)?.[3]),
       h(
         'div.lobby-head',
         {},
@@ -97,7 +98,7 @@ export function renderLobby(root, tab = 'today') {
       m.status === 'LIVE' ? `Canlı · ${minuteText(m)}` : m.status === 'HT' ? 'Devre arası' : m.status === 'POSTPONED' ? 'Ertelendi' : m.status === 'FT' ? (isToday ? 'Maç sonu' : `MS · ${dayText(m.kickoff)}`) : dayText(m.kickoff);
     return h(
       'a.club',
-      { href: `#/m/${m.id}`, class: m.status.toLowerCase(), 'aria-label': `${c.name}: ${m.home.name} - ${m.away.name}, ${when}` },
+      { href: matchHref(m), class: m.status.toLowerCase(), 'aria-label': `${c.name}: ${m.home.name} - ${m.away.name}, ${when}` },
       top,
       h('div.club-match', {}, crest(m.home, 'xs'), h('span.club-mid', {}, started ? `${m.score.home}-${m.score.away}` : time), crest(m.away, 'xs')),
       h('span.club-when', {}, when),
@@ -240,7 +241,7 @@ export function renderLobby(root, tab = 'today') {
     const lead = (side) => started && m.score[side] > m.score[side === 'home' ? 'away' : 'home'];
     return h(
       'a.mrow',
-      { href: `#/m/${m.id}`, class: live ? 'live' : '', 'aria-label': `${m.home.name} - ${m.away.name}` },
+      { href: matchHref(m), class: live ? 'live' : '', 'aria-label': `${m.home.name} - ${m.away.name}` },
       h('div.mrow-time', {}, h('span', {}, hhmm(m.kickoff)), h('span.mrow-state', { class: m.status.toLowerCase() }, state)),
       h(
         'div.mrow-teams',
@@ -278,7 +279,7 @@ export function renderLobby(root, tab = 'today') {
     const m = ms[i];
     featuredId = m.id;
     const started = hasStarted(m);
-    const href = `#/m/${m.id}`;
+    const href = matchHref(m);
     const show = (id) => ((featuredId = id), drawFeatured());
     mount(
       featured,
@@ -335,7 +336,7 @@ export function renderLobby(root, tab = 'today') {
 
   function drawRanks() {
     if (!wide.matches) return;
-    const head = h('div.panel-head', {}, h('h2.h-ic', {}, icon('haftalik-siralama-kupa'), 'Haftalık sıralama'), h('a.panel-link', { href: '#/siralama' }, 'Tümü ›'));
+    const head = h('div.panel-head', {}, h('h2.h-ic', {}, icon('haftalik-siralama-kupa'), 'Haftalık sıralama'), h('a.panel-link', { href: '/siralama' }, 'Tümü ›'));
     if (!board) return mount(ranks, h('section.panel.side-rank', {}, head, h('p.muted.small', {}, 'Sıralama yükleniyor…')));
     const top = board.rows.slice(0, 5);
     const mine = board.me ?? board.rows.find((x) => x.me);

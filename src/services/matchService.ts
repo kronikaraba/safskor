@@ -148,6 +148,23 @@ export class MatchService extends EventEmitter {
     return this.table;
   }
 
+  /** API'ye istek atmadan eldeki bilgiden maç özeti (sayfa başlıkları ve site haritası için) */
+  peek(id: string): MatchSummary | null {
+    const d = this.details.get(id)?.match;
+    if (d) {
+      const { events, lineups, stats, ...summary } = d;
+      return summary;
+    }
+    const clubs = [...this.clubs.values()].flatMap((c) => [c.next, c.last]).filter((m): m is MatchSummary => Boolean(m));
+    return [...this.list, ...this.tomorrow, ...clubs].find((m) => m.id === id) ?? null;
+  }
+
+  /** Site haritasındaki maçlar: bugün, yarın ve Büyük 4'ün sıradaki maçları */
+  knownMatches(): MatchSummary[] {
+    const next = [...this.clubs.values()].map((c) => c.next).filter((m): m is MatchSummary => Boolean(m));
+    return [...this.list, ...(this.getTomorrow() ?? []), ...next];
+  }
+
   /** Öncelikli takımın bilinen sonraki/son maçı (bugünün listesinde yoksa lobi bunları gösterir) */
   clubFixtures(teamId: string): TeamFixtures | null {
     return this.clubs.get(teamId) ?? null;

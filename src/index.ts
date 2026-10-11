@@ -1,4 +1,5 @@
 import express from 'express';
+import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -8,6 +9,7 @@ import { createProvider } from './providers/index.js';
 import { FanStore, FORMATIONS, STYLES, weekKey, normalizePhone, weakPin, type TeamBadge } from './services/fanStore.js';
 import { MatchService } from './services/matchService.js';
 import type { Match, MatchEvent, Player, Side } from './types.js';
+import { PAGES, matchPage, matchPath, renderPage, robotsTxt, sitemapXml, standingsPage, unknownMatchPage, type Page } from './seo.js';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const provider = createProvider();
@@ -97,6 +99,33 @@ app.get('/img/crest/:kind/:file', async (req, res) => {
 app.use('/vendor/socket.io.esm.min.js', (_req, res) =>
   res.sendFile(path.join(root, 'node_modules/socket.io/client-dist/socket.io.esm.min.js')),
 );
+// ------------------------------------------------------------------ SEO: sayfa adresleri, site haritası
+// Her adres aynı uygulamayı açar; sunucu yalnızca <head>'deki başlık/açıklama/kanonik etiketleri o sayfaya göre yazar.
+const template = fs.readFileSync(path.join(root, 'public', 'index.html'), 'utf8');
+function sendPage(res: express.Response, page: Page) {
+  res.setHeader('Content-Type', 'text/html; charset=utf-8');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.send(renderPage(template, page));
+}
+app.get('/', (_req, res) => sendPage(res, PAGES['/']));
+app.get('/yarin', (_req, res) => sendPage(res, PAGES['/yarin']));
+app.get('/siralama', (_req, res) => sendPage(res, PAGES['/siralama']));
+app.get('/puan-durumu', (_req, res) => sendPage(res, standingsPage(matches.getStandings())));
+app.get(['/mac/:id', '/mac/:id/:slug'], (req, res) => {
+  const id = String(req.params.id).slice(0, 40);
+  const m = matches.peek(id);
+  if (!m) return sendPage(res, unknownMatchPage(req.path));
+  // takım adları adreste: /mac/123/galatasaray-fenerbahce (yanlış ya da eksikse doğrusuna yönlendir)
+  const canonical = matchPath(m);
+  if (req.path !== canonical) return res.redirect(301, canonical);
+  sendPage(res, matchPage(m));
+});
+app.get('/robots.txt', (_req, res) => res.type('text/plain').send(robotsTxt()));
+app.get('/sitemap.xml', (_req, res) => {
+  res.setHeader('Cache-Control', 'public, max-age=900');
+  res.type('application/xml').send(sitemapXml(matches.knownMatches()));
+});
+
 app.use(express.static(path.join(root, 'public'), { extensions: ['html'] }));
 
 const server = http.createServer(app);

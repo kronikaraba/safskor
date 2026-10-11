@@ -279,28 +279,67 @@ function setProvider(p) {
 }
 
 // ------------------------------------------------------------------ yönlendirme
+// Adresler (Google her birini ayrı sayfa olarak görür): / bugün, /yarin, /puan-durumu, /siralama,
+// /mac/<id>/<ev-deplasman>. Eski #/ bağlantıları (paylaşılmış linkler) yeni adreslere çevrilir.
 const root = document.getElementById('app');
 let current = '';
+const TITLES = {
+  '/': 'Safskor · Canlı Skor ve Taraftar Platformu',
+  '/yarin': 'Yarının Maçları ve Başlama Saatleri · Safskor',
+  '/puan-durumu': 'Süper Lig Puan Durumu · Safskor',
+  '/siralama': 'Haftalık Skor Tahmini Sıralaması · Safskor',
+};
+const APP_PATH = /^\/($|yarin$|puan-durumu$|siralama$|mac\/)/;
+
+function fromHash(hash) {
+  const m = hash.match(/^#\/m\/([\w-]+)/);
+  if (m) return `/mac/${m[1]}`;
+  if (hash.startsWith('#/siralama')) return '/siralama';
+  if (hash.startsWith('#/yarin')) return '/yarin';
+  if (hash.startsWith('#/puan')) return '/puan-durumu';
+  return '/';
+}
+if (location.hash.startsWith('#/')) history.replaceState(null, '', fromHash(location.hash));
+
+export function navigate(path) {
+  if (path !== location.pathname) history.pushState(null, '', path);
+  route();
+}
 
 function route() {
-  const hash = location.hash || '#/';
-  if (hash === current && app.socket.connected && app.view?.rejoin) return app.view.rejoin();
-  current = hash;
+  const path = APP_PATH.test(location.pathname) ? location.pathname : '/';
+  if (path === current && app.socket.connected && app.view?.rejoin) return app.view.rejoin();
+  current = path;
   app.view?.destroy?.();
   app.onMatches = null;
   app.onStandings = null;
   closeSheet();
   window.scrollTo(0, 0);
-  const m = hash.match(/^#\/m\/([\w-]+)/);
-  // ana sayfa sekmeleri: #/ bugün, #/yarin yarının maçları, #/puan puan durumu
-  const tab = hash.startsWith('#/yarin') ? 'tomorrow' : hash.startsWith('#/puan') ? 'table' : 'today';
-  app.view = m ? renderMatch(root, m[1]) : hash.startsWith('#/siralama') ? renderLeaderboard(root) : renderLobby(root, tab);
-  const rank = hash.startsWith('#/siralama');
+  const m = path.match(/^\/mac\/([\w-]+)/);
+  const rank = path === '/siralama';
+  const tab = path === '/yarin' ? 'tomorrow' : path === '/puan-durumu' ? 'table' : 'today';
+  app.view = m ? renderMatch(root, decodeURIComponent(m[1])) : rank ? renderLeaderboard(root) : renderLobby(root, tab);
+  if (!m) document.title = TITLES[path] ?? TITLES['/'];
   document.querySelector('.rank-link')?.classList.toggle('active', rank);
   document.querySelector('.home-link')?.classList.toggle('active', !rank);
 }
 
-window.addEventListener('hashchange', route);
+// site içi bağlantılar sayfayı yeniden yüklemeden açılır (yeni sekmede açma vb. tarayıcıya bırakılır)
+document.addEventListener('click', (e) => {
+  if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+  const a = e.target.closest?.('a[href]');
+  if (!a || a.target || a.hasAttribute('download')) return;
+  const url = new URL(a.href, location.href);
+  if (url.origin !== location.origin || !APP_PATH.test(url.pathname)) return;
+  e.preventDefault();
+  navigate(url.pathname);
+});
+window.addEventListener('popstate', route);
+window.addEventListener('hashchange', () => {
+  if (!location.hash.startsWith('#/')) return;
+  history.replaceState(null, '', fromHash(location.hash));
+  route();
+});
 initDm(document.getElementById('dmBtn'));
 if (!app.socket.connected) route();
 
