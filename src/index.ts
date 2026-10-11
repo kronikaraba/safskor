@@ -111,6 +111,17 @@ const clean = (s: unknown, max: number) =>
 const isUserId = (s: unknown): s is string => typeof s === 'string' && /^[a-zA-Z0-9-]{8,64}$/.test(s);
 const isSide = (s: unknown): s is Side => s === 'home' || s === 'away';
 
+/** Mesajın yazıldığı andaki maç dakikası; önbellekteki listeden okunur (API isteği yok) */
+function matchMinute(id: string): string | null {
+  const m = matches.getList().find((x) => x.id === id);
+  if (!m) return null;
+  if (m.status === 'LIVE') return m.minute != null ? `${m.minute}${m.extra ? '+' + m.extra : ''}'` : 'Canlı';
+  if (m.status === 'HT') return 'İY';
+  if (m.status === 'FT') return 'MS';
+  if (m.status === 'POSTPONED') return 'Ert.';
+  return 'Maç öncesi';
+}
+
 function allPlayers(m: Match, side?: Side): Player[] {
   if (!m.lineups) return [];
   const sides: Side[] = side ? [side] : ['home', 'away'];
@@ -298,7 +309,7 @@ io.on('connection', (socket: Socket) => {
     if (!text) return a({ ok: false, error: 'Boş mesaj gönderilemez.' });
     if (!data.matchId) return a({ ok: false, error: 'Önce bir maç odasına katıl.' });
     if (!chatLimit.ok(data.userId)) return a({ ok: false, error: 'Çok hızlı yazıyorsun, birkaç saniye bekle.' });
-    const msg = store.addChat(data.matchId, data.userId, data.nick, text, 'user', data.team);
+    const msg = store.addChat(data.matchId, data.userId, data.nick, text, 'user', data.team, matchMinute(data.matchId));
     io.to(room(data.matchId)).emit('chat:message', msg);
     a({ ok: true });
   });

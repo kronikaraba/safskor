@@ -995,12 +995,35 @@ export function renderMatch(root, matchId) {
     return h(
       'div.msg',
       { class: mine ? 'me' : '' },
-      h('div.who', { '--nc': colorFor(msg.nick) }, teamBadge(msg.team), mine ? 'Sen' : msg.nick, h('span.time', {}, timeText(msg.createdAt))),
+      h('div.who', { '--nc': colorFor(msg.nick) }, teamBadge(msg.team), mine ? 'Sen' : msg.nick, msgTime(msg)),
       h('div.bubble', {}, msg.text),
     );
   }
   // Telefonda sohbet ayrı bir kaydırma kutusu değil, sayfanın kendisi kayar (her yerden sürüklenebilsin)
   const pageScroll = () => isNarrow();
+  /** Mesaj üstünde maç dakikası; üstüne gelince (masaüstü) ya da basılı tutunca (telefon) saat görünür */
+  function msgTime(msg) {
+    const clock = timeText(msg.createdAt);
+    const label = msg.minute || clock;
+    const el = h('span.time', { title: clock }, label);
+    if (!msg.minute) return el;
+    let timer = null;
+    const show = () => (el.textContent = clock, el.classList.add('clock'));
+    const hide = () => (el.textContent = label, el.classList.remove('clock'));
+    el.addEventListener('mouseenter', show);
+    el.addEventListener('mouseleave', hide);
+    el.addEventListener('pointerdown', (e) => {
+      if (e.pointerType === 'mouse') return;
+      timer = setTimeout(() => {
+        show();
+        setTimeout(hide, 2500);
+      }, 350);
+    });
+    for (const ev of ['pointerup', 'pointercancel', 'pointerleave']) el.addEventListener(ev, () => clearTimeout(timer));
+    el.addEventListener('contextmenu', (e) => e.preventDefault()); // uzun basışta menü açılmasın
+    return el;
+  }
+
   function appendChat(msg) {
     const el = document.documentElement;
     const nearBottom = pageScroll()

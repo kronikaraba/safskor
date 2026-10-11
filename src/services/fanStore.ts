@@ -24,6 +24,8 @@ export interface ChatMessage {
   kind: 'user' | 'system';
   createdAt: number;
   team?: TeamBadge | null;
+  /** Mesaj yazıldığında maçın dakikası ("23'", "45+2'", "İY", "MS", "Maç öncesi") */
+  minute?: string | null;
 }
 
 export interface PredictionInput {
@@ -92,6 +94,7 @@ export class FanStore {
     // eski veritabanlarına yeni sütunlar
     const cols = new Set((this.db.prepare('PRAGMA table_info(chat)').all() as any[]).map((c) => c.name));
     if (!cols.has('team')) this.db.exec('ALTER TABLE chat ADD COLUMN team TEXT');
+    if (!cols.has('minute')) this.db.exec('ALTER TABLE chat ADD COLUMN minute TEXT');
   }
 
   // ------------------------------------------------------------------ takımlar ve profil
@@ -205,22 +208,22 @@ export class FanStore {
 
   // ------------------------------------------------------------------ sohbet
 
-  addChat(matchId: string, userId: string | null, nick: string, text: string, kind: 'user' | 'system' = 'user', team: TeamBadge | null = null): ChatMessage {
+  addChat(matchId: string, userId: string | null, nick: string, text: string, kind: 'user' | 'system' = 'user', team: TeamBadge | null = null, minute: string | null = null): ChatMessage {
     const createdAt = Date.now();
     const info = this.db
-      .prepare('INSERT INTO chat (match_id, user_id, nick, text, kind, created_at, team) VALUES (?,?,?,?,?,?,?)')
-      .run(matchId, userId, nick, text, kind, createdAt, team ? JSON.stringify(team) : null);
-    return { id: Number(info.lastInsertRowid), matchId, userId, nick, text, kind, createdAt, team };
+      .prepare('INSERT INTO chat (match_id, user_id, nick, text, kind, created_at, team, minute) VALUES (?,?,?,?,?,?,?,?)')
+      .run(matchId, userId, nick, text, kind, createdAt, team ? JSON.stringify(team) : null, minute);
+    return { id: Number(info.lastInsertRowid), matchId, userId, nick, text, kind, createdAt, team, minute };
   }
 
   chatHistory(matchId: string, limit = 60): ChatMessage[] {
     return (
       this.db
-        .prepare('SELECT id, match_id, user_id, nick, text, kind, created_at, team FROM chat WHERE match_id = ? ORDER BY id DESC LIMIT ?')
+        .prepare('SELECT id, match_id, user_id, nick, text, kind, created_at, team, minute FROM chat WHERE match_id = ? ORDER BY id DESC LIMIT ?')
         .all(matchId, limit) as any[]
     )
       .reverse()
-      .map((r) => ({ id: r.id, matchId: r.match_id, userId: r.user_id, nick: r.nick, text: r.text, kind: r.kind, createdAt: r.created_at, team: r.team ? JSON.parse(r.team) : null }));
+      .map((r) => ({ id: r.id, matchId: r.match_id, userId: r.user_id, nick: r.nick, text: r.text, kind: r.kind, createdAt: r.created_at, team: r.team ? JSON.parse(r.team) : null, minute: r.minute ?? null }));
   }
 
   // ------------------------------------------------------------------ puanlar
