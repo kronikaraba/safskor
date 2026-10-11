@@ -163,6 +163,12 @@ function matchMinute(id: string): string | null {
   return 'Maç öncesi';
 }
 
+/** Teknik direktör puan/yorum kimliği: 'coach:home' ya da 'coach:away' (kadroda TD adı varsa) */
+function isCoach(m: Match, id: string) {
+  const k = /^coach:(home|away)$/.exec(id);
+  return !!(k && m.lineups?.[k[1] as Side].coach);
+}
+
 function allPlayers(m: Match, side?: Side): Player[] {
   if (!m.lineups) return [];
   const sides: Side[] = side ? [side] : ['home', 'away'];
@@ -575,7 +581,7 @@ io.on('connection', (socket: Socket) => {
     const target = clean(t, 120);
     const [kind, id] = [target.slice(0, 2), target.slice(2)];
     if (kind === 'e:') return m.events.some((e) => e.id === id) ? target : null;
-    if (kind === 'p:') return (['home', 'away'] as Side[]).some((side) => allPlayers(m, side).some((p) => p.id === id)) ? target : null;
+    if (kind === 'p:') return isCoach(m, id) || allPlayers(m).some((p) => p.id === id) ? target : null;
     return null;
   };
   socket.on('comment:list', async (p, ack) => {
@@ -609,9 +615,9 @@ io.on('connection', (socket: Socket) => {
     if (m.status === 'SCHEDULED' || m.status === 'POSTPONED') return a({ ok: false, error: 'Puanlama maç başlayınca açılır.' });
     const score = Number(p?.score);
     if (!Number.isInteger(score) || score < 0 || score > 10) return a({ ok: false, error: 'Puan 0-10 arasında olmalı.' });
-    const player = allPlayers(m).find((x) => x.id === String(p?.playerId));
-    if (!player) return a({ ok: false, error: 'Oyuncu bulunamadı.' });
-    store.rate(m.id, player.id, data.userId, score);
+    const id = String(p?.playerId);
+    if (!isCoach(m, id) && !allPlayers(m).some((x) => x.id === id)) return a({ ok: false, error: 'Oyuncu bulunamadı.' });
+    store.rate(m.id, id, data.userId, score);
     broadcastFan(m.id);
     sendMine(m.id);
     a({ ok: true });

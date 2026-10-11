@@ -33,7 +33,7 @@ export function renderMatch(root, matchId) {
     // maça her girişte önce sohbet; masaüstünde sohbet sağ sütunda hep açık olduğundan ilk sekme Taraftar
     tab: isNarrow() ? 'chat' : 'fan',
     fanTab: 'ratings',
-    side: { lineups: 'home', tactics: 'home', subs: 'home' },
+    side: { lineups: 'home', tactics: 'home', subs: 'home', community: 'home' },
     unread: 0,
     tacticDraft: {},
   };
@@ -479,6 +479,7 @@ export function renderMatch(root, matchId) {
           h('p.muted.small', { style: { margin: '0 0 10px' } }, 'Sahadaki güncel 11. Bir oyuncuya dokun: istatistiklerini gör ve 10 üzerinden puanla. ★ = taraftar ortalaması.'),
           pitch(currentXI(m, side), color, marks, side),
         ),
+        coachOf(m, side) && h('div.card', {}, h('h3', {}, 'Teknik direktör'), h('ul.plist', {}, playerRow(coachOf(m, side), side, marks))),
         h(
           'div.card',
           {},
@@ -490,7 +491,8 @@ export function renderMatch(root, matchId) {
     return { el, update: draw };
   }
 
-  function pitch(players, color, marks, side) {
+  /** mode 'fan': puan yerine taraftar ortalaması ve oy sayısı (Topluluk puanları) */
+  function pitch(players, color, marks, side, mode) {
     const withGrid = players.every((p) => p.grid && /^\d+:\d+$/.test(p.grid));
     let rows;
     if (withGrid) {
@@ -531,7 +533,9 @@ export function renderMatch(root, matchId) {
               h('span.marks', {}, markIcons(mk)),
             ),
             h('span.pname', {}, shortName(p.name)),
-            h('span.rt', {}, p.stats?.rating != null ? h('span', {}, p.stats.rating.toFixed(1)) : null, fan ? h('span.fan', {}, `★${fan.avg.toFixed(1)}`) : null),
+            mode === 'fan'
+              ? h('span.rt.fanmode', { class: s.mine?.ratings[p.id] != null ? 'mine' : '' }, h('span.fan', {}, fan ? `★${fan.avg.toFixed(1)}` : '★–'), fan ? h('small', {}, `${fan.count} oy`) : null)
+              : h('span.rt', {}, p.stats?.rating != null ? h('span', {}, p.stats.rating.toFixed(1)) : null, fan ? h('span.fan', {}, `★${fan.avg.toFixed(1)}`) : null),
           ),
         );
       });
@@ -626,7 +630,7 @@ export function renderMatch(root, matchId) {
   // --- Puanla: topluluk puanları
   function Ratings() {
     const el = h('div.stack');
-    return {
+    const self = {
       el,
       update() {
         const m = s.match;
@@ -641,8 +645,9 @@ export function renderMatch(root, matchId) {
         const ha = teamAvg('home');
         const aa = teamAvg('away');
         const best = topRated(1)[0];
-        const all = ['home', 'away'].flatMap((side) => played(m, side).map((p) => ({ p, side })));
-        all.sort((a, b) => (s.fan?.ratings[b.p.id]?.avg ?? -1) - (s.fan?.ratings[a.p.id]?.avg ?? -1) || (b.p.stats?.rating ?? 0) - (a.p.stats?.rating ?? 0));
+        const cs = s.side.community;
+        const starters = new Set(m.lineups[cs].startXI.map((p) => p.id));
+        const cameIn = played(m, cs).filter((p) => !starters.has(p.id));
         const myCount = Object.keys(s.mine?.ratings ?? {}).length;
         mount(
           el,
@@ -663,28 +668,32 @@ export function renderMatch(root, matchId) {
           h(
             'div.card',
             {},
-            h('h3', {}, 'Topluluk puanları', h('span.muted', {}, locked ? 'Maç başlayınca açılır' : `${myCount} oyuncuyu puanladın`)),
-            h('p.muted.small', { style: { margin: '0 0 6px' } }, 'Gri: API puanı · Sarı: taraftar ortalaması (oy sayısı). Puanlamak için oyuncuya dokun.'),
-            h(
-              'ul.plist',
-              {},
-              all.map(({ p, side }) => {
-                const fan = s.fan?.ratings[p.id];
-                const mine = s.mine?.ratings[p.id];
-                return h(
-                  'li',
-                  { style: { cursor: 'pointer' }, onclick: () => openPlayer(p, side), tabindex: 0, onkeydown: (e) => e.key === 'Enter' && openPlayer(p, side) },
-                  h('span.dot', { '--c': m[side].color || colorFor(m[side].name) }),
-                  h('span.pn', {}, p.name, h('small', {}, `${m[side].short} · ${POS_TR[p.pos] ?? ''}${mine != null ? ` · Senin puanın: ${mine}` : ''}`)),
-                  ratingPill(p.stats?.rating),
-                  h('span', { style: { display: 'flex', flexDirection: 'column', alignItems: 'center' } }, ratingPill(fan?.avg, 'fan'), h('small.muted', { style: { fontSize: '10.5px' } }, fan ? `${fan.count} oy` : '')),
-                );
-              }),
-            ),
+            h('h3', {}, 'Topluluk puanları', sideToggle('community', () => self.update())),
+            h('p.muted.small', { style: { margin: '0 0 10px' } }, locked ? 'Puanlama maç başlayınca açılır.' : `İlk 11 sahada. Sarı: taraftar ortalaması. Puanlamak için oyuncuya dokun. Sen ${myCount} kişiyi puanladın.`),
+            pitch(m.lineups[cs].startXI, m[cs].color || colorFor(m[cs].name), playerMarks(m, cs), cs, 'fan'),
           ),
+          cameIn.length
+            ? h('div.card', {}, h('h3', {}, 'Oyuna girenler'), h('ul.plist', {}, cameIn.map((p) => fanRow(p, cs))))
+            : null,
+          coachOf(m, cs) && h('div.card', {}, h('h3', {}, 'Teknik direktör'), h('ul.plist', {}, fanRow(coachOf(m, cs), cs))),
         );
       },
     };
+    return self;
+  }
+
+  /** Topluluk puanları satırı: API puanı (gri), taraftar ortalaması (sarı), oy sayısı */
+  function fanRow(p, side) {
+    const fan = s.fan?.ratings[p.id];
+    const mine = s.mine?.ratings[p.id];
+    return h(
+      'li',
+      { style: { cursor: 'pointer' }, onclick: () => openPlayer(p, side), tabindex: 0, onkeydown: (e) => e.key === 'Enter' && openPlayer(p, side) },
+      h('span.pface', { class: playerPhoto(p) ? 'has-face' : '' }, face(p)),
+      h('span.pn', {}, p.name, h('small', {}, `${POS_TR[p.pos] ?? ''}${mine != null ? ` · Senin puanın: ${mine}` : ''}`)),
+      ratingPill(p.stats?.rating),
+      h('span', { style: { display: 'flex', flexDirection: 'column', alignItems: 'center' } }, ratingPill(fan?.avg, 'fan'), h('small.muted', { style: { fontSize: '10.5px' } }, fan ? `${fan.count} oy` : '')),
+    );
   }
 
   // --- Taktik önerileri ve taktik anketi
@@ -955,7 +964,7 @@ export function renderMatch(root, matchId) {
           h('div', {}, h('h2', {}, fresh.name), h('div.muted.small', {}, `${m[side].name} · ${POS_TR[fresh.pos] ?? ''}`)),
           h('button.x', { onclick: close, 'aria-label': 'Kapat' }, '✕'),
         ),
-        h(
+        fresh.pos === 'C' ? h('div.kv', {}, kv(fan ? fan.avg.toFixed(1) : '–', `Taraftar (${fan?.count ?? 0} oy)`)) : h(
           'div.kv',
           {},
           kv(st.rating != null ? st.rating.toFixed(1) : '–', 'API puanı'),
@@ -1242,6 +1251,12 @@ function squadState(m, side) {
 }
 
 /** Maçta süre almış oyuncular (puanlanabilir olanlar) */
+/** Teknik direktörü oyuncu gibi puanlanabilir/yorumlanabilir bir kayıt olarak döner */
+function coachOf(m, side) {
+  const l = m.lineups?.[side];
+  return l?.coach ? { id: `coach:${side}`, name: l.coach, pos: 'C', photo: l.coachPhoto } : null;
+}
+
 function played(m, side) {
   const l = m.lineups[side];
   const cameIn = new Set(m.events.filter((e) => e.side === side && e.type === 'sub').map((e) => e.relatedId));

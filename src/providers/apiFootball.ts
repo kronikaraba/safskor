@@ -303,6 +303,7 @@ function toMatch(r: any): Match {
       byside[sideOf(l.team?.id)] = {
         formation: l.formation ?? undefined,
         coach: l.coach?.name ?? undefined,
+        coachPhoto: l.coach?.photo ?? undefined,
         startXI: (l.startXI ?? []).map(toPlayer),
         subs: (l.substitutes ?? []).map(toPlayer),
       };

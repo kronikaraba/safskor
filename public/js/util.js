@@ -127,6 +127,7 @@ export function teamBadge(team) {
 
 /** Oyuncu fotoğrafı (API-Football görsel sunucusu, kotadan yemez). Demo oyuncularında yok. */
 export function playerPhoto(p) {
+  if (p?.photo) return p.photo;
   return /^\d+$/.test(p?.id ?? '') ? `https://media.api-sports.io/football/players/${p.id}.png` : null;
 }
 
@@ -206,4 +207,4 @@ export function closeSheet() {
   sheetClose = null;
 }
 
-export const POS_TR = { G: 'Kaleci', D: 'Defans', M: 'Orta saha', F: 'Forvet' };
+export const POS_TR = { G: 'Kaleci', D: 'Defans', M: 'Orta saha', F: 'Forvet', C: 'Teknik direktör' };

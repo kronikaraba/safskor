@@ -36,6 +36,7 @@ export interface Player {
 export interface Lineup {
   formation?: string;
   coach?: string;
+  coachPhoto?: string;
   startXI: Player[];
   subs: Player[];
 }
