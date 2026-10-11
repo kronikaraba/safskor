@@ -4,12 +4,11 @@ import { openShare } from './share.js';
 
 const TABS = [
   ['chat', 'Sohbet'],
+  ['fan', 'Taraftar'],
   ['summary', 'Özet'],
   ['lineups', 'Kadrolar'],
-  ['predict', 'Tahmin'],
-  ['fan', 'Taraftar'],
 ];
-// Taraftar sekmesinin alt bölümleri: [anahtar, etiket, ikon]
+// Taraftar sekmesinin alt bölümleri: [anahtar, etiket, ikon]; skor tahmini Anketler'in başında
 const FAN_TABS = [
   ['ratings', 'Puanla', 'oyuncu-kupasi'],
   ['tactics', 'Taktik', 'taktik-oner'],
@@ -28,8 +27,8 @@ export function renderMatch(root, matchId) {
     meta: { formations: [], styles: [] },
     chat: [],
     presence: 0,
-    // maça her girişte önce sohbet; masaüstünde sohbet sağ sütunda hep açık olduğundan özet
-    tab: isNarrow() ? 'chat' : 'summary',
+    // maça her girişte önce sohbet; masaüstünde sohbet sağ sütunda hep açık olduğundan ilk sekme Taraftar
+    tab: isNarrow() ? 'chat' : 'fan',
     fanTab: 'ratings',
     side: { lineups: 'home', tactics: 'home', subs: 'home' },
     unread: 0,
@@ -170,7 +169,8 @@ export function renderMatch(root, matchId) {
   }
 
   function setTab(key) {
-    // alt bölüm anahtarları (ör. 'tactics') Taraftar sekmesinde o bölümü açar
+    // alt bölüm anahtarları (ör. 'tactics') Taraftar sekmesinde o bölümü açar; tahmin Anketler'de
+    if (key === 'predict') key = 'polls';
     if (FAN_TABS.some(([k]) => k === key)) {
       s.fanTab = key;
       key = 'fan';
@@ -195,9 +195,9 @@ export function renderMatch(root, matchId) {
       current = null;
       return;
     }
-    if (s.tab === 'chat') s.tab = 'summary';
+    if (s.tab === 'chat') s.tab = 'fan';
     chatCol.classList.remove('show');
-    const view = { summary: Summary, predict: Predict, lineups: Lineups, fan: Fan }[s.tab] ?? Summary;
+    const view = { summary: Summary, lineups: Lineups, fan: Fan }[s.tab] ?? Fan;
     current = view();
     mount(body, current.el);
     current.update();
@@ -561,7 +561,7 @@ export function renderMatch(root, matchId) {
           ),
         ),
       );
-      inner = ({ ratings: Ratings, tactics: Tactics, subs: Subs, polls: Polls }[s.fanTab] ?? Ratings)();
+      inner = ({ ratings: Ratings, tactics: Tactics, subs: Subs, polls: PredictAndPolls }[s.fanTab] ?? Ratings)();
       mount(holder, inner.el);
       inner.update();
     };
@@ -851,6 +851,11 @@ export function renderMatch(root, matchId) {
   }
 
   // --- Anketler
+  function PredictAndPolls() {
+    const parts = [Predict(), Polls()];
+    return { el: h('div.stack', {}, parts.map((p) => p.el)), update: () => parts.forEach((p) => p.update()) };
+  }
+
   function Polls() {
     const el = h('div.stack');
     const list = h('div.card');
@@ -1047,7 +1052,7 @@ export function renderMatch(root, matchId) {
 
   // ---------------------------------------------------------------- yardımcılar
   const onResize = () => {
-    if (!isNarrow() && s.tab === 'chat') setTab('summary');
+    if (!isNarrow() && s.tab === 'chat') setTab('fan');
   };
   window.addEventListener('resize', onResize);
 

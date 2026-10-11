@@ -44,7 +44,7 @@ export function renderLeaderboard(root) {
       h('div.lb-rules.muted.small', {}, 'Tam skor 3 puan · doğru sonuç (1/X/2) 1 puan · ilk 11 tahmininde doğru bilinen her oyuncu +1 puan. Tahminler maç başlayınca kilitlenir.'),
     );
     if (!r.rows.length) {
-      mount(body, h('div.empty', {}, current ? 'Bu hafta henüz tahmin yok. Başlamamış bir maçın "Tahmin" sekmesinden ilk tahmini sen yap!' : 'Bu hafta tahmin yapılmamış.'));
+      mount(body, h('div.empty', {}, current ? 'Bu hafta henüz tahmin yok. Başlamamış bir maçta Taraftar > Anketler bölümünden ilk tahmini sen yap!' : 'Bu hafta tahmin yapılmamış.'));
       return;
     }
     const row = (x) =>
