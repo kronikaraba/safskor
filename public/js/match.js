@@ -3,6 +3,7 @@ import { h, mount, crest, statusPill, minuteText, ratingPill, timeText, toast, o
 import { openShare } from './share.js';
 
 const TABS = [
+  ['chat', 'Sohbet'],
   ['summary', 'Özet'],
   ['predict', 'Tahmin'],
   ['lineups', 'Kadrolar'],
@@ -11,7 +12,6 @@ const TABS = [
   ['tactics', 'Taktik'],
   ['subs', 'Değişiklik'],
   ['polls', 'Anketler'],
-  ['chat', 'Sohbet'],
 ];
 
 const EV_ICON = { goal: '⚽', penalty: '⚽', own_goal: '⚽', missed_penalty: '❌', yellow: '🟨', red: '🟥', sub: '🔁', var: '📺' };
