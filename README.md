@@ -63,7 +63,8 @@ scripts/smoke.mjs          Uçtan uca test (iki istemciyle tüm etkileşimleri d
 - Anahtar yalnızca sunucuda, `.env` dosyasında (`API_FOOTBALL_KEY`) tutulur; tarayıcıya hiçbir zaman gönderilmez. `.env` git'e eklenmez, `.env.example` şablondur.
 - `DATA_PROVIDER=auto` (varsayılan): anahtar varsa API-Football, yoksa demo. API hata verirse (geçersiz anahtar, kota, ağ) otomatik demoya düşer ve 5 dakika sonra gerçek API'yi tekrar dener. Arayüzde demo modu bandı görünür.
 - Tüm kullanıcı girdileri sunucuda doğrulanır (puan 0-10, oyuncu gerçekten o maçın kadrosunda mı, çıkacak oyuncu sahada mı vb.), metinler kırpılır ve arayüzde yalnızca `textContent` ile basılır. Sohbet ve işlemler için hız sınırı, temel güvenlik başlıkları ve CSP vardır.
-- **API-Football ücretsiz planı günde 100 istekle sınırlıdır.** Varsayılan yoklama aralıkları (liste 60 sn, detay 30 sn) ücretli plan içindir; ücretsiz planda `LIST_POLL_MS=900000` ve `DETAIL_POLL_MS=120000` gibi değerler kullanın.
+- **Kota yönetimi:** Varsayılanlar API-Football ücretsiz planına (günde 100 istek) göre ayarlıdır. Bugünün maç listesi tek istekle alınır: canlı ya da 30 dk içinde başlayacak maç varken 20 dakikada bir, yoksa 2 saatte bir. Maç detayı yalnızca içinde taraftar olan maçlar için çekilir (canlıyken 10 dakikada bir, maç öncesi 15-60 dakikada bir, bitmiş maçta bir kez). API'nin bildirdiği kalan hak `API_RESERVE`'e (5) inince istek atılmaz ve son gerçek veri gösterilir; arayüzde bir bant bunu belirtir. Hak 00:00 UTC'de (03:00 TSİ) yenilenir.
+- **Plan uyumu:** Bazı ücretsiz API-Football hesapları yalnızca geçmiş sezonları kapsar. Plan bugünün maçlarını vermezse site demo veriye geçer ve 6 saatte bir tekrar dener (boşuna istek harcamaz).
 
 ## Yayına alma (Render)
 
@@ -74,7 +75,7 @@ Uygulama Socket.IO ve SQLite kullandığı için sürekli çalışan bir Node su
 3. `API_FOOTBALL_KEY` sorulursa anahtarı girin; boş bırakırsanız site demo veriyle açılır. **Apply** deyin.
 4. Birkaç dakika sonra site `https://safskor-xxxx.onrender.com` gibi bir adreste yayında olur. Sonraki her `git push` otomatik yeniden yayınlanır.
 
-**Plan:** `render.yaml` Starter planı ve 1 GB kalıcı disk kullanır; site her zaman açıktır ve taraftar verileri yeniden başlatmada korunur (aylık ücretlidir). Ücretsiz denemek isterseniz `plan: free` yapın ve disk ile `DB_PATH` satırlarını silin; bu durumda site 15 dakika hareketsizlikte uyur ve veriler her yeniden başlatmada sıfırlanır.
+**Plan:** `render.yaml` ücretsiz planı kullanır: site 15 dakika ziyaretçi gelmezse uyur ve ilk açılış yaklaşık 1 dakika sürer; sohbet, puan ve anket verileri yeniden başlatmada sıfırlanır. Kalıcı veri için dosyadaki açıklamaya göre Starter planı ve disk ekleyin (aylık ücretli).
 
 Docker kullanan başka bir servis (Fly.io, Railway, kendi sunucunuz) için depoda `Dockerfile` da var: `docker build -t safskor . && docker run -p 3000:3000 -v safskor-data:/data safskor`.
 
@@ -87,7 +88,9 @@ Docker kullanan başka bir servis (Fly.io, Railway, kendi sunucunuz) için depod
 | `API_FOOTBALL_KEY` | — | API-Football anahtarı |
 | `API_FOOTBALL_BASE_URL` | https://v3.football.api-sports.io | RapidAPI için `https://api-football-v1.p.rapidapi.com/v3` |
 | `API_FOOTBALL_LEAGUES` | 203,39,140,2 | Takip edilen lig kimlikleri (boş = bugünün tüm maçları) |
-| `LIST_POLL_MS` / `DETAIL_POLL_MS` | 60000 / 30000 | Yoklama aralıkları |
+| `LIST_POLL_MS` / `LIST_IDLE_POLL_MS` | 1200000 / 7200000 | Liste yoklama: canlı/yaklaşan maç varken / yokken |
+| `DETAIL_POLL_MS` | 600000 | İzlenen canlı maçın detay yoklama aralığı |
+| `API_DAILY_LIMIT` / `API_RESERVE` | 100 / 5 | Günlük istek hakkı ve boşta tutulacak yedek |
 | `DEMO_TICK_MS` | 4000 | Demo modunda bir oyun dakikasının süresi (ms) |
 | `DB_PATH` | ./data/safskor.db | SQLite dosyası |
 

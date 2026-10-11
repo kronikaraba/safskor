@@ -14,8 +14,16 @@ export const config = {
       .split(',')
       .map((s) => s.trim())
       .filter(Boolean),
-    listPollMs: num(process.env.LIST_POLL_MS, 60_000),
-    detailPollMs: num(process.env.DETAIL_POLL_MS, 30_000),
+    // Varsayılanlar API-Football ücretsiz planına (günde 100 istek) göre ayarlı.
+    /** Canlı ya da 30 dk içinde başlayacak maç varken liste yoklama aralığı */
+    listPollMs: num(process.env.LIST_POLL_MS, 20 * 60_000),
+    /** Hiç canlı/yaklaşan maç yokken liste yoklama aralığı */
+    listIdlePollMs: num(process.env.LIST_IDLE_POLL_MS, 120 * 60_000),
+    /** İzleyicisi olan canlı maçların detay yoklama aralığı */
+    detailPollMs: num(process.env.DETAIL_POLL_MS, 10 * 60_000),
+    /** Günlük istek hakkı ve her zaman boşta tutulacak yedek */
+    dailyLimit: num(process.env.API_DAILY_LIMIT, 100),
+    reserve: num(process.env.API_RESERVE, 5),
   },
   demoTickMs: num(process.env.DEMO_TICK_MS, 4000),
   dbPath: process.env.DB_PATH || './data/safskor.db',

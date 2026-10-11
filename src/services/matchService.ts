@@ -20,7 +20,14 @@ export class MatchService extends EventEmitter {
   }
 
   get providerInfo() {
-    return { name: this.provider.name, demo: this.provider.isDemo, error: (this.provider as any).lastError ?? null };
+    const p = this.provider as any;
+    return {
+      name: this.provider.name,
+      demo: this.provider.isDemo,
+      error: p.lastError ?? null,
+      stale: Boolean(p.stale),
+      quota: typeof p.quota === 'function' ? p.quota() : null,
+    };
   }
 
   async start() {
@@ -46,10 +53,22 @@ export class MatchService extends EventEmitter {
     return this.list;
   }
 
-  async getMatch(id: string, maxAgeMs = 5_000): Promise<Match | null> {
+  async getMatch(id: string): Promise<Match | null> {
     const cached = this.details.get(id);
-    if (cached && Date.now() - cached.at < Math.max(maxAgeMs, this.provider.pollMs.detail)) return cached.match;
+    if (cached && Date.now() - cached.at < this.maxAge(cached.match)) return cached.match;
     return this.fetchDetail(id);
+  }
+
+  /** Önbellek süresi maç durumuna göre: canlıda yoklama aralığı, bitmiş maçta saatler (API kotasını korur) */
+  private maxAge(m: Match) {
+    if (this.provider.isDemo || m.id.startsWith('demo-')) return this.provider.pollMs.detail;
+    if (m.status === 'FT' || m.status === 'POSTPONED') return 6 * 60 * 60_000;
+    if (m.status === 'SCHEDULED') {
+      const until = Date.parse(m.kickoff) - Date.now();
+      // kadrolar genelde maçtan ~1 saat önce açıklanır
+      return until > 90 * 60_000 ? 60 * 60_000 : 15 * 60_000;
+    }
+    return this.provider.pollMs.detail;
   }
 
   watch(id: string) {
@@ -65,7 +84,8 @@ export class MatchService extends EventEmitter {
     const list = await this.provider.listMatches();
     const order = { LIVE: 0, HT: 0, SCHEDULED: 1, FT: 2, POSTPONED: 3 } as const;
     list.sort((a, b) => order[a.status] - order[b.status] || a.kickoff.localeCompare(b.kickoff));
-    const json = JSON.stringify(list);
+    const info = this.providerInfo;
+    const json = JSON.stringify(list) + `|${info.demo}|${info.stale}`; // sağlayıcı durumu değişince de yayınla
     if (json !== this.listJson) {
       this.list = list;
       this.listJson = json;
@@ -76,19 +96,40 @@ export class MatchService extends EventEmitter {
   private async refreshWatched() {
     for (const id of this.watched.keys()) {
       const summary = this.list.find((m) => m.id === id);
-      // biten / ertelenen maçları gereksiz yere yoklama
       const cached = this.details.get(id);
-      if (cached && summary && (summary.status === 'FT' || summary.status === 'POSTPONED') && cached.match.status === summary.status) continue;
+      // önbellek tazeyse ve listedeki durum değişmediyse istek atma
+      const fresh = cached && Date.now() - cached.at < this.maxAge(cached.match) - 5_000;
+      if (fresh && (!summary || summary.status === cached.match.status)) continue;
       await this.fetchDetail(id);
     }
   }
 
+  /** Detaydan gelen skor/dakika/durumu listeye de yansıt (lobi ek istek olmadan güncel kalır) */
+  private patchList(m: Match) {
+    const i = this.list.findIndex((x) => x.id === m.id);
+    if (i < 0) return;
+    const { events, lineups, stats, ...summary } = m;
+    const next = { ...this.list[i], ...summary };
+    if (JSON.stringify(next) === JSON.stringify(this.list[i])) return;
+    this.list = this.list.map((x, j) => (j === i ? next : x));
+    const info = this.providerInfo;
+    this.listJson = JSON.stringify(this.list) + `|${info.demo}|${info.stale}`;
+    this.emit('list', this.list);
+  }
+
   private async fetchDetail(id: string): Promise<Match | null> {
     const match = await this.provider.getMatch(id);
-    if (!match) return this.details.get(id)?.match ?? null;
+    if (!match) {
+      // sağlayıcı yanıt veremediyse (ör. kota doldu) son detayı ya da listedeki özeti göster
+      const prev = this.details.get(id)?.match;
+      if (prev) return prev;
+      const summary = this.list.find((m) => m.id === id);
+      return summary ? { ...summary, events: [], stats: [] } : null;
+    }
     const json = JSON.stringify(match);
     const prev = this.details.get(id);
     this.details.set(id, { match, json, at: Date.now() });
+    this.patchList(match);
     if (prev && prev.json !== json) {
       const seen = new Set(prev.match.events.map((e) => e.id));
       const fresh: MatchEvent[] = match.events.filter((e) => !seen.has(e.id));

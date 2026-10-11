@@ -1,21 +1,24 @@
 import { config } from '../config.js';
 import type { FootballProvider, Match, MatchSummary } from '../types.js';
-import { ApiFootballProvider } from './apiFootball.js';
+import { ApiFootballProvider, PlanError, QuotaError } from './apiFootball.js';
 import { DemoProvider } from './demo.js';
 
 /**
- * Gerçek sağlayıcıyı sarar; hata olursa (anahtar geçersiz, kota doldu, ağ yok)
- * otomatik olarak demo verisine düşer ve bir süre sonra gerçek API'yi tekrar dener.
+ * Gerçek sağlayıcıyı sarar:
+ * - Günlük kota dolarsa demoya geçmez; son alınan gerçek veriyi göstermeye devam eder (stale).
+ * - Anahtar/plan hatasında (ör. plan güncel sezonu kapsamıyor) demoya geçer ve 6 saat sonra tekrar dener.
+ * - Geçici hatada (ağ, 5xx) demoya geçer ve 10 dakika sonra tekrar dener.
  */
 export class FallbackProvider implements FootballProvider {
   readonly name: string;
   private failedUntil = 0;
+  private lastList: MatchSummary[] = [];
   lastError: string | null = null;
+  stale = false;
 
   constructor(
-    private primary: FootballProvider,
+    private primary: ApiFootballProvider,
     private demo: DemoProvider,
-    private retryMs = 5 * 60_000,
   ) {
     this.name = primary.name;
   }
@@ -24,14 +27,29 @@ export class FallbackProvider implements FootballProvider {
     return Date.now() < this.failedUntil;
   }
   get pollMs() {
-    return this.isDemo ? this.demo.pollMs : this.primary.pollMs;
+    if (this.isDemo) return this.demo.pollMs;
+    const p = this.primary.pollMs;
+    // kota doluyken boşuna sık dönme; gün dönümünü yakalayacak kadar seyrek kontrol et
+    return this.stale ? { list: 30 * 60_000, detail: 30 * 60_000 } : p;
+  }
+  quota() {
+    return this.primary.quota();
   }
 
-  private fail(err: unknown) {
+  /** true: son gerçek veriyle devam et; false: demoya geç */
+  private handle(err: unknown): boolean {
     this.lastError = err instanceof Error ? err.message : String(err);
-    this.failedUntil = Date.now() + this.retryMs;
+    if (err instanceof QuotaError) {
+      if (!this.stale) console.warn(`[provider] ${this.lastError}; son alınan veriler gösteriliyor`);
+      this.stale = true;
+      if (this.lastList.length) return true;
+      this.failedUntil = Date.parse(this.primary.quota().resetsAt);
+    } else {
+      this.failedUntil = Date.now() + (err instanceof PlanError ? 6 * 60 * 60_000 : 10 * 60_000);
+    }
     this.demo.start();
-    console.warn(`[provider] ${this.primary.name} başarısız, demo verisine geçiliyor: ${this.lastError}`);
+    console.warn(`[provider] ${this.primary.name} kullanılamıyor, demo verisine geçiliyor: ${this.lastError}`);
+    return false;
   }
 
   async listMatches(): Promise<MatchSummary[]> {
@@ -39,9 +57,11 @@ export class FallbackProvider implements FootballProvider {
       try {
         const list = await this.primary.listMatches();
         this.lastError = null;
+        this.stale = false;
+        this.lastList = list;
         return list;
       } catch (e) {
-        this.fail(e);
+        if (this.handle(e)) return this.lastList;
       }
     }
     return this.demo.listMatches();
@@ -53,7 +73,7 @@ export class FallbackProvider implements FootballProvider {
     try {
       return await this.primary.getMatch(id);
     } catch (e) {
-      this.fail(e);
+      this.handle(e);
       return null;
     }
   }

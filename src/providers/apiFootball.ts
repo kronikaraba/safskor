@@ -1,21 +1,74 @@
 import type { FootballProvider, Lineup, Match, MatchEvent, MatchStatus, MatchSummary, Player, StatLine, Side } from '../types.js';
 
+/** Günlük istek hakkı bitti; gün dönümüne (00:00 UTC) kadar istek atılmaz. */
+export class QuotaError extends Error {
+  readonly kind = 'quota';
+}
+/** Anahtar geçersiz ya da plan bu veriye (ör. güncel sezon) izin vermiyor; tekrar denemek boşuna. */
+export class PlanError extends Error {
+  readonly kind = 'plan';
+}
+
+export interface QuotaInfo {
+  limit: number;
+  used: number;
+  remaining: number | null;
+  resetsAt: string;
+}
+
+type Opts = {
+  key: string;
+  baseUrl: string;
+  leagues: string[];
+  listPollMs: number;
+  listIdlePollMs: number;
+  detailPollMs: number;
+  dailyLimit: number;
+  reserve: number;
+};
+
 /**
  * API-Football (api-sports.io) v3 adaptörü.
  * Anahtar yalnızca sunucuda, istek başlığında kullanılır.
+ * Günlük kotayı izler: API'nin bildirdiği kalan hakkı (x-ratelimit-requests-remaining) ve kendi sayacını kullanır,
+ * yedek sınırına gelince istek atmayı bırakır.
  */
 export class ApiFootballProvider implements FootballProvider {
   readonly name = 'api-football';
   readonly isDemo = false;
-  readonly pollMs: { list: number; detail: number };
+  private day = utcDay();
+  private used = 0;
+  private remaining: number | null = null;
+  private busy = false; // son listede canlı ya da yakında başlayacak maç var mı
 
-  constructor(
-    private opts: { key: string; baseUrl: string; leagues: string[]; listPollMs: number; detailPollMs: number },
-  ) {
-    this.pollMs = { list: opts.listPollMs, detail: opts.detailPollMs };
+  constructor(private opts: Opts) {}
+
+  get pollMs() {
+    return { list: this.busy ? this.opts.listPollMs : this.opts.listIdlePollMs, detail: this.opts.detailPollMs };
+  }
+
+  quota(): QuotaInfo {
+    this.rollDay();
+    return { limit: this.opts.dailyLimit, used: this.used, remaining: this.remaining, resetsAt: nextUtcMidnight().toISOString() };
+  }
+
+  private rollDay() {
+    const d = utcDay();
+    if (d !== this.day) {
+      this.day = d;
+      this.used = 0;
+      this.remaining = null;
+    }
+  }
+
+  private exhausted() {
+    this.rollDay();
+    const left = this.remaining ?? this.opts.dailyLimit - this.used;
+    return left <= this.opts.reserve;
   }
 
   private async get(path: string, params: Record<string, string>): Promise<any[]> {
+    if (this.exhausted()) throw new QuotaError('Günlük API kotası doldu');
     const url = new URL(this.opts.baseUrl.replace(/\/$/, '') + path);
     for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
     const headers: Record<string, string> = { 'x-apisports-key': this.opts.key };
@@ -23,11 +76,25 @@ export class ApiFootballProvider implements FootballProvider {
       headers['x-rapidapi-key'] = this.opts.key;
       headers['x-rapidapi-host'] = url.hostname;
     }
+    this.used++;
     const res = await fetch(url, { headers, signal: AbortSignal.timeout(10_000) });
+    const rem = res.headers.get('x-ratelimit-requests-remaining');
+    if (rem != null && rem !== '' && !Number.isNaN(Number(rem))) this.remaining = Number(rem);
+    if (res.status === 429) throw new QuotaError('API-Football istek sınırı (HTTP 429)');
+    if (res.status === 401 || res.status === 403) throw new PlanError(`API-Football HTTP ${res.status}`);
     if (!res.ok) throw new Error(`API-Football HTTP ${res.status}`);
     const body: any = await res.json();
-    const errors = body.errors && (Array.isArray(body.errors) ? body.errors : Object.values(body.errors));
-    if (errors && errors.length) throw new Error(`API-Football: ${JSON.stringify(body.errors)}`);
+    const errs = body.errors && !Array.isArray(body.errors) ? body.errors : null;
+    if (errs && Object.keys(errs).length) {
+      const text = Object.values(errs).join(' ');
+      if (errs.requests || errs.rateLimit) {
+        if (errs.requests) this.remaining = 0;
+        throw new QuotaError(`API-Football: ${text}`);
+      }
+      if (errs.token || errs.plan || errs.access) throw new PlanError(`API-Football: ${text}`);
+      throw new Error(`API-Football: ${text}`);
+    }
+    if (Array.isArray(body.errors) && body.errors.length) throw new Error(`API-Football: ${JSON.stringify(body.errors)}`);
     return body.response ?? [];
   }
 
@@ -35,7 +102,10 @@ export class ApiFootballProvider implements FootballProvider {
     const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Istanbul' });
     const rows = await this.get('/fixtures', { date: today, timezone: 'Europe/Istanbul' });
     const leagues = new Set(this.opts.leagues);
-    return rows.filter((r) => !leagues.size || leagues.has(String(r.league?.id))).map(toSummary);
+    const list = rows.filter((r) => !leagues.size || leagues.has(String(r.league?.id))).map(toSummary);
+    const soon = Date.now() + 30 * 60_000;
+    this.busy = list.some((m) => m.status === 'LIVE' || m.status === 'HT' || (m.status === 'SCHEDULED' && Date.parse(m.kickoff) <= soon));
+    return list;
   }
 
   async getMatch(id: string): Promise<Match | null> {
@@ -43,6 +113,12 @@ export class ApiFootballProvider implements FootballProvider {
     if (!rows.length) return null;
     return toMatch(rows[0]);
   }
+}
+
+const utcDay = () => new Date().toISOString().slice(0, 10);
+function nextUtcMidnight() {
+  const d = new Date();
+  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() + 1));
 }
 
 const LIVE = new Set(['1H', '2H', 'ET', 'P', 'LIVE', 'BT', 'INT']);

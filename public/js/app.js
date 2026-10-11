@@ -79,8 +79,12 @@ function setProvider(p) {
   if (p?.demo) {
     b.hidden = false;
     b.textContent = p.error
-      ? `Demo modu: futbol API'sine ulaşılamadı (${p.error}). Simüle edilmiş canlı maçlar gösteriliyor.`
+      ? `Demo modu: futbol API'sinden veri alınamadı (${p.error}). Simüle edilmiş canlı maçlar gösteriliyor.`
       : 'Demo modu: API anahtarı tanımlı değil. Simüle edilmiş canlı maçlar gösteriliyor; gerçek veriler için sunucuya API_FOOTBALL_KEY ekleyin.';
+  } else if (p?.stale) {
+    b.hidden = false;
+    const at = p.quota?.resetsAt ? new Date(p.quota.resetsAt).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' }) : '';
+    b.textContent = `Günlük veri kotası doldu; son alınan skorlar gösteriliyor. Veriler ${at ? `saat ${at}'te` : 'yarın'} yeniden güncellenecek.`;
   } else b.hidden = true;
 }
 
