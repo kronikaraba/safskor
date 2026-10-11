@@ -73,7 +73,7 @@ async function drawCard(canvas, card, format) {
     loadImg(crestUrl(m.home.logo)),
     loadImg(crestUrl(m.away.logo)),
     loadImg(crestUrl(card.team?.logo)),
-    loadImg('/img/icons/oyuncu-kupasi.png'),
+    loadImg('/img/icons/haftalik-siralama-kupa.png'),
   ]);
 
   // zemin

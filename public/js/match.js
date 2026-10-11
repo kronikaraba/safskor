@@ -878,7 +878,7 @@ export function renderMatch(root, matchId) {
     return h(
       'div.motm',
       {},
-      icon('oyuncu-kupasi', 'trophy'),
+      icon('haftalik-siralama-kupa', 'trophy'),
       h('div', {}, h('div.muted.small', {}, 'Taraftarın maçın adamı'), h('b', {}, p.name), h('div.muted.small', {}, `${s.match[side].name} · ${fan.count} oy`)),
       h('span.big', {}, fan.avg.toFixed(1)),
     );
