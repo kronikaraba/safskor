@@ -468,7 +468,11 @@ button { cursor: pointer; }
 /* taraftar ikonları (emoji yerine şeffaf PNG) */
 .fan-icon { width: 20px; height: 20px; object-fit: contain; display: inline-block; vertical-align: middle; flex: none; pointer-events: none; user-select: none; }
 .fan-icon.lg { width: 32px; height: 32px; }
-.tab .fan-icon { width: 18px; height: 18px; margin: -2px 6px 0 0; }
+/* Taraftar sekmesinin alt bölümleri */
+.subtabs { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+.subtabs button { border: 1px solid var(--border); background: var(--surface-2); color: var(--muted); border-radius: var(--radius-sm); padding: 8px 4px 7px; display: flex; flex-direction: column; align-items: center; gap: 4px; font-size: 12.5px; font-weight: 600; }
+.subtabs button .fan-icon { width: 28px; height: 28px; }
+.subtabs button.active { border-color: var(--accent); color: var(--text); background: rgba(0, 137, 254, 0.12); }
 .btn .fan-icon { margin-right: 6px; }
 .h-ic { display: inline-flex; align-items: center; gap: 8px; }
 .rank-link .fan-icon { width: 18px; height: 18px; }

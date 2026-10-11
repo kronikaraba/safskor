@@ -2,17 +2,19 @@ import { app, editNick } from './app.js';
 import { h, mount, crest, statusPill, minuteText, ratingPill, timeText, toast, openSheet, colorFor, POS_TR, kickoffText, roundText, dayText, teamBadge, icon } from './util.js';
 import { openShare } from './share.js';
 
-const TAB_ICON = { tactics: 'taktik-oner', subs: 'degisiklik-talebi', polls: 'anketler' };
 const TABS = [
   ['chat', 'Sohbet'],
   ['summary', 'Özet'],
-  ['predict', 'Tahmin'],
   ['lineups', 'Kadrolar'],
-  ['stats', 'İstatistik'],
-  ['ratings', 'Puanla'],
-  ['tactics', 'Taktik'],
-  ['subs', 'Değişiklik'],
-  ['polls', 'Anketler'],
+  ['predict', 'Tahmin'],
+  ['fan', 'Taraftar'],
+];
+// Taraftar sekmesinin alt bölümleri: [anahtar, etiket, ikon]
+const FAN_TABS = [
+  ['ratings', 'Puanla', 'oyuncu-kupasi'],
+  ['tactics', 'Taktik', 'taktik-oner'],
+  ['subs', 'Değişiklik', 'degisiklik-talebi'],
+  ['polls', 'Anketler', 'anketler'],
 ];
 
 const EV_ICON = { goal: '⚽', penalty: '⚽', own_goal: '⚽', missed_penalty: '❌', yellow: '🟨', red: '🟥', sub: '🔁', var: '📺' };
@@ -28,6 +30,7 @@ export function renderMatch(root, matchId) {
     presence: 0,
     // maça her girişte önce sohbet; masaüstünde sohbet sağ sütunda hep açık olduğundan özet
     tab: isNarrow() ? 'chat' : 'summary',
+    fanTab: 'ratings',
     side: { lineups: 'home', tactics: 'home', subs: 'home' },
     unread: 0,
     tacticDraft: {},
@@ -159,7 +162,6 @@ export function renderMatch(root, matchId) {
             'aria-selected': String(key === s.tab),
             onclick: () => setTab(key),
           },
-          TAB_ICON[key] ? icon(TAB_ICON[key]) : null,
           label,
           key === 'chat' && s.unread ? h('span.badge', {}, s.unread > 99 ? '99+' : s.unread) : null,
         ),
@@ -168,6 +170,11 @@ export function renderMatch(root, matchId) {
   }
 
   function setTab(key) {
+    // alt bölüm anahtarları (ör. 'tactics') Taraftar sekmesinde o bölümü açar
+    if (FAN_TABS.some(([k]) => k === key)) {
+      s.fanTab = key;
+      key = 'fan';
+    }
     s.tab = key;
     if (key === 'chat') s.unread = 0;
     drawTabs();
@@ -190,7 +197,7 @@ export function renderMatch(root, matchId) {
     }
     if (s.tab === 'chat') s.tab = 'summary';
     chatCol.classList.remove('show');
-    const view = { summary: Summary, predict: Predict, lineups: Lineups, stats: Stats, ratings: Ratings, tactics: Tactics, subs: Subs, polls: Polls }[s.tab] ?? Summary;
+    const view = { summary: Summary, predict: Predict, lineups: Lineups, fan: Fan }[s.tab] ?? Summary;
     current = view();
     mount(body, current.el);
     current.update();
@@ -216,9 +223,10 @@ export function renderMatch(root, matchId) {
     );
   };
 
-  // --- Özet: olay akışı
+  // --- Özet: olay akışı + istatistikler
   function Summary() {
     const el = h('div.stack');
+    const stats = Stats();
     return {
       el,
       update() {
@@ -241,6 +249,7 @@ export function renderMatch(root, matchId) {
             h('h3', {}, 'Maç olayları', h('span.muted', {}, minuteText(m))),
             evs.length ? h('ul.timeline', {}, rows) : h('p.muted', {}, m.status === 'SCHEDULED' ? `Maç ${kickoffText(m.kickoff)}'de başlayacak. Bu sırada taktik önerini yap ve anketlere katıl!` : 'Henüz önemli bir olay yok.'),
           ),
+          m.stats.length ? (stats.update(), stats.el) : null,
           fanSnapshot(),
         );
       },
@@ -269,7 +278,7 @@ export function renderMatch(root, matchId) {
       'div.card',
       {},
       h('h3', {}, 'Taraftarın nabzı'),
-      best ? motm(best) : h('p.muted.small', {}, 'Henüz oyuncu puanı yok. "Puanla" sekmesinden ilk puanı sen ver!'),
+      best ? motm(best) : h('p.muted.small', {}, 'Henüz oyuncu puanı yok. "Taraftar" sekmesinden ilk puanı sen ver!'),
       winner && winner.total ? pollResult(winner) : null,
       h('div.pick', {}, s.match.status === 'FT' && h('button.btn.sm', { onclick: openCard }, '📤 Kartımı paylaş'), s.match.status === 'SCHEDULED' && h('button.btn.sm', { onclick: () => setTab('predict') }, '🎯 Skor tahmini yap'), h('button.btn.ghost.sm', { onclick: () => setTab('tactics') }, icon('taktik-oner'), 'Taktik öner'), h('button.btn.ghost.sm', { onclick: () => setTab('subs') }, icon('degisiklik-talebi'), 'Değişiklik iste'), h('button.btn.ghost.sm', { onclick: () => setTab('polls') }, icon('anketler'), 'Anketler')),
     );
@@ -534,7 +543,34 @@ export function renderMatch(root, matchId) {
     return out.join('');
   }
 
-  // --- İstatistik
+  // --- Taraftar: puanla, taktik, değişiklik, anketler tek sekmede
+  function Fan() {
+    const el = h('div.stack');
+    const nav = h('nav.subtabs', { role: 'tablist' });
+    const holder = h('div');
+    let inner = null;
+    const show = () => {
+      mount(
+        nav,
+        FAN_TABS.map(([key, label, ic]) =>
+          h(
+            'button',
+            { class: key === s.fanTab ? 'active' : '', role: 'tab', 'aria-selected': String(key === s.fanTab), onclick: () => ((s.fanTab = key), show()) },
+            icon(ic),
+            h('span', {}, label),
+          ),
+        ),
+      );
+      inner = ({ ratings: Ratings, tactics: Tactics, subs: Subs, polls: Polls }[s.fanTab] ?? Ratings)();
+      mount(holder, inner.el);
+      inner.update();
+    };
+    mount(el, nav, holder);
+    show();
+    return { el, update: () => inner?.update() };
+  }
+
+  // --- İstatistik (Özet içinde)
   function Stats() {
     const el = h('div');
     return {
