@@ -1,5 +1,5 @@
 import { app, editNick } from './app.js';
-import { h, mount, crest, statusPill, minuteText, ratingPill, timeText, toast, openSheet, colorFor, storage, POS_TR, kickoffText, roundText, dayText, teamBadge, icon } from './util.js';
+import { h, mount, crest, statusPill, minuteText, ratingPill, timeText, toast, openSheet, colorFor, POS_TR, kickoffText, roundText, dayText, teamBadge, icon } from './util.js';
 import { openShare } from './share.js';
 
 const TAB_ICON = { tactics: 'taktik-oner', subs: 'degisiklik-talebi', polls: 'anketler' };
@@ -26,12 +26,12 @@ export function renderMatch(root, matchId) {
     meta: { formations: [], styles: [] },
     chat: [],
     presence: 0,
-    tab: storage.get('safskor.tab', 'summary'),
+    // maça her girişte önce sohbet; masaüstünde sohbet sağ sütunda hep açık olduğundan özet
+    tab: isNarrow() ? 'chat' : 'summary',
     side: { lineups: 'home', tactics: 'home', subs: 'home' },
     unread: 0,
     tacticDraft: {},
   };
-  if (s.tab === 'chat' && !isNarrow()) s.tab = 'summary';
 
   const board = h('div');
   const tabs = h('nav.tabs', { role: 'tablist' });
@@ -169,7 +169,6 @@ export function renderMatch(root, matchId) {
 
   function setTab(key) {
     s.tab = key;
-    storage.set('safskor.tab', key);
     if (key === 'chat') s.unread = 0;
     drawTabs();
     drawBody();
