@@ -10,7 +10,7 @@ const TABS = [
 ];
 // Taraftar sekmesinin alt bölümleri: [anahtar, etiket, ikon]; skor tahmini Anketler'in başında
 const FAN_TABS = [
-  ['ratings', 'Puanla', 'oyuncu-kupasi'],
+  ['ratings', 'Puanla', 'puanla'],
   ['tactics', 'Taktik', 'taktik-oner'],
   ['subs', 'Değişiklik', 'degisiklik-talebi'],
   ['polls', 'Anketler', 'anketler'],
