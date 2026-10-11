@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { Server, type Socket } from 'socket.io';
 import { config } from './config.js';
 import { createProvider } from './providers/index.js';
-import { FanStore, FORMATIONS, STYLES, weekKey, type TeamBadge } from './services/fanStore.js';
+import { FanStore, FORMATIONS, STYLES, weekKey, normalizePhone, type TeamBadge } from './services/fanStore.js';
 import { MatchService } from './services/matchService.js';
 import type { Match, MatchEvent, Player, Side } from './types.js';
 
@@ -159,6 +159,7 @@ class Limiter {
 }
 const chatLimit = new Limiter(5, 10_000);
 const actionLimit = new Limiter(30, 10_000);
+const loginLimit = new Limiter(10, 10 * 60_000); // IP başına giriş/kayıt denemesi
 
 // Her maç için taraftar durumu yayınını grupla (çok sık oy gelirse yükü azaltır)
 const pendingFan = new Map<string, NodeJS.Timeout>();
@@ -205,7 +206,7 @@ io.on('connection', (socket: Socket) => {
   }
   socket.emit('hello', { provider: matches.providerInfo, matches: withViewers() });
   // tarayıcıdaki favori takım sunucudakiyle eşleşsin (ör. listeden kaldırılmış eski bir takım); uid: herkese açık kimlik
-  socket.emit('profile', { team: data.team, uid: store.pubId(data.userId) });
+  socket.emit('profile', { team: data.team, uid: store.pubId(data.userId), account: canDm ? store.account(data.userId) : null });
   if (canDm) socket.emit('dm:unread', { count: store.dmUnread(data.userId) });
 
   type Ack = (r: { ok: boolean; error?: string; [k: string]: unknown }) => void;
@@ -237,8 +238,44 @@ io.on('connection', (socket: Socket) => {
     if (isUserId(data.userId)) {
       store.saveProfile(data.userId, nick, team?.id ?? null);
       store.touchUser(data.userId, nick, team?.id ?? null);
+      store.renameAccount(data.userId, nick);
     }
     a({ ok: true, nick, team });
+  });
+
+  // --- üyelik: telefon + isim + PIN (SMS doğrulaması henüz yok; gelince PIN yerine kod gelecek)
+  const ip = String(socket.handshake.headers['x-forwarded-for'] ?? socket.handshake.address).split(',')[0].trim();
+  const pinOk = (pin: unknown): pin is string => typeof pin === 'string' && /^\d{4,6}$/.test(pin);
+
+  socket.on('account:register', (p, ack) => {
+    const a = safeAck(ack);
+    if (!isUserId(data.userId)) return a({ ok: false, error: 'Tarayıcı kimliği bulunamadı, sayfayı yenile.' });
+    if (!loginLimit.ok(ip)) return a({ ok: false, error: 'Çok fazla deneme. Birkaç dakika sonra tekrar dene.' });
+    const phone = normalizePhone(p?.phone);
+    if (!phone) return a({ ok: false, error: 'Geçerli bir cep numarası yaz (ör. 0532 123 45 67).' });
+    const name = clean(p?.name, 20);
+    if (name.length < 2) return a({ ok: false, error: 'İsim en az 2 karakter olmalı.' });
+    if (!pinOk(p?.pin)) return a({ ok: false, error: 'Şifre 4-6 haneli bir sayı olmalı.' });
+    const r = store.register(data.userId, phone, name, p.pin);
+    if (r === 'phone_taken') return a({ ok: false, error: 'Bu numarayla zaten üyelik var. Giriş yap.' });
+    if (r === 'has_account') return a({ ok: false, error: 'Bu tarayıcı zaten bir hesaba bağlı.' });
+    data.nick = name;
+    store.saveProfile(data.userId, name, data.team?.id ?? null);
+    store.touchUser(data.userId, name, data.team?.id ?? null);
+    a({ ok: true, nick: name, account: store.account(data.userId) });
+  });
+
+  socket.on('account:login', (p, ack) => {
+    const a = safeAck(ack);
+    if (!loginLimit.ok(ip)) return a({ ok: false, error: 'Çok fazla deneme. Birkaç dakika sonra tekrar dene.' });
+    const phone = normalizePhone(p?.phone);
+    if (!phone || !pinOk(p?.pin)) return a({ ok: false, error: 'Numara ya da şifre hatalı.' });
+    const r = store.login(phone, p.pin);
+    if (r === 'locked') return a({ ok: false, error: 'Çok fazla hatalı deneme. Bu numara 15 dakika kilitlendi.' });
+    if (r === 'wrong') return a({ ok: false, error: 'Numara ya da şifre hatalı.' });
+    const prof = store.profile(r.userId);
+    // hesabın kimliği yalnızca doğru şifreden sonra verilir; istemci bunu saklayıp yeniden bağlanır
+    a({ ok: true, userId: r.userId, nick: prof?.nick ?? r.name, team: prof?.team ?? null });
   });
 
   socket.on('teams:list', (_p, ack) => safeAck(ack)({ ok: true, teams: PICKABLE_TEAMS }));

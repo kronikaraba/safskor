@@ -139,6 +139,9 @@ export class FanStore {
       CREATE INDEX IF NOT EXISTS dms_pair ON dms(from_id, to_id, id);
       CREATE INDEX IF NOT EXISTS dms_unread ON dms(to_id, read);
       CREATE TABLE IF NOT EXISTS dm_blocks (user_id TEXT NOT NULL, blocked_id TEXT NOT NULL, PRIMARY KEY (user_id, blocked_id));
+      CREATE TABLE IF NOT EXISTS accounts (
+        phone TEXT PRIMARY KEY, user_id TEXT NOT NULL UNIQUE, name TEXT NOT NULL, pin_hash TEXT NOT NULL,
+        created_at INTEGER NOT NULL, login_at INTEGER, fails INTEGER NOT NULL DEFAULT 0, locked_until INTEGER NOT NULL DEFAULT 0);
     `);
     // herkese açık kimlikleri türetmek için sunucuya özel gizli anahtar (yeniden başlatmada değişmesin diye veritabanında)
     const saved = this.db.prepare("SELECT value FROM meta WHERE key = 'id_secret'").get() as any;
@@ -348,6 +351,41 @@ export class FanStore {
   // ------------------------------------------------------------------ özel mesajlar
 
   /** Bağlanan kullanıcıyı herkese açık kimliğiyle kaydeder (mesaj alabilmesi için) */
+  // ------------------------------------------------------------------ üyelik (telefon + isim + PIN; SMS doğrulaması sonra eklenecek)
+
+  /** Bu tarayıcı kimliğine bağlı hesap (telefon maskeli) */
+  account(userId: string): { phone: string; name: string } | null {
+    const r = this.db.prepare('SELECT phone, name FROM accounts WHERE user_id = ?').get(userId) as any;
+    return r ? { phone: maskPhone(r.phone), name: r.name } : null;
+  }
+
+  /** Yeni hesap: mevcut anonim kimlik hesaba bağlanır, böylece eski veriler korunur */
+  register(userId: string, phone: string, name: string, pin: string): 'ok' | 'phone_taken' | 'has_account' {
+    if (this.db.prepare('SELECT 1 FROM accounts WHERE user_id = ?').get(userId)) return 'has_account';
+    if (this.db.prepare('SELECT 1 FROM accounts WHERE phone = ?').get(phone)) return 'phone_taken';
+    this.db.prepare('INSERT INTO accounts (phone, user_id, name, pin_hash, created_at) VALUES (?,?,?,?,?)').run(phone, userId, name, hashPin(pin), Date.now());
+    return 'ok';
+  }
+
+  /** Telefon + PIN ile giriş; 5 hatalı denemede numara 15 dakika kilitlenir */
+  login(phone: string, pin: string): { userId: string; name: string } | 'wrong' | 'locked' {
+    const r = this.db.prepare('SELECT * FROM accounts WHERE phone = ?').get(phone) as any;
+    if (!r) return 'wrong';
+    const now = Date.now();
+    if (r.locked_until > now) return 'locked';
+    if (!checkPin(pin, r.pin_hash)) {
+      const fails = r.fails + 1;
+      this.db.prepare('UPDATE accounts SET fails = ?, locked_until = ? WHERE phone = ?').run(fails >= 5 ? 0 : fails, fails >= 5 ? now + 15 * 60_000 : 0, phone);
+      return fails >= 5 ? 'locked' : 'wrong';
+    }
+    this.db.prepare('UPDATE accounts SET fails = 0, locked_until = 0, login_at = ? WHERE phone = ?').run(now, phone);
+    return { userId: r.user_id, name: r.name };
+  }
+
+  renameAccount(userId: string, name: string) {
+    this.db.prepare('UPDATE accounts SET name = ? WHERE user_id = ?').run(name, userId);
+  }
+
   touchUser(userId: string, nick: string, teamId: string | null) {
     this.db
       .prepare(
@@ -618,4 +656,35 @@ export class FanStore {
 
 function rowTeam(r: any): TeamBadge {
   return { id: r.id, name: r.name, short: r.short, ...(r.logo ? { logo: r.logo } : {}), ...(r.color ? { color: r.color } : {}) };
+}
+
+// ------------------------------------------------------------------ üyelik yardımcıları
+
+/** Telefonu +905xxxxxxxxx biçimine getirir; geçersizse null */
+export function normalizePhone(raw: unknown): string | null {
+  if (typeof raw !== 'string') return null;
+  const plus = raw.trim().startsWith('+');
+  let d = raw.replace(/\D/g, '');
+  if (!plus || d.startsWith('90')) {
+    if (d.startsWith('90') && d.length === 12) d = d.slice(2);
+    else if (d.startsWith('0') && d.length === 11) d = d.slice(1);
+    if (/^5\d{9}$/.test(d)) return '+90' + d;
+    if (!plus) return null;
+  }
+  return /^[1-9]\d{7,14}$/.test(d) ? '+' + d : null;
+}
+
+function maskPhone(p: string) {
+  return p.slice(0, -7).replace(/^\+90/, '0') + ' *** ** ' + p.slice(-2);
+}
+
+function hashPin(pin: string) {
+  const salt = crypto.randomBytes(16);
+  return `s1:${salt.toString('hex')}:${crypto.scryptSync(pin, salt, 32).toString('hex')}`;
+}
+
+function checkPin(pin: string, stored: string) {
+  const [, salt, hash] = stored.split(':');
+  const got = crypto.scryptSync(pin, Buffer.from(salt, 'hex'), 32);
+  return crypto.timingSafeEqual(got, Buffer.from(hash, 'hex'));
 }

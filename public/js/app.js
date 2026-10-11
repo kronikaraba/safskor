@@ -14,6 +14,7 @@ const me = {
   userId: storage.get('safskor.userId') || uid(),
   nick: storage.get('safskor.nick') || `Taraftar${Math.floor(1000 + Math.random() * 9000)}`,
   team: storage.get('safskor.team', null),
+  account: null, // { phone (maskeli), name } — telefonla üye olduysa
   uid: null, // sunucunun verdiği herkese açık kimlik (sohbette "Sen" ayrımı ve özel mesajlar için)
 };
 storage.set('safskor.userId', me.userId);
@@ -85,8 +86,70 @@ export function editNick() {
         h('div.field', { role: 'group', 'aria-label': 'Favori takımın' }, h('span', {}, 'Favori takımın (dokunarak seç, tekrar dokunursan kaldırılır)'), list),
         h('button.btn', { type: 'submit' }, 'Kaydet'),
       ),
+      accountBox(input),
     ];
   });
+}
+
+// ------------------------------------------------------------------ üyelik (telefon + isim + şifre)
+// SMS doğrulaması henüz yok: kullanıcı 4-6 haneli bir şifre seçer, başka cihazda numara + şifreyle girer.
+function accountBox(nickInput) {
+  const box = h('div.acct');
+  const field = (label, attrs) => h('label', {}, label, h('input.input', attrs));
+  const phoneAttrs = { type: 'tel', inputmode: 'tel', autocomplete: 'tel', placeholder: '0532 123 45 67', maxlength: 20 };
+  const pinAttrs = { type: 'password', inputmode: 'numeric', pattern: '[0-9]*', maxlength: 6, placeholder: '4-6 haneli sayı' };
+  const draw = (mode) => {
+    if (me.account) {
+      return mount(
+        box,
+        h('h3', {}, 'Hesabın'),
+        h('p.muted.small', {}, `${me.account.phone} numarasıyla üyesin. Başka bir cihazda bu numara ve şifrenle girersen her şeyin seninle gelir.`),
+        h('button.btn.ghost', { type: 'button', onclick: logout }, 'Çıkış yap'),
+      );
+    }
+    const login = mode === 'login';
+    const phone = field('Cep numarası', phoneAttrs);
+    const pin = field(login ? 'Şifre' : 'Şifre belirle', { ...pinAttrs, autocomplete: login ? 'current-password' : 'new-password' });
+    const submit = (e) => {
+      e.preventDefault();
+      const payload = { phone: phone.querySelector('input').value, pin: pin.querySelector('input').value, name: nickInput.value };
+      app.socket.emit(login ? 'account:login' : 'account:register', payload, (r) => {
+        if (!r?.ok) return toast(r?.error || 'İşlem başarısız', 'err');
+        if (login) {
+          // hesabın kimliğine geç: sayfa yenilenince tüm veriler o hesaptan gelir
+          storage.set('safskor.userId', r.userId);
+          storage.set('safskor.nick', r.nick);
+          storage.set('safskor.team', r.team);
+          location.reload();
+          return;
+        }
+        me.account = r.account;
+        me.nick = r.nick;
+        storage.set('safskor.nick', me.nick);
+        app.socket.auth.nick = me.nick;
+        drawNick();
+        draw();
+        toast('Üyeliğin oluşturuldu');
+      });
+    };
+    mount(
+      box,
+      h('h3', {}, login ? 'Giriş yap' : 'Üye ol'),
+      h('p.muted.small', {}, login ? 'Daha önce üye olduysan numaran ve şifrenle gir.' : 'Siteden çıkıp girince ya da başka cihazda adın, takımın, tahminlerin ve mesajların kaybolmasın. İsim olarak yukarıdaki takma adın kullanılır.'),
+      h('form.form', { onsubmit: submit }, phone, pin, h('button.btn', { type: 'submit' }, login ? 'Giriş yap' : 'Üye ol')),
+      h('button.link-btn', { type: 'button', onclick: () => draw(login ? 'register' : 'login') }, login ? 'Hesabın yok mu? Üye ol' : 'Zaten üye misin? Giriş yap'),
+    );
+  };
+  draw('register');
+  return box;
+}
+
+function logout() {
+  if (!confirm('Çıkış yapılsın mı? Tekrar girmek için numaran ve şifren gerekecek.')) return;
+  storage.set('safskor.userId', uid());
+  storage.set('safskor.nick', `Taraftar${Math.floor(1000 + Math.random() * 9000)}`);
+  storage.set('safskor.team', null);
+  location.reload();
 }
 
 app.socket.on('connect', () => {
@@ -99,6 +162,7 @@ app.socket.on('disconnect', () => {
   conn.title = 'Bağlantı koptu, yeniden deneniyor…';
 });
 app.socket.on('profile', (p) => {
+  me.account = p?.account ?? null;
   if (p?.uid && p.uid !== me.uid) {
     me.uid = p.uid;
     app.onProfile?.();
