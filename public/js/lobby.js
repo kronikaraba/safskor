@@ -20,6 +20,11 @@ export function renderLobby(root) {
     list,
   );
 
+  // Telefonda Sofascore/Mackolik tarzı sıkı liste, geniş ekranda kartlar
+  const compact = window.matchMedia('(max-width: 640px)');
+  const onResize = () => draw();
+  compact.addEventListener('change', onResize);
+
   function draw() {
     const all = app.matches || [];
     mount(
@@ -27,7 +32,7 @@ export function renderLobby(root) {
       FILTERS.map(([key, label, fn]) =>
         h(
           'button.chip',
-          { class: key === filter ? 'active' : '', role: 'tab', 'aria-selected': String(key === filter), onclick: () => ((filter = key), storage.set('safskor.filter', key), draw()) },
+          { class: [key === filter ? 'active' : '', key === 'live' && all.some(fn) ? 'has-live' : ''].join(' ').trim(), role: 'tab', 'aria-selected': String(key === filter), onclick: () => ((filter = key), storage.set('safskor.filter', key), draw()) },
           label,
           h('span.count', {}, all.filter(fn).length),
         ),
@@ -45,6 +50,10 @@ export function renderLobby(root) {
       if (!groups.has(key)) groups.set(key, []);
       groups.get(key).push(m);
     }
+    if (compact.matches) {
+      mount(list, [...groups.entries()].map(([name, ms]) => compSection(name, ms)));
+      return;
+    }
     mount(
       list,
       [...groups.entries()].map(([name, ms]) =>
@@ -55,6 +64,43 @@ export function renderLobby(root) {
           h('div.grid', {}, ms.map(card)),
         ),
       ),
+    );
+  }
+
+  function compSection(name, ms) {
+    const c = ms[0].competition;
+    return h(
+      'section.comp-card',
+      {},
+      h(
+        'header.comp-head',
+        {},
+        c.logo ? h('img', { src: c.logo, alt: '' }) : h('span.comp-dot'),
+        h('div.comp-name', {}, h('b', {}, name), c.country && h('span', {}, c.country)),
+        h('span.comp-count', {}, ms.length),
+      ),
+      ms.map(row),
+    );
+  }
+
+  function row(m) {
+    const live = m.status === 'LIVE' || m.status === 'HT';
+    const started = m.status !== 'SCHEDULED' && m.status !== 'POSTPONED';
+    const state =
+      m.status === 'LIVE' ? `${m.minute ?? ''}${m.extra ? '+' + m.extra : ''}'` : m.status === 'HT' ? 'İY' : m.status === 'FT' ? 'MS' : m.status === 'POSTPONED' ? 'Ert.' : '-';
+    const lead = (side) => started && m.score[side] > m.score[side === 'home' ? 'away' : 'home'];
+    return h(
+      'a.mrow',
+      { href: `#/m/${m.id}`, class: live ? 'live' : '', 'aria-label': `${m.home.name} - ${m.away.name}` },
+      h('div.mrow-time', {}, h('span', {}, kickoffText(m.kickoff)), h('span.mrow-state', { class: m.status.toLowerCase() }, state)),
+      h(
+        'div.mrow-teams',
+        {},
+        h('div.mrow-team', { class: lead('home') ? 'lead' : '' }, crest(m.home, 'sm'), h('span', {}, m.home.name)),
+        h('div.mrow-team', { class: lead('away') ? 'lead' : '' }, crest(m.away, 'sm'), h('span', {}, m.away.name)),
+      ),
+      h('div.mrow-score', {}, started && [h('b', {}, m.score.home), h('b', {}, m.score.away)]),
+      h('div.mrow-side', {}, m.viewers ? h('span.mrow-fans', { title: `${m.viewers} taraftar odada` }, `👥 ${m.viewers}`) : h('span.mrow-go', { 'aria-hidden': 'true' }, '›')),
     );
   }
 
@@ -80,6 +126,7 @@ export function renderLobby(root) {
   app.onMatches = draw;
   return {
     destroy() {
+      compact.removeEventListener('change', onResize);
       app.socket.emit('lobby:leave');
     },
     rejoin() {
