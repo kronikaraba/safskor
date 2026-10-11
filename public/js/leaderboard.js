@@ -33,7 +33,7 @@ export function renderLeaderboard(root) {
       h(
         'div.lb-head',
         {},
-        h('div', {}, h('h1.h-ic', {}, icon('oyuncu-kupasi', 'lg'), 'Haftalık tahmin sıralaması'), h('p.muted.small', {}, `${fmtDay(start)} – ${fmtDay(r.endsAt - 1)}${current ? ` · ${resetText(left)}` : ''}`)),
+        h('div', {}, h('h1.h-ic', {}, icon('haftalik-siralama-kupa', 'lg'), 'Haftalık tahmin sıralaması'), h('p.muted.small', {}, `${fmtDay(start)} – ${fmtDay(r.endsAt - 1)}${current ? ` · ${resetText(left)}` : ''}`)),
         h(
           'div.seg',
           {},
@@ -51,7 +51,7 @@ export function renderLeaderboard(root) {
       h(
         'li.lb-row',
         { class: `${x.me ? 'me' : ''} ${x.rank <= 3 ? `top${x.rank}` : ''}` },
-        h('span.lb-rank', {}, x.rank <= 3 ? ['🥇', '🥈', '🥉'][x.rank - 1] : x.rank),
+        h('span.lb-rank', {}, x.rank <= 3 ? h('span.lb-medal', { title: `${x.rank}.` }, icon('haftalik-siralama-madalya'), h('b', {}, x.rank)) : x.rank),
         h('span.lb-name', {}, teamBadge(x.team), h('b', {}, x.nick), x.me ? h('span.lb-you', {}, 'Sen') : null),
         h('span.lb-n.muted', { title: 'Tahmin sayısı' }, `${x.predictions} tahmin`),
         h('span.lb-pts', {}, h('b', {}, x.points), h('small', {}, 'puan')),

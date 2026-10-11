@@ -387,7 +387,7 @@ export function renderMatch(root, matchId) {
                   ]
                 : h('p.muted.small', {}, ft ? 'Puanın hesaplanıyor…' : 'Maç bitince puanın burada görünecek.'),
             ),
-        ft ? h('div.pick', { style: { marginTop: '12px' } }, h('button.btn.sm', { onclick: openCard }, '📤 Kartımı paylaş'), h('a.btn.ghost.sm', { href: '#/siralama' }, icon('oyuncu-kupasi'), 'Sıralama')) : null,
+        ft ? h('div.pick', { style: { marginTop: '12px' } }, h('button.btn.sm', { onclick: openCard }, '📤 Kartımı paylaş'), h('a.btn.ghost.sm', { href: '#/siralama' }, icon('haftalik-siralama-kupa'), 'Sıralama')) : null,
       );
     };
     const drawExtra = () => {

@@ -410,6 +410,9 @@ button { cursor: pointer; }
 .lb-row.me { background: rgba(0, 137, 254, 0.14); outline: 1px solid rgba(0, 137, 254, 0.5); }
 .lb-rank { text-align: center; font-weight: 800; color: var(--muted); font-size: 15px; }
 .lb-row.top1 .lb-rank, .lb-row.top2 .lb-rank, .lb-row.top3 .lb-rank { font-size: 20px; }
+.lb-medal { position: relative; display: inline-flex; vertical-align: middle; }
+.lb-medal .fan-icon { width: 28px; height: 28px; }
+.lb-medal b { position: absolute; right: -5px; bottom: -3px; min-width: 16px; height: 16px; padding: 0 3px; border-radius: 999px; background: var(--accent); color: #fff; border: 2px solid var(--surface); font-size: 10px; line-height: 12px; text-align: center; }
 .lb-name { display: flex; align-items: center; min-width: 0; gap: 2px; }
 .lb-name b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .lb-you { margin-left: 6px; font-size: 11px; font-weight: 700; color: var(--accent-ink); background: var(--accent); border-radius: 999px; padding: 1px 7px; }
