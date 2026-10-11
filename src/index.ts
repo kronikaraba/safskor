@@ -5,7 +5,8 @@ import { fileURLToPath } from 'node:url';
 import { Server, type Socket } from 'socket.io';
 import { config } from './config.js';
 import { createProvider } from './providers/index.js';
-import { FanStore, FORMATIONS, STYLES } from './services/fanStore.js';
+import { DEMO_TEAMS } from './providers/demo.js';
+import { FanStore, FORMATIONS, STYLES, weekKey, type TeamBadge } from './services/fanStore.js';
 import { MatchService } from './services/matchService.js';
 import type { Match, MatchEvent, Player, Side } from './types.js';
 
@@ -44,6 +45,33 @@ app.get('/api/matches/:id/fan', async (req, res) => {
   res.json({ ...store.state(m.id), chat: store.chatHistory(m.id) });
 });
 app.get('/api/meta', (_req, res) => res.json({ formations: FORMATIONS, styles: STYLES }));
+app.get('/api/teams', (_req, res) => res.json(store.teams()));
+
+// Paylaşım kartı tuvale arma çizebilsin diye API-Football armalarını aynı kökenden sun (yalnızca media.api-sports.io)
+const crestCache = new Map<string, { type: string; body: Buffer }>();
+app.get('/img/crest/:kind/:file', async (req, res) => {
+  const { kind, file } = req.params;
+  if (!/^(teams|leagues)$/.test(kind) || !/^\d{1,9}\.png$/.test(file)) return res.status(404).end();
+  const key = `${kind}/${file}`;
+  let hit = crestCache.get(key);
+  if (!hit) {
+    try {
+      const r = await fetch(`https://media.api-sports.io/football/${key}`, { signal: AbortSignal.timeout(8000) });
+      const type = r.headers.get('content-type') ?? '';
+      if (!r.ok || !type.startsWith('image/')) return res.status(404).end();
+      const body = Buffer.from(await r.arrayBuffer());
+      if (body.length > 300_000) return res.status(404).end();
+      hit = { type, body };
+      if (crestCache.size > 500) crestCache.delete(crestCache.keys().next().value!);
+      crestCache.set(key, hit);
+    } catch {
+      return res.status(502).end();
+    }
+  }
+  res.setHeader('Content-Type', hit.type);
+  res.setHeader('Cache-Control', 'public, max-age=604800, immutable');
+  res.end(hit.body);
+});
 
 app.use('/vendor/socket.io.esm.min.js', (_req, res) =>
   res.sendFile(path.join(root, 'node_modules/socket.io/client-dist/socket.io.esm.min.js')),
@@ -128,7 +156,16 @@ function broadcastFan(matchId: string) {
 interface SocketData {
   userId: string;
   nick: string;
+  team: TeamBadge | null;
   matchId?: string;
+}
+
+/** Sunucu yeniden başlayınca veriler sıfırlanabilir: profil yoksa istemcinin bildirdiği (doğrulanmış) takımı kullan */
+function restoreTeam(userId: string, claimed: unknown): TeamBadge | null {
+  const saved = store.profile(userId);
+  if (saved) return saved.team;
+  const id = typeof claimed === 'string' ? claimed.slice(0, 40) : '';
+  return id ? store.team(id) : null;
 }
 
 io.on('connection', (socket: Socket) => {
@@ -136,7 +173,10 @@ io.on('connection', (socket: Socket) => {
   const data: SocketData = {
     userId: isUserId(auth.userId) ? auth.userId : `anon-${socket.id}`,
     nick: clean(auth.nick, 20) || 'Taraftar',
+    team: null,
   };
+  data.team = isUserId(auth.userId) ? restoreTeam(data.userId, auth.teamId) : null;
+  socket.data = data;
   socket.emit('hello', { provider: matches.providerInfo, matches: withViewers() });
 
   type Ack = (r: { ok: boolean; error?: string; [k: string]: unknown }) => void;
@@ -153,10 +193,55 @@ io.on('connection', (socket: Socket) => {
   const sendMine = (matchId: string) => socket.emit('fan:mine', { matchId, ...store.mine(matchId, data.userId) });
 
   socket.on('profile:set', (p, ack) => {
+    const a = safeAck(ack);
+    if (!actionLimit.ok(data.userId)) return a({ ok: false, error: 'Çok hızlı! Biraz yavaşla.' });
     const nick = clean(p?.nick, 20);
-    if (nick.length < 2) return safeAck(ack)({ ok: false, error: 'Takma ad en az 2 karakter olmalı.' });
+    if (nick.length < 2) return a({ ok: false, error: 'Takma ad en az 2 karakter olmalı.' });
+    let team = data.team;
+    if (p?.teamId === null || p?.teamId === '') team = null;
+    else if (p?.teamId !== undefined) {
+      team = store.team(clean(p.teamId, 40));
+      if (!team) return a({ ok: false, error: 'Takım bulunamadı.' });
+    }
     data.nick = nick;
-    safeAck(ack)({ ok: true, nick });
+    data.team = team;
+    if (isUserId(data.userId)) store.saveProfile(data.userId, nick, team?.id ?? null);
+    a({ ok: true, nick, team });
+  });
+
+  socket.on('teams:list', (_p, ack) => safeAck(ack)({ ok: true, teams: store.teams() }));
+
+  socket.on('leaderboard:get', (p, ack) => {
+    const week = typeof p?.week === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(p.week) ? p.week : weekKey(Date.now());
+    safeAck(ack)({ ok: true, ...store.leaderboard(week, data.userId) });
+  });
+
+  // --- skor (ve isteğe bağlı ilk 11) tahmini: maç başlayana kadar açık
+  socket.on('prediction:set', async (p, ack) => {
+    const a = safeAck(ack);
+    const m = await context(a);
+    if (!m) return;
+    if (!isUserId(data.userId)) return a({ ok: false, error: 'Tahmin için tarayıcı kimliği gerekli.' });
+    if (m.status !== 'SCHEDULED' || Date.now() >= Date.parse(m.kickoff)) return a({ ok: false, error: 'Maç başladı, tahminler kilitlendi.' });
+    const home = Number(p?.home);
+    const away = Number(p?.away);
+    const okScore = (n: number) => Number.isInteger(n) && n >= 0 && n <= 20;
+    if (!okScore(home) || !okScore(away)) return a({ ok: false, error: 'Skor 0-20 arasında olmalı.' });
+    let xi: string[] | undefined;
+    let xiSide: Side | undefined;
+    if (Array.isArray(p?.xi) && p.xi.length) {
+      if (!m.lineups) return a({ ok: false, error: 'Kadrolar açıklanmadan ilk 11 tahmini yapılamaz.' });
+      if (!isSide(p?.xiSide)) return a({ ok: false, error: 'İlk 11 için takım seç.' });
+      const squad = new Set(allPlayers(m, p.xiSide).map((x) => x.id));
+      xi = [...new Set((p.xi as unknown[]).map(String))];
+      if (xi.length !== 11 || !xi.every((id) => squad.has(id))) return a({ ok: false, error: 'İlk 11 tahmini kadrodan tam 11 oyuncu olmalı.' });
+      xiSide = p.xiSide;
+    }
+    store.setPrediction(m.id, Date.parse(m.kickoff), data.userId, data.nick, { home, away, xi, xiSide });
+    store.saveProfile(data.userId, data.nick, data.team?.id ?? null);
+    broadcastFan(m.id);
+    sendMine(m.id);
+    a({ ok: true });
   });
 
   socket.on('lobby:join', () => socket.join('lobby'));
@@ -202,7 +287,7 @@ io.on('connection', (socket: Socket) => {
     if (!text) return a({ ok: false, error: 'Boş mesaj gönderilemez.' });
     if (!data.matchId) return a({ ok: false, error: 'Önce bir maç odasına katıl.' });
     if (!chatLimit.ok(data.userId)) return a({ ok: false, error: 'Çok hızlı yazıyorsun, birkaç saniye bekle.' });
-    const msg = store.addChat(data.matchId, data.userId, data.nick, text);
+    const msg = store.addChat(data.matchId, data.userId, data.nick, text, 'user', data.team);
     io.to(room(data.matchId)).emit('chat:message', msg);
     a({ ok: true });
   });
@@ -316,6 +401,36 @@ io.on('connection', (socket: Socket) => {
 // ------------------------------------------------------------------ canlı güncellemeler
 
 matches.on('list', lobbyUpdate);
+
+// ------------------------------------------------------------------ takımlar ve tahmin puanlama
+
+store.upsertTeams(DEMO_TEAMS);
+matches.on('list', (list: { status: string; home: TeamBadge; away: TeamBadge; id: string }[]) => {
+  store.upsertTeams(list.flatMap((m) => [m.home, m.away]).map(({ id, name, short, logo, color }) => ({ id, name, short, logo, color })));
+  scorePending(list);
+});
+
+/** Bitmiş maçların tahminlerini puanla ve odadakilere kendi sonuçlarını gönder (tekrar çağrılması güvenli) */
+async function scoreMatch(m: Match) {
+  const users = new Set(store.scorePredictions(m));
+  if (!users.size) return;
+  console.log(`[tahmin] ${m.home.name} - ${m.away.name}: ${users.size} tahmin puanlandı`);
+  broadcastFan(m.id);
+  for (const s of await io.in(room(m.id)).fetchSockets()) {
+    const uid = (s.data as SocketData | undefined)?.userId;
+    if (uid && users.has(uid)) s.emit('fan:mine', { matchId: m.id, ...store.mine(m.id, uid) });
+  }
+}
+const scoreTried = new Map<string, number>();
+/** Durum değişimi kaçırılsa bile (ör. yeniden başlatma) listede bitmiş görünen maçları puanla */
+function scorePending(list: { id: string; status: string }[]) {
+  const pending = new Set(store.unscoredMatchIds());
+  for (const m of list) {
+    if (m.status !== 'FT' || !pending.has(m.id) || Date.now() - (scoreTried.get(m.id) ?? 0) < 10 * 60_000) continue;
+    scoreTried.set(m.id, Date.now());
+    matches.getMatch(m.id).then((full) => full && scoreMatch(full)).catch((e) => console.error('[tahmin] puanlama hatası', e));
+  }
+}
 matches.on('match', (m: Match) => io.to(room(m.id)).emit('match', m));
 
 const EVENT_TEXT: Partial<Record<MatchEvent['type'], (e: MatchEvent, team: string) => string>> = {
@@ -337,6 +452,7 @@ matches.on('events', (matchId: string, fresh: MatchEvent[], m: Match) => {
 });
 
 matches.on('status', (m: Match) => {
+  if (m.status === 'FT') scoreMatch(m).catch((e) => console.error('[tahmin] puanlama hatası', e));
   const text =
     m.status === 'LIVE' && m.minute != null && m.minute <= 1 ? '🟢 Maç başladı! İyi seyirler.'
     : m.status === 'HT' ? `⏸️ İlk yarı sona erdi: ${m.home.short} ${m.score.home}-${m.score.away} ${m.away.short}`

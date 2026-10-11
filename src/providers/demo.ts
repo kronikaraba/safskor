@@ -24,6 +24,9 @@ const TEAMS: Record<string, DemoTeam> = {
   int: { id: 'int', name: 'Inter', short: 'INT', color: '#0068a8', strength: 1.1, formation: '3-5-2', coach: 'Marco Bellini', pool: 'intl' },
 };
 
+/** Favori takım listesinde demo takımları da görünsün */
+export const DEMO_TEAMS = Object.values(TEAMS).map(({ id, name, short, color }) => ({ id, name, short, color }));
+
 const NAMES = {
   tr: {
     first: ['Arda', 'Kerem', 'Emir', 'Yusuf', 'Barış', 'Ozan', 'Cenk', 'Mert', 'Kaan', 'Efe', 'Burak', 'Ferdi', 'Uğur', 'Halil', 'Oğuz', 'Semih', 'Doğukan', 'Eren', 'Tarık', 'Sinan', 'Berkan', 'Okay', 'İrfan', 'Abdülkerim', 'Salih', 'Zeki', 'Rıdvan', 'Onur', 'Can', 'Ahmet'],

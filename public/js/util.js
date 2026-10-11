@@ -100,6 +100,19 @@ export function crest(team, size = '') {
   return h('span.crest', { class: size, '--c': team.color || colorFor(team.name), title: team.name }, team.short);
 }
 
+/** Favori takım rozeti (14px): arma ya da takım rengi */
+export function teamBadge(team) {
+  if (!team) return null;
+  if (team.logo) return h('img.tbadge', { src: team.logo, alt: '', title: team.name, loading: 'lazy' });
+  return h('span.tbadge.dot', { '--c': team.color || colorFor(team.name), title: team.name });
+}
+
+/** API-Football armasının aynı kökenden adresi (tuvale çizilebilsin diye) */
+export function crestUrl(logo) {
+  const m = /media\.api-sports\.io\/football\/(teams|leagues)\/(\d+)\.png$/.exec(logo || '');
+  return m ? `/img/crest/${m[1]}/${m[2]}.png` : null;
+}
+
 export function colorFor(s) {
   let x = 0;
   for (const c of String(s)) x = (x * 31 + c.charCodeAt(0)) | 0;

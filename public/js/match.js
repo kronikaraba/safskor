@@ -1,8 +1,10 @@
 import { app, editNick } from './app.js';
-import { h, mount, crest, statusPill, minuteText, ratingPill, timeText, toast, openSheet, colorFor, storage, POS_TR, kickoffText, roundText, dayText } from './util.js';
+import { h, mount, crest, statusPill, minuteText, ratingPill, timeText, toast, openSheet, colorFor, storage, POS_TR, kickoffText, roundText, dayText, teamBadge } from './util.js';
+import { openShare } from './share.js';
 
 const TABS = [
   ['summary', 'Özet'],
+  ['predict', 'Tahmin'],
   ['lineups', 'Kadrolar'],
   ['stats', 'İstatistik'],
   ['ratings', 'Puanla'],
@@ -185,7 +187,7 @@ export function renderMatch(root, matchId) {
     }
     if (s.tab === 'chat') s.tab = 'summary';
     chatCol.classList.remove('show');
-    const view = { summary: Summary, lineups: Lineups, stats: Stats, ratings: Ratings, tactics: Tactics, subs: Subs, polls: Polls }[s.tab] ?? Summary;
+    const view = { summary: Summary, predict: Predict, lineups: Lineups, stats: Stats, ratings: Ratings, tactics: Tactics, subs: Subs, polls: Polls }[s.tab] ?? Summary;
     current = view();
     mount(body, current.el);
     current.update();
@@ -266,8 +268,167 @@ export function renderMatch(root, matchId) {
       h('h3', {}, 'Taraftarın nabzı'),
       best ? motm(best) : h('p.muted.small', {}, 'Henüz oyuncu puanı yok. "Puanla" sekmesinden ilk puanı sen ver!'),
       winner && winner.total ? pollResult(winner) : null,
-      h('div.pick', {}, h('button.btn.ghost.sm', { onclick: () => setTab('tactics') }, '🧠 Taktik öner'), h('button.btn.ghost.sm', { onclick: () => setTab('subs') }, '🔁 Değişiklik iste'), h('button.btn.ghost.sm', { onclick: () => setTab('polls') }, '📊 Anketler')),
+      h('div.pick', {}, s.match.status === 'FT' && h('button.btn.sm', { onclick: openCard }, '📤 Kartımı paylaş'), s.match.status === 'SCHEDULED' && h('button.btn.sm', { onclick: () => setTab('predict') }, '🎯 Skor tahmini yap'), h('button.btn.ghost.sm', { onclick: () => setTab('tactics') }, '🧠 Taktik öner'), h('button.btn.ghost.sm', { onclick: () => setTab('subs') }, '🔁 Değişiklik iste'), h('button.btn.ghost.sm', { onclick: () => setTab('polls') }, '📊 Anketler')),
     );
+  }
+
+  // --- Tahmin: skor + isteğe bağlı ilk 11 (maç başlayınca kilitlenir, bitince puanlanır)
+  function Predict() {
+    const el = h('div.stack');
+    const main = h('div.card');
+    const extra = h('div');
+    let draft = null;
+    let mode = '';
+    let savedJson = '';
+    const isOpen = () => s.match.status === 'SCHEDULED' && Date.now() < Date.parse(s.match.kickoff);
+    const initDraft = () => {
+      const p = s.mine?.prediction;
+      const side = p?.xiSide ?? (app.me.team?.id === s.match.away.id ? 'away' : 'home');
+      draft = { home: p?.home ?? 0, away: p?.away ?? 0, xiSide: side, xi: new Set(p?.xiSide === side ? p.xi : []), xiOpen: Boolean(p?.xi?.length) };
+    };
+    const stepper = (key, label) =>
+      h(
+        'div.stepper',
+        { role: 'group', 'aria-label': label },
+        h('button', { type: 'button', 'aria-label': `${label} azalt`, onclick: () => ((draft[key] = Math.max(0, draft[key] - 1)), drawForm()) }, '−'),
+        h('b', { 'aria-live': 'polite' }, draft[key]),
+        h('button', { type: 'button', 'aria-label': `${label} artır`, onclick: () => ((draft[key] = Math.min(20, draft[key] + 1)), drawForm()) }, '+'),
+      );
+    const toggleXi = (id) => {
+      if (draft.xi.has(id)) draft.xi.delete(id);
+      else if (draft.xi.size >= 11) return toast('En fazla 11 oyuncu seçebilirsin', 'err');
+      else draft.xi.add(id);
+      drawForm();
+    };
+    const submit = async () => {
+      if (draft.xi.size && draft.xi.size !== 11) return toast(`İlk 11 için tam 11 oyuncu seç (${draft.xi.size}/11) ya da seçimi temizle`, 'err');
+      const r = await send('prediction:set', { home: draft.home, away: draft.away, xiSide: draft.xiSide, xi: [...draft.xi] });
+      if (r?.ok) toast('🎯 Tahminin kaydedildi');
+    };
+    const drawForm = () => {
+      const m = s.match;
+      if (!draft) initDraft();
+      const p = s.mine?.prediction;
+      const l = m.lineups?.[draft.xiSide];
+      const order = { G: 0, D: 1, M: 2, F: 3 };
+      const squad = l ? [...l.startXI, ...l.subs].sort((a, b) => (order[a.pos] ?? 2) - (order[b.pos] ?? 2) || (a.number ?? 99) - (b.number ?? 99)) : [];
+      mount(
+        main,
+        h('h3', {}, 'Skor tahminin', h('span.muted', {}, `${kickoffText(m.kickoff)}'de kilitlenir`)),
+        h(
+          'div.pred-score',
+          {},
+          h('div.pred-team', {}, crest(m.home), h('span', {}, m.home.short)),
+          stepper('home', m.home.name),
+          h('span.pred-sep', {}, '–'),
+          stepper('away', m.away.name),
+          h('div.pred-team', {}, crest(m.away), h('span', {}, m.away.short)),
+        ),
+        l
+          ? h(
+              'details.pred-xi',
+              { open: draft.xiOpen || null, ontoggle: (e) => (draft.xiOpen = e.target.open) },
+              h('summary', {}, 'İlk 11 tahmini (isteğe bağlı)', h('span.count', { class: draft.xi.size === 11 ? 'full' : '' }, `${draft.xi.size}/11`)),
+              h('p.muted.small', {}, 'Doğru bildiğin her oyuncu +1 puan. Bir takım seç ve 11 oyuncu işaretle.'),
+              h(
+                'div.seg',
+                {},
+                ['home', 'away'].map((side) =>
+                  h('button', { type: 'button', class: draft.xiSide === side ? 'active' : '', onclick: () => ((draft.xiSide = side), draft.xi.clear(), drawForm()) }, h('span.dot', { '--c': m[side].color || colorFor(m[side].name) }), m[side].short),
+                ),
+              ),
+              h(
+                'div.xi-grid',
+                {},
+                squad.map((pl) =>
+                  h('button.xi-opt', { type: 'button', class: draft.xi.has(pl.id) ? 'on' : '', 'aria-pressed': String(draft.xi.has(pl.id)), onclick: () => toggleXi(pl.id) }, h('span.num', {}, pl.number ?? ''), h('span.nm', {}, pl.name), h('small', {}, POS_TR[pl.pos] ?? '')),
+                ),
+              ),
+              draft.xi.size ? h('button.btn.ghost.sm', { type: 'button', onclick: () => (draft.xi.clear(), drawForm()) }, 'Seçimi temizle') : null,
+            )
+          : h('p.muted.small', {}, 'Kadrolar açıklanınca (genelde maçtan ~1 saat önce) ilk 11 tahmini de yapabileceksin.'),
+        h('button.btn', { style: { width: '100%' }, onclick: submit }, p ? 'Tahminimi güncelle' : 'Tahmini kaydet'),
+        p ? h('p.muted.small', { style: { margin: '8px 0 0', textAlign: 'center' } }, `Kayıtlı tahminin: ${p.home}-${p.away}${p.xi?.length ? ' · ilk 11 seçili' : ''}`) : null,
+        h('p.muted.small', { style: { margin: '6px 0 0', textAlign: 'center' } }, 'Tam skor 3 puan · doğru sonuç 1 puan · ', h('a', { href: '#/siralama', style: { color: 'var(--accent)' } }, 'haftalık sıralama')),
+      );
+    };
+    const drawLocked = () => {
+      const m = s.match;
+      const p = s.mine?.prediction;
+      const ft = m.status === 'FT';
+      const line = (a, b) => h('div.pred-line', {}, h('span', {}, a), h('b', {}, b));
+      mount(
+        main,
+        h('h3', {}, 'Tahminin', h('span.muted', {}, ft ? 'Maç bitti' : 'Kilitlendi 🔒')),
+        !p
+          ? h('p.muted', {}, ft ? 'Bu maç için tahmin yapmamıştın.' : 'Maç başladı; bu maç için tahmin yapmadın. Sıradaki maçları kaçırma!')
+          : h(
+              'div.pred-result',
+              {},
+              line('Skor tahminin', `${p.home}-${p.away}`),
+              ft && p.points != null
+                ? [
+                    line('Maç sonucu', `${m.score.home}-${m.score.away}`),
+                    line(p.exact ? '🎯 Tam skor' : p.resultOk ? '✅ Doğru sonuç' : '❌ Sonuç tutmadı', `+${p.exact ? 3 : p.resultOk ? 1 : 0}`),
+                    p.xi?.length ? line(`👕 İlk 11: ${p.xiHits}/11 doğru`, `+${p.xiHits}`) : null,
+                    h('div.pred-total', {}, h('span', {}, 'Toplam'), h('b', {}, `${p.points} puan`)),
+                  ]
+                : h('p.muted.small', {}, ft ? 'Puanın hesaplanıyor…' : 'Maç bitince puanın burada görünecek.'),
+            ),
+        ft ? h('div.pick', { style: { marginTop: '12px' } }, h('button.btn.sm', { onclick: openCard }, '📤 Kartımı paylaş'), h('a.btn.ghost.sm', { href: '#/siralama' }, '🏆 Sıralama')) : null,
+      );
+    };
+    const drawExtra = () => {
+      const m = s.match;
+      const st = s.fan?.predictions;
+      const pct = (n) => (st.total ? Math.round((n / st.total) * 100) : 0);
+      mount(
+        extra,
+        st?.total
+          ? h(
+              'div.card',
+              {},
+              h('h3', {}, 'Taraftarlar ne diyor?', h('span.muted', {}, `${st.total} tahmin`)),
+              fbar(`${m.home.short} kazanır`, pct(st.result.home), `${pct(st.result.home)}%`),
+              fbar('Beraberlik', pct(st.result.draw), `${pct(st.result.draw)}%`),
+              fbar(`${m.away.short} kazanır`, pct(st.result.away), `${pct(st.result.away)}%`),
+              h('div.muted.small', { style: { marginTop: '12px' } }, 'En çok tahmin edilen skorlar'),
+              h('div.pick', {}, st.top.map((x) => h('span.chip', {}, `${x.home}-${x.away} · ${x.count}`))),
+            )
+          : h('div.card', {}, h('p.muted', { style: { margin: 0 } }, isOpen() ? 'Henüz kimse tahmin yapmadı. İlk sen ol!' : 'Bu maç için tahmin yapılmadı.')),
+      );
+    };
+    mount(el, main, extra);
+    return {
+      el,
+      update() {
+        const now = isOpen() ? 'open' : s.match.status;
+        // açık formda yalnızca kilit durumu değişince yeniden çiz (seçimler korunur)
+        const saved = JSON.stringify(s.mine?.prediction ?? null);
+        if (now !== mode || now !== 'open' || saved !== savedJson) {
+          mode = now;
+          savedJson = saved;
+          if (now === 'open') drawForm();
+          else drawLocked();
+        }
+        drawExtra();
+      },
+    };
+  }
+
+  function openCard() {
+    const m = s.match;
+    const all = m.lineups ? ['home', 'away'].flatMap((side) => [...m.lineups[side].startXI, ...m.lineups[side].subs]) : [];
+    const best = Object.entries(s.mine?.ratings ?? {}).sort((a, b) => b[1] - a[1])[0];
+    const pl = best && all.find((x) => x.id === best[0]);
+    const p = s.mine?.prediction;
+    openShare({
+      match: m,
+      nick: app.me.nick,
+      team: app.me.team,
+      motm: pl ? { name: pl.name, score: best[1] } : null,
+      prediction: p ? { home: p.home, away: p.away, points: p.points } : null,
+    });
   }
 
   // --- Kadrolar: saha + yedekler
@@ -426,6 +587,13 @@ export function renderMatch(root, matchId) {
         const myCount = Object.keys(s.mine?.ratings ?? {}).length;
         mount(
           el,
+          !locked &&
+            h(
+              'div.card.share-cta',
+              {},
+              h('div', {}, h('b', {}, 'Taraftar kartını paylaş'), h('div.muted.small', {}, 'Skor, maçın adamın ve tahminin tek görselde.')),
+              h('button.btn.sm', { onclick: openCard }, '📤 Paylaş'),
+            ),
           best ? motm(best) : null,
           h(
             'div.team-avg',
@@ -818,7 +986,7 @@ export function renderMatch(root, matchId) {
     return h(
       'div.msg',
       { class: mine ? 'me' : '' },
-      h('div.who', { '--nc': colorFor(msg.nick) }, mine ? 'Sen' : msg.nick, h('span.time', {}, timeText(msg.createdAt))),
+      h('div.who', { '--nc': colorFor(msg.nick) }, teamBadge(msg.team), mine ? 'Sen' : msg.nick, h('span.time', {}, timeText(msg.createdAt))),
       h('div.bubble', {}, msg.text),
     );
   }
@@ -840,9 +1008,11 @@ export function renderMatch(root, matchId) {
   window.addEventListener('resize', onResize);
 
   join();
+  app.onProfile = () => s.match && drawChat();
 
   return {
     destroy() {
+      app.onProfile = null;
       app.socket.emit('match:leave');
       for (const [ev, fn] of Object.entries(handlers)) app.socket.off(ev, fn);
       window.removeEventListener('resize', onResize);

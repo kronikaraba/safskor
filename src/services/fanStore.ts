@@ -6,6 +6,15 @@ import type { Match, Side } from '../types.js';
 export const FORMATIONS = ['4-4-2', '4-3-3', '4-2-3-1', '4-1-4-1', '4-5-1', '3-5-2', '3-4-3', '5-3-2', '5-4-1', '4-4-1-1', '3-4-2-1'];
 export const STYLES = ['Hücum', 'Dengeli', 'Savunma', 'Kontra atak', 'Yüksek pres', 'Top hakimiyeti'];
 
+/** Sohbette ve sıralamada takma adın yanında görünen favori takım rozeti */
+export interface TeamBadge {
+  id: string;
+  name: string;
+  short: string;
+  logo?: string;
+  color?: string;
+}
+
 export interface ChatMessage {
   id: number;
   matchId: string;
@@ -14,6 +23,27 @@ export interface ChatMessage {
   text: string;
   kind: 'user' | 'system';
   createdAt: number;
+  team?: TeamBadge | null;
+}
+
+export interface PredictionInput {
+  home: number;
+  away: number;
+  xiSide?: Side;
+  xi?: string[];
+}
+
+const DAY = 86_400_000;
+/** Haftalık sıralamanın anahtarı: maçın oynandığı haftanın Pazartesi'si (Türkiye saati, UTC+3) */
+export function weekKey(ts: number): string {
+  const tr = ts + 3 * 3_600_000;
+  const day = Math.floor(tr / DAY);
+  const monday = day - ((new Date(day * DAY).getUTCDay() + 6) % 7);
+  return new Date(monday * DAY).toISOString().slice(0, 10);
+}
+/** Bir haftanın bitişi (sonraki Pazartesi 00:00 TSİ) */
+export function weekEnd(key: string): number {
+  return Date.parse(`${key}T00:00:00+03:00`) + 7 * DAY;
 }
 
 export class FanStore {
@@ -48,27 +78,144 @@ export class FanStore {
         created_by TEXT NOT NULL, nick TEXT NOT NULL, created_at INTEGER NOT NULL,
         UNIQUE (match_id, side, out_id, in_id));
       CREATE TABLE IF NOT EXISTS sub_votes (request_id INTEGER NOT NULL, user_id TEXT NOT NULL, PRIMARY KEY (request_id, user_id));
+      CREATE TABLE IF NOT EXISTS teams (
+        id TEXT PRIMARY KEY, name TEXT NOT NULL, short TEXT NOT NULL, logo TEXT, color TEXT, seen_at INTEGER NOT NULL);
+      CREATE TABLE IF NOT EXISTS profiles (
+        user_id TEXT PRIMARY KEY, nick TEXT NOT NULL, team_id TEXT, updated_at INTEGER NOT NULL);
+      CREATE TABLE IF NOT EXISTS predictions (
+        match_id TEXT NOT NULL, user_id TEXT NOT NULL, nick TEXT NOT NULL, week TEXT NOT NULL,
+        home INTEGER NOT NULL, away INTEGER NOT NULL, xi_side TEXT, xi TEXT,
+        points INTEGER, exact INTEGER, result_ok INTEGER, xi_hits INTEGER, scored_at INTEGER,
+        updated_at INTEGER NOT NULL, PRIMARY KEY (match_id, user_id));
+      CREATE INDEX IF NOT EXISTS predictions_week ON predictions(week, user_id);
     `);
+    // eski veritabanlarına yeni sütunlar
+    const cols = new Set((this.db.prepare('PRAGMA table_info(chat)').all() as any[]).map((c) => c.name));
+    if (!cols.has('team')) this.db.exec('ALTER TABLE chat ADD COLUMN team TEXT');
+  }
+
+  // ------------------------------------------------------------------ takımlar ve profil
+
+  /** Fikstürlerde görülen takımları kaydeder (favori takım listesi bunlardan oluşur) */
+  upsertTeams(teams: TeamBadge[]) {
+    const stmt = this.db.prepare(
+      `INSERT INTO teams (id, name, short, logo, color, seen_at) VALUES (?,?,?,?,?,?)
+       ON CONFLICT(id) DO UPDATE SET name = excluded.name, short = excluded.short,
+         logo = COALESCE(excluded.logo, teams.logo), color = COALESCE(excluded.color, teams.color), seen_at = excluded.seen_at`,
+    );
+    const now = Date.now();
+    for (const t of teams) stmt.run(t.id, t.name, t.short, t.logo ?? null, t.color ?? null, now);
+  }
+
+  teams(): TeamBadge[] {
+    return (this.db.prepare('SELECT id, name, short, logo, color FROM teams ORDER BY name COLLATE NOCASE').all() as any[]).map(rowTeam);
+  }
+
+  team(id: string): TeamBadge | null {
+    const r = this.db.prepare('SELECT id, name, short, logo, color FROM teams WHERE id = ?').get(id) as any;
+    return r ? rowTeam(r) : null;
+  }
+
+  profile(userId: string): { nick: string; team: TeamBadge | null } | null {
+    const r = this.db.prepare('SELECT nick, team_id FROM profiles WHERE user_id = ?').get(userId) as any;
+    return r ? { nick: r.nick, team: r.team_id ? this.team(r.team_id) : null } : null;
+  }
+
+  saveProfile(userId: string, nick: string, teamId: string | null) {
+    this.db
+      .prepare(
+        `INSERT INTO profiles (user_id, nick, team_id, updated_at) VALUES (?,?,?,?)
+         ON CONFLICT(user_id) DO UPDATE SET nick = excluded.nick, team_id = excluded.team_id, updated_at = excluded.updated_at`,
+      )
+      .run(userId, nick, teamId, Date.now());
+  }
+
+  // ------------------------------------------------------------------ skor tahmini
+
+  /** Tahmini kaydeder/günceller (kilit kontrolü çağıran tarafta: maç başlamadan) */
+  setPrediction(matchId: string, kickoff: number, userId: string, nick: string, p: PredictionInput) {
+    this.db
+      .prepare(
+        `INSERT INTO predictions (match_id, user_id, nick, week, home, away, xi_side, xi, updated_at) VALUES (?,?,?,?,?,?,?,?,?)
+         ON CONFLICT(match_id, user_id) DO UPDATE SET nick = excluded.nick, home = excluded.home, away = excluded.away,
+           xi_side = excluded.xi_side, xi = excluded.xi, updated_at = excluded.updated_at`,
+      )
+      .run(matchId, userId, nick, weekKey(kickoff), p.home, p.away, p.xi?.length ? p.xiSide : null, p.xi?.length ? JSON.stringify(p.xi) : null, Date.now());
+  }
+
+  /** Maç bittiğinde puanlanmamış tahminleri puanlar; tekrar çağrılması güvenlidir. Puanlanan kullanıcıları döndürür. */
+  scorePredictions(match: Match): string[] {
+    if (match.status !== 'FT') return [];
+    const rows = this.db.prepare('SELECT user_id, home, away, xi_side, xi FROM predictions WHERE match_id = ? AND points IS NULL').all(match.id) as any[];
+    if (!rows.length) return [];
+    const sign = (h: number, a: number) => Math.sign(h - a);
+    const update = this.db.prepare('UPDATE predictions SET points = ?, exact = ?, result_ok = ?, xi_hits = ?, scored_at = ? WHERE match_id = ? AND user_id = ? AND points IS NULL');
+    const now = Date.now();
+    for (const r of rows) {
+      const exact = r.home === match.score.home && r.away === match.score.away ? 1 : 0;
+      const result = sign(r.home, r.away) === sign(match.score.home, match.score.away) ? 1 : 0;
+      let hits = 0;
+      if (r.xi && r.xi_side && match.lineups) {
+        const starters = new Set(match.lineups[r.xi_side as Side].startXI.map((p) => p.id));
+        hits = (JSON.parse(r.xi) as string[]).filter((id) => starters.has(id)).length;
+      }
+      update.run(exact * 3 + (exact ? 0 : result) + hits, exact, result, hits, now, match.id, r.user_id);
+    }
+    return rows.map((r) => r.user_id);
+  }
+
+  /** Puanlanmayı bekleyen tahmini olan maçlar */
+  unscoredMatchIds(): string[] {
+    return (this.db.prepare('SELECT DISTINCT match_id FROM predictions WHERE points IS NULL').all() as any[]).map((r) => r.match_id);
+  }
+
+  /** Maçtaki tahminlerin özeti: kaç kişi, en çok tahmin edilen skorlar, 1/X/2 dağılımı */
+  predictionStats(matchId: string) {
+    const rows = this.db.prepare('SELECT home, away, COUNT(*) c FROM predictions WHERE match_id = ? GROUP BY home, away ORDER BY c DESC').all(matchId) as any[];
+    const total = rows.reduce((a, r) => a + r.c, 0);
+    const result = { home: 0, draw: 0, away: 0 };
+    for (const r of rows) result[r.home > r.away ? 'home' : r.home < r.away ? 'away' : 'draw'] += r.c;
+    return { total, top: rows.slice(0, 3).map((r) => ({ home: r.home, away: r.away, count: r.c })), result };
+  }
+
+  /** Haftalık sıralama (puan, sonra tam isabet sayısı). viewer: kendi satırını işaretlemek için */
+  leaderboard(week: string, viewer: string, limit = 50) {
+    const rows = (
+      this.db
+        .prepare(
+          `SELECT p.user_id, COALESCE(pr.nick, MAX(p.nick)) nick, pr.team_id,
+             COALESCE(SUM(p.points), 0) points, COALESCE(SUM(p.exact), 0) exact, COUNT(*) n
+           FROM predictions p LEFT JOIN profiles pr ON pr.user_id = p.user_id
+           WHERE p.week = ? GROUP BY p.user_id ORDER BY points DESC, exact DESC, n ASC, MIN(p.updated_at) ASC`,
+        )
+        .all(week) as any[]
+    ).map((r, i, arr) => ({ ...r, rank: i && arr[i - 1].points === r.points && arr[i - 1].exact === r.exact ? -1 : i + 1 }));
+    // eşit puan ve isabette aynı sıra
+    for (let i = 0; i < rows.length; i++) if (rows[i].rank === -1) rows[i].rank = rows[i - 1].rank;
+    const out = (r: any) => ({ rank: r.rank, nick: r.nick, team: r.team_id ? this.team(r.team_id) : null, points: r.points, exact: r.exact, predictions: r.n, me: r.user_id === viewer });
+    const top = rows.slice(0, limit).map(out);
+    const mineIdx = rows.findIndex((r) => r.user_id === viewer);
+    return { week, endsAt: weekEnd(week), players: rows.length, rows: top, me: mineIdx >= limit ? out(rows[mineIdx]) : null };
   }
 
   // ------------------------------------------------------------------ sohbet
 
-  addChat(matchId: string, userId: string | null, nick: string, text: string, kind: 'user' | 'system' = 'user'): ChatMessage {
+  addChat(matchId: string, userId: string | null, nick: string, text: string, kind: 'user' | 'system' = 'user', team: TeamBadge | null = null): ChatMessage {
     const createdAt = Date.now();
     const info = this.db
-      .prepare('INSERT INTO chat (match_id, user_id, nick, text, kind, created_at) VALUES (?,?,?,?,?,?)')
-      .run(matchId, userId, nick, text, kind, createdAt);
-    return { id: Number(info.lastInsertRowid), matchId, userId, nick, text, kind, createdAt };
+      .prepare('INSERT INTO chat (match_id, user_id, nick, text, kind, created_at, team) VALUES (?,?,?,?,?,?,?)')
+      .run(matchId, userId, nick, text, kind, createdAt, team ? JSON.stringify(team) : null);
+    return { id: Number(info.lastInsertRowid), matchId, userId, nick, text, kind, createdAt, team };
   }
 
   chatHistory(matchId: string, limit = 60): ChatMessage[] {
     return (
       this.db
-        .prepare('SELECT id, match_id, user_id, nick, text, kind, created_at FROM chat WHERE match_id = ? ORDER BY id DESC LIMIT ?')
+        .prepare('SELECT id, match_id, user_id, nick, text, kind, created_at, team FROM chat WHERE match_id = ? ORDER BY id DESC LIMIT ?')
         .all(matchId, limit) as any[]
     )
       .reverse()
-      .map((r) => ({ id: r.id, matchId: r.match_id, userId: r.user_id, nick: r.nick, text: r.text, kind: r.kind, createdAt: r.created_at }));
+      .map((r) => ({ id: r.id, matchId: r.match_id, userId: r.user_id, nick: r.nick, text: r.text, kind: r.kind, createdAt: r.created_at, team: r.team ? JSON.parse(r.team) : null }));
   }
 
   // ------------------------------------------------------------------ puanlar
@@ -231,7 +378,7 @@ export class FanStore {
       subs[r.side as Side].push({ id: r.id, outId: r.out_id, outName: r.out_name, inId: r.in_id, inName: r.in_name, nick: r.nick, votes: r.votes });
     }
 
-    return { ratings, polls, tactics, subs };
+    return { ratings, polls, tactics, subs, predictions: this.predictionStats(matchId) };
   }
 
   /** Kullanıcının bu maçtaki kendi oyları (arayüzde seçili göstermek için). */
@@ -257,6 +404,19 @@ export class FanStore {
         .prepare('SELECT v.request_id FROM sub_votes v JOIN sub_requests s ON s.id = v.request_id WHERE s.match_id = ? AND v.user_id = ?')
         .all(matchId, userId) as any[]
     ).map((r) => r.request_id);
-    return { ratings, polls, tactics, tacticLikes, subVotes };
+    const pr = this.db
+      .prepare('SELECT home, away, xi_side, xi, points, exact, result_ok, xi_hits FROM predictions WHERE match_id = ? AND user_id = ?')
+      .get(matchId, userId) as any;
+    const prediction = pr
+      ? {
+          home: pr.home, away: pr.away, xiSide: pr.xi_side ?? null, xi: pr.xi ? JSON.parse(pr.xi) : [],
+          points: pr.points, exact: Boolean(pr.exact), resultOk: Boolean(pr.result_ok), xiHits: pr.xi_hits ?? 0,
+        }
+      : null;
+    return { ratings, polls, tactics, tacticLikes, subVotes, prediction };
   }
+}
+
+function rowTeam(r: any): TeamBadge {
+  return { id: r.id, name: r.name, short: r.short, ...(r.logo ? { logo: r.logo } : {}), ...(r.color ? { color: r.color } : {}) };
 }
