@@ -1,5 +1,5 @@
 import { app, editNick } from './app.js';
-import { h, mount, crest, statusPill, minuteText, ratingPill, timeText, toast, openSheet, colorFor, POS_TR, kickoffText, roundText, dayText, teamBadge, icon, matchHref } from './util.js';
+import { h, mount, crest, statusPill, minuteText, ratingPill, timeText, toast, openSheet, colorFor, POS_TR, kickoffText, roundText, dayText, teamBadge, icon, matchHref, face, playerPhoto } from './util.js';
 import { openShare } from './share.js';
 import { openDm } from './dm.js';
 
@@ -523,7 +523,13 @@ export function renderMatch(root, matchId) {
           h(
             'button.pp',
             { class: mk.red ? 'out' : mk.in != null ? 'sub-in' : '', style: { left: `${x}%`, top: `${y}%` }, onclick: () => openPlayer(p, side), 'aria-label': `${p.name} puanla` },
-            h('span.shirt', { '--c': color }, p.number ?? '', h('span.marks', {}, markIcons(mk))),
+            h(
+              'span.shirt',
+              { '--c': color, class: playerPhoto(p) ? 'has-face' : '' },
+              face(p),
+              h('span.no', {}, p.number ?? ''),
+              h('span.marks', {}, markIcons(mk)),
+            ),
             h('span.pname', {}, shortName(p.name)),
             h('span.rt', {}, p.stats?.rating != null ? h('span', {}, p.stats.rating.toFixed(1)) : null, fan ? h('span.fan', {}, `★${fan.avg.toFixed(1)}`) : null),
           ),
@@ -540,6 +546,7 @@ export function renderMatch(root, matchId) {
       'li',
       { style: { cursor: 'pointer' }, onclick: () => openPlayer(p, side), tabindex: 0, onkeydown: (e) => e.key === 'Enter' && openPlayer(p, side) },
       h('span.num', {}, p.number ?? ''),
+      h('span.pface', { class: playerPhoto(p) ? 'has-face' : '' }, face(p)),
       h('span.pn', {}, p.name, ' ', markIcons(mk), h('small', {}, [POS_TR[p.pos] ?? '', mk.in ? `${mk.in}' oyuna girdi` : ''].filter(Boolean).join(' · '))),
       p.stats?.rating != null ? ratingPill(p.stats.rating) : null,
       fan ? ratingPill(fan.avg, 'fan') : null,
@@ -944,7 +951,7 @@ export function renderMatch(root, matchId) {
         h(
           'div.sheet-head',
           {},
-          h('span.crest', { '--c': m[side].color || colorFor(m[side].name) }, fresh.number ?? ''),
+          h('span.crest.pcrest', { '--c': m[side].color || colorFor(m[side].name), class: playerPhoto(fresh) ? 'has-face' : '' }, face(fresh), h('span.no', {}, fresh.number ?? '')),
           h('div', {}, h('h2', {}, fresh.name), h('div.muted.small', {}, `${m[side].name} · ${POS_TR[fresh.pos] ?? ''}`)),
           h('button.x', { onclick: close, 'aria-label': 'Kapat' }, '✕'),
         ),

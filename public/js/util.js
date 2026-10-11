@@ -125,6 +125,26 @@ export function teamBadge(team) {
   return h('span.tbadge.dot', { '--c': team.color || colorFor(team.name), title: team.name });
 }
 
+/** Oyuncu fotoğrafı (API-Football görsel sunucusu, kotadan yemez). Demo oyuncularında yok. */
+export function playerPhoto(p) {
+  return /^\d+$/.test(p?.id ?? '') ? `https://media.api-sports.io/football/players/${p.id}.png` : null;
+}
+
+/** Fotoğraf yüklenemezse kendini kaldıran <img>; üst öğeden has-face sınıfı da düşer */
+export function face(p) {
+  const src = playerPhoto(p);
+  if (!src) return null;
+  return h('img.face', {
+    src,
+    alt: '',
+    loading: 'lazy',
+    onerror: (e) => {
+      e.target.parentElement?.classList.remove('has-face');
+      e.target.remove();
+    },
+  });
+}
+
 /** API-Football armasının aynı kökenden adresi (tuvale çizilebilsin diye) */
 export function crestUrl(logo) {
   const m = /media\.api-sports\.io\/football\/(teams|leagues)\/(\d+)\.png$/.exec(logo || '');
