@@ -58,7 +58,7 @@ await call(a, 'poll:vote', { pollId: poll.id, option: 0 });
 const pollState = waitFor(b, 'fan:state', (f) => f.polls[0].total === 2);
 await call(b, 'poll:vote', { pollId: poll.id, option: 2 });
 ok((await pollState).polls[0].options[2].votes === 1, 'anket oyları toplandı');
-ok((await call(a, 'poll:create', { question: 'İlk değişikliği kim yapar?', options: ['Ev sahibi', 'Deplasman'] })).ok, 'kullanıcı anketi oluşturuldu');
+ok(ja.fan.polls.length === 2, 'yalnızca iki anket var (kazanan, hakem)');
 
 // taktik
 await call(a, 'tactic:submit', { side: 'home', formation: '4-4-2', style: 'Hücum', note: 'Kanatlar kullanılmalı' });

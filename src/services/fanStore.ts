@@ -95,6 +95,9 @@ export class FanStore {
     const cols = new Set((this.db.prepare('PRAGMA table_info(chat)').all() as any[]).map((c) => c.name));
     if (!cols.has('team')) this.db.exec('ALTER TABLE chat ADD COLUMN team TEXT');
     if (!cols.has('minute')) this.db.exec('ALTER TABLE chat ADD COLUMN minute TEXT');
+    // yalnızca "Maçı kim kazanır?" ve "Hakem yönetimi" anketleri kalır: kaldırılan gol anketi ve kullanıcı anketlerini sil
+    const dropped = "SELECT id FROM polls WHERE kind = 'user' OR auto_key NOT IN ('winner', 'referee')";
+    this.db.exec(`DELETE FROM poll_votes WHERE poll_id IN (${dropped}); DELETE FROM polls WHERE id IN (${dropped});`);
   }
 
   // ------------------------------------------------------------------ takımlar ve profil
@@ -242,24 +245,12 @@ export class FanStore {
   ensureAutoPolls(match: Match) {
     const auto: [string, string, string[]][] = [
       ['winner', 'Maçı kim kazanır?', [match.home.name, 'Beraberlik', match.away.name]],
-      ['goals', 'Maçta toplam kaç gol olur?', ['0-1', '2-3', '4-5', '6+']],
       ['referee', 'Hakem yönetimini nasıl buluyorsun?', ['Çok iyi', 'İdare eder', 'Kötü', 'Felaket']],
     ];
     const stmt = this.db.prepare(
       'INSERT OR IGNORE INTO polls (match_id, question, options, kind, auto_key, created_at) VALUES (?,?,?,?,?,?)',
     );
     for (const [key, q, opts] of auto) stmt.run(match.id, q, JSON.stringify(opts), 'auto', key, Date.now());
-  }
-
-  createPoll(matchId: string, userId: string, nick: string, question: string, options: string[]) {
-    const info = this.db
-      .prepare('INSERT INTO polls (match_id, question, options, kind, created_by, nick, created_at) VALUES (?,?,?,?,?,?,?)')
-      .run(matchId, question, JSON.stringify(options), 'user', userId, nick, Date.now());
-    return Number(info.lastInsertRowid);
-  }
-
-  userPollCount(matchId: string, userId: string): number {
-    return (this.db.prepare("SELECT COUNT(*) c FROM polls WHERE match_id = ? AND created_by = ?").get(matchId, userId) as any).c;
   }
 
   poll(pollId: number): { id: number; matchId: string; options: string[] } | null {

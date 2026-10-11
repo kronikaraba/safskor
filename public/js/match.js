@@ -814,47 +814,11 @@ export function renderMatch(root, matchId) {
   function Polls() {
     const el = h('div.stack');
     const list = h('div.card');
-    const create = h('div.card');
-    const draft = { q: '', opts: ['', ''] };
-    const drawCreate = () => {
-      const q = h('input.input', { maxlength: 120, placeholder: 'Örn: İlk golü kim atar?', value: draft.q, oninput: (e) => (draft.q = e.target.value) });
-      mount(
-        create,
-        h('h3', {}, 'Anket oluştur', h('span.muted', {}, 'maç başına en fazla 3')),
-        h(
-          'form.form',
-          {
-            onsubmit: async (e) => {
-              e.preventDefault();
-              const r = await send('poll:create', { question: draft.q, options: draft.opts });
-              if (r?.ok) {
-                draft.q = '';
-                draft.opts = ['', ''];
-                drawCreate();
-                toast('Anketin yayında');
-              }
-            },
-          },
-          h('label', {}, 'Soru', q),
-          draft.opts.map((v, i) =>
-            h('label', {}, `Seçenek ${i + 1}`, h('input.input', { maxlength: 40, value: v, required: true, oninput: (e) => (draft.opts[i] = e.target.value) })),
-          ),
-          h(
-            'div.pick',
-            {},
-            draft.opts.length < 4 && h('button.btn.ghost.sm', { type: 'button', onclick: () => (draft.opts.push(''), drawCreate()) }, '+ Seçenek'),
-            draft.opts.length > 2 && h('button.btn.ghost.sm', { type: 'button', onclick: () => (draft.opts.pop(), drawCreate()) }, '− Seçenek'),
-            h('button.btn.sm', { type: 'submit', style: { marginLeft: 'auto' } }, 'Yayınla'),
-          ),
-        ),
-      );
-    };
     const drawList = () => {
       const polls = s.fan?.polls ?? [];
       mount(list, h('h3', {}, 'Anketler', h('span.muted', {}, 'Oy verdikten sonra fikrini değiştirebilirsin')), polls.map((p) => pollCard(p)));
     };
-    mount(el, list, create);
-    drawCreate();
+    mount(el, list);
     return { el, update: drawList };
   }
 

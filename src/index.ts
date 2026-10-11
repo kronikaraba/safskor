@@ -345,20 +345,6 @@ io.on('connection', (socket: Socket) => {
     a({ ok: true });
   });
 
-  socket.on('poll:create', async (p, ack) => {
-    const a = safeAck(ack);
-    const m = await context(a);
-    if (!m) return;
-    const question = clean(p?.question, 120);
-    const options = (Array.isArray(p?.options) ? p.options : []).map((o: unknown) => clean(o, 40)).filter(Boolean);
-    if (question.length < 5) return a({ ok: false, error: 'Soru en az 5 karakter olmalı.' });
-    if (options.length < 2 || options.length > 4) return a({ ok: false, error: '2 ile 4 arasında seçenek gir.' });
-    if (new Set(options.map((o: string) => o.toLocaleLowerCase('tr'))).size !== options.length) return a({ ok: false, error: 'Seçenekler farklı olmalı.' });
-    if (store.userPollCount(m.id, data.userId) >= 3) return a({ ok: false, error: 'Bir maçta en fazla 3 anket açabilirsin.' });
-    store.createPoll(m.id, data.userId, data.nick, question, options);
-    broadcastFan(m.id);
-    a({ ok: true });
-  });
 
   // --- taktik önerisi
   socket.on('tactic:submit', async (p, ack) => {
