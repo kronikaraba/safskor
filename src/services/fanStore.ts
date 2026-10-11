@@ -1,4 +1,5 @@
 import Database from 'better-sqlite3';
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import type { Match, Side } from '../types.js';
@@ -20,7 +21,8 @@ export interface Comment {
   id: number;
   matchId: string;
   target: string;
-  userId: string;
+  /** Yazarın herkese açık kimliği (gerçek tarayıcı kimliği asla istemcilere gönderilmez) */
+  uid: string;
   nick: string;
   team: TeamBadge | null;
   text: string;
@@ -31,14 +33,32 @@ export interface Comment {
 export interface ChatMessage {
   id: number;
   matchId: string;
-  userId: string | null;
+  /** Yazarın herkese açık kimliği; sistem mesajında null */
+  uid: string | null;
   nick: string;
   text: string;
   kind: 'user' | 'system';
   createdAt: number;
+  likes: number;
   team?: TeamBadge | null;
   /** Mesaj yazıldığında maçın dakikası ("23'", "45+2'", "İY", "MS", "Maç öncesi") */
   minute?: string | null;
+}
+
+/** Herkese görünen kullanıcı bilgisi (özel mesajlar için) */
+export interface PublicUser {
+  uid: string;
+  nick: string;
+  team: TeamBadge | null;
+}
+
+export interface DirectMessage {
+  id: number;
+  /** gönderen ve alıcının herkese açık kimlikleri */
+  from: string;
+  to: string;
+  text: string;
+  createdAt: number;
 }
 
 export interface PredictionInput {
@@ -63,6 +83,8 @@ export function weekEnd(key: string): number {
 
 export class FanStore {
   private db: Database.Database;
+  private secret: string;
+  private pubCache = new Map<string, string>();
 
   constructor(file: string) {
     if (file !== ':memory:') fs.mkdirSync(path.dirname(path.resolve(file)), { recursive: true });
@@ -107,7 +129,21 @@ export class FanStore {
         points INTEGER, exact INTEGER, result_ok INTEGER, xi_hits INTEGER, scored_at INTEGER,
         updated_at INTEGER NOT NULL, PRIMARY KEY (match_id, user_id));
       CREATE INDEX IF NOT EXISTS predictions_week ON predictions(week, user_id);
+      CREATE TABLE IF NOT EXISTS chat_likes (chat_id INTEGER NOT NULL, user_id TEXT NOT NULL, PRIMARY KEY (chat_id, user_id));
+      CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS users (
+        user_id TEXT PRIMARY KEY, pub_id TEXT NOT NULL UNIQUE, nick TEXT NOT NULL, team_id TEXT, seen_at INTEGER NOT NULL);
+      CREATE TABLE IF NOT EXISTS dms (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, from_id TEXT NOT NULL, to_id TEXT NOT NULL, text TEXT NOT NULL,
+        created_at INTEGER NOT NULL, read INTEGER NOT NULL DEFAULT 0);
+      CREATE INDEX IF NOT EXISTS dms_pair ON dms(from_id, to_id, id);
+      CREATE INDEX IF NOT EXISTS dms_unread ON dms(to_id, read);
+      CREATE TABLE IF NOT EXISTS dm_blocks (user_id TEXT NOT NULL, blocked_id TEXT NOT NULL, PRIMARY KEY (user_id, blocked_id));
     `);
+    // herkese açık kimlikleri türetmek için sunucuya özel gizli anahtar (yeniden başlatmada değişmesin diye veritabanında)
+    const saved = this.db.prepare("SELECT value FROM meta WHERE key = 'id_secret'").get() as any;
+    this.secret = process.env.ID_SECRET || saved?.value || crypto.randomBytes(32).toString('hex');
+    if (!process.env.ID_SECRET && !saved) this.db.prepare("INSERT INTO meta (key, value) VALUES ('id_secret', ?)").run(this.secret);
     // eski veritabanlarına yeni sütunlar
     const cols = new Set((this.db.prepare('PRAGMA table_info(chat)').all() as any[]).map((c) => c.name));
     if (!cols.has('team')) this.db.exec('ALTER TABLE chat ADD COLUMN team TEXT');
@@ -115,6 +151,22 @@ export class FanStore {
     // yalnızca "Maçı kim kazanır?" ve "Hakem yönetimi" anketleri kalır: kaldırılan gol anketi ve kullanıcı anketlerini sil
     const dropped = "SELECT id FROM polls WHERE kind = 'user' OR auto_key NOT IN ('winner', 'referee')";
     this.db.exec(`DELETE FROM poll_votes WHERE poll_id IN (${dropped}); DELETE FROM polls WHERE id IN (${dropped});`);
+  }
+
+  // ------------------------------------------------------------------ herkese açık kimlik
+
+  /**
+   * Tarayıcı kimliği bir parola gibidir (bilen herkes o kullanıcı olarak bağlanabilir), bu yüzden istemcilere
+   * hiçbir zaman gönderilmez. Bunun yerine ondan türetilen, geri çevrilemeyen kısa bir kimlik kullanılır.
+   */
+  pubId(userId: string): string {
+    let id = this.pubCache.get(userId);
+    if (!id) {
+      id = 'u' + crypto.createHmac('sha256', this.secret).update(userId).digest('base64url').slice(0, 15);
+      if (this.pubCache.size > 50_000) this.pubCache.clear();
+      this.pubCache.set(userId, id);
+    }
+    return id;
   }
 
   // ------------------------------------------------------------------ takımlar ve profil
@@ -233,17 +285,44 @@ export class FanStore {
     const info = this.db
       .prepare('INSERT INTO chat (match_id, user_id, nick, text, kind, created_at, team, minute) VALUES (?,?,?,?,?,?,?,?)')
       .run(matchId, userId, nick, text, kind, createdAt, team ? JSON.stringify(team) : null, minute);
-    return { id: Number(info.lastInsertRowid), matchId, userId, nick, text, kind, createdAt, team, minute };
+    return { id: Number(info.lastInsertRowid), matchId, uid: userId ? this.pubId(userId) : null, nick, text, kind, createdAt, likes: 0, team, minute };
   }
 
   chatHistory(matchId: string, limit = 60): ChatMessage[] {
     return (
       this.db
-        .prepare('SELECT id, match_id, user_id, nick, text, kind, created_at, team, minute FROM chat WHERE match_id = ? ORDER BY id DESC LIMIT ?')
+        .prepare(
+          `SELECT c.id, c.match_id, c.user_id, c.nick, c.text, c.kind, c.created_at, c.team, c.minute,
+             (SELECT COUNT(*) FROM chat_likes l WHERE l.chat_id = c.id) likes
+           FROM chat c WHERE c.match_id = ? ORDER BY c.id DESC LIMIT ?`,
+        )
         .all(matchId, limit) as any[]
     )
       .reverse()
-      .map((r) => ({ id: r.id, matchId: r.match_id, userId: r.user_id, nick: r.nick, text: r.text, kind: r.kind, createdAt: r.created_at, team: r.team ? JSON.parse(r.team) : null, minute: r.minute ?? null }));
+      .map((r) => ({
+        id: r.id, matchId: r.match_id, uid: r.user_id ? this.pubId(r.user_id) : null, nick: r.nick, text: r.text, kind: r.kind,
+        createdAt: r.created_at, likes: r.likes, team: r.team ? JSON.parse(r.team) : null, minute: r.minute ?? null,
+      }));
+  }
+
+  chatMessage(id: number): { matchId: string; userId: string | null; kind: string } | null {
+    const r = this.db.prepare('SELECT match_id, user_id, kind FROM chat WHERE id = ?').get(id) as any;
+    return r ? { matchId: r.match_id, userId: r.user_id, kind: r.kind } : null;
+  }
+
+  /** Beğeniyi açıp kapatır; yeni durum ve toplam beğeni sayısı döner */
+  toggleChatLike(chatId: number, userId: string): { liked: boolean; likes: number } {
+    const del = this.db.prepare('DELETE FROM chat_likes WHERE chat_id = ? AND user_id = ?').run(chatId, userId);
+    if (!del.changes) this.db.prepare('INSERT INTO chat_likes (chat_id, user_id) VALUES (?,?)').run(chatId, userId);
+    const { c } = this.db.prepare('SELECT COUNT(*) c FROM chat_likes WHERE chat_id = ?').get(chatId) as any;
+    return { liked: !del.changes, likes: c };
+  }
+
+  /** Kullanıcının bu maçın sohbetinde beğendiği mesajlar */
+  chatLiked(matchId: string, userId: string): number[] {
+    return (
+      this.db.prepare('SELECT l.chat_id FROM chat_likes l JOIN chat c ON c.id = l.chat_id WHERE c.match_id = ? AND l.user_id = ?').all(matchId, userId) as any[]
+    ).map((r) => r.chat_id);
   }
 
   // ------------------------------------------------------------------ olay ve oyuncu yorumları
@@ -253,7 +332,7 @@ export class FanStore {
     const info = this.db
       .prepare('INSERT INTO comments (match_id, target, user_id, nick, team, text, minute, created_at) VALUES (?,?,?,?,?,?,?,?)')
       .run(matchId, target, userId, nick, team ? JSON.stringify(team) : null, text, minute, createdAt);
-    return { id: Number(info.lastInsertRowid), matchId, target, userId, nick, team, text, minute, createdAt };
+    return { id: Number(info.lastInsertRowid), matchId, target, uid: this.pubId(userId), nick, team, text, minute, createdAt };
   }
 
   comments(matchId: string, target: string, limit = 100): Comment[] {
@@ -263,7 +342,81 @@ export class FanStore {
         .all(matchId, target, limit) as any[]
     )
       .reverse()
-      .map((r) => ({ id: r.id, matchId: r.match_id, target: r.target, userId: r.user_id, nick: r.nick, team: r.team ? JSON.parse(r.team) : null, text: r.text, minute: r.minute ?? null, createdAt: r.created_at }));
+      .map((r) => ({ id: r.id, matchId: r.match_id, target: r.target, uid: this.pubId(r.user_id), nick: r.nick, team: r.team ? JSON.parse(r.team) : null, text: r.text, minute: r.minute ?? null, createdAt: r.created_at }));
+  }
+
+  // ------------------------------------------------------------------ özel mesajlar
+
+  /** Bağlanan kullanıcıyı herkese açık kimliğiyle kaydeder (mesaj alabilmesi için) */
+  touchUser(userId: string, nick: string, teamId: string | null) {
+    this.db
+      .prepare(
+        `INSERT INTO users (user_id, pub_id, nick, team_id, seen_at) VALUES (?,?,?,?,?)
+         ON CONFLICT(user_id) DO UPDATE SET pub_id = excluded.pub_id, nick = excluded.nick, team_id = excluded.team_id, seen_at = excluded.seen_at`,
+      )
+      .run(userId, this.pubId(userId), nick, teamId, Date.now());
+  }
+
+  /** Herkese açık kimlikten kullanıcıyı bulur */
+  userByPub(uid: string): (PublicUser & { userId: string }) | null {
+    const r = this.db.prepare('SELECT user_id, nick, team_id FROM users WHERE pub_id = ?').get(uid) as any;
+    return r ? { uid, userId: r.user_id, nick: r.nick, team: r.team_id ? this.team(r.team_id) : null } : null;
+  }
+
+  private publicUser(userId: string): PublicUser {
+    const uid = this.pubId(userId);
+    const u = this.userByPub(uid);
+    return { uid, nick: u?.nick ?? 'Taraftar', team: u?.team ?? null };
+  }
+
+  private dmRow = (r: any): DirectMessage => ({ id: r.id, from: this.pubId(r.from_id), to: this.pubId(r.to_id), text: r.text, createdAt: r.created_at });
+
+  addDm(fromId: string, toId: string, text: string): DirectMessage {
+    const createdAt = Date.now();
+    const info = this.db.prepare('INSERT INTO dms (from_id, to_id, text, created_at) VALUES (?,?,?,?)').run(fromId, toId, text, createdAt);
+    return { id: Number(info.lastInsertRowid), from: this.pubId(fromId), to: this.pubId(toId), text, createdAt };
+  }
+
+  /** İki kullanıcı arasındaki son mesajlar (eskiden yeniye) */
+  dmHistory(me: string, other: string, limit = 100): DirectMessage[] {
+    return (
+      this.db
+        .prepare('SELECT * FROM dms WHERE (from_id = ? AND to_id = ?) OR (from_id = ? AND to_id = ?) ORDER BY id DESC LIMIT ?')
+        .all(me, other, other, me, limit) as any[]
+    )
+      .reverse()
+      .map(this.dmRow);
+  }
+
+  markDmRead(me: string, other: string) {
+    this.db.prepare('UPDATE dms SET read = 1 WHERE to_id = ? AND from_id = ? AND read = 0').run(me, other);
+  }
+
+  dmUnread(me: string): number {
+    return (this.db.prepare('SELECT COUNT(*) c FROM dms WHERE to_id = ? AND read = 0').get(me) as any).c;
+  }
+
+  /** Konuşma listesi: her kişiyle son mesaj ve okunmamış sayısı, en yeni üstte */
+  dmThreads(me: string, limit = 50) {
+    const rows = this.db
+      .prepare(
+        `SELECT CASE WHEN from_id = ? THEN to_id ELSE from_id END other, MAX(id) last_id,
+           SUM(CASE WHEN to_id = ? AND read = 0 THEN 1 ELSE 0 END) unread
+         FROM dms WHERE from_id = ? OR to_id = ? GROUP BY other ORDER BY last_id DESC LIMIT ?`,
+      )
+      .all(me, me, me, me, limit) as any[];
+    const last = this.db.prepare('SELECT * FROM dms WHERE id = ?');
+    return rows.map((r) => ({ ...this.publicUser(r.other), unread: r.unread, last: this.dmRow(last.get(r.last_id)) }));
+  }
+
+  setDmBlock(me: string, other: string, on: boolean) {
+    if (on) this.db.prepare('INSERT OR IGNORE INTO dm_blocks (user_id, blocked_id) VALUES (?,?)').run(me, other);
+    else this.db.prepare('DELETE FROM dm_blocks WHERE user_id = ? AND blocked_id = ?').run(me, other);
+  }
+
+  /** me, other'ı engellemiş mi */
+  dmBlocked(me: string, other: string): boolean {
+    return !!this.db.prepare('SELECT 1 FROM dm_blocks WHERE user_id = ? AND blocked_id = ?').get(me, other);
   }
 
   // ------------------------------------------------------------------ puanlar

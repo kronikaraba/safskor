@@ -42,6 +42,50 @@ const got = waitFor(b, 'chat:message', (x) => x.text === 'Selam millet!');
 ok((await call(a, 'chat:send', { text: 'Selam millet!' })).ok, 'sohbet mesajı gönderildi');
 ok((await got).nick === 'Ali', 'diğer kullanıcı mesajı gerçek zamanlı aldı');
 ok(!(await call(a, 'chat:send', { text: '   ' })).ok, 'boş mesaj reddedildi');
+const selam = await got;
+ok(selam.uid && !('userId' in selam) && !JSON.stringify(selam).includes('smoke-user-aaaa'), 'mesajda gizli tarayıcı kimliği yok, herkese açık kimlik var');
+
+// sohbet mesajı beğenme ve özel mesaj: hız sınırına takılmamak için ayrı iki kullanıcıyla
+const c = await connect('smoke-user-cccc', 'Can');
+const d = await connect('smoke-user-dddd', 'Deniz');
+ok((await call(c, 'match:join', { matchId: live.id })).ok && (await call(d, 'match:join', { matchId: live.id })).ok, 'iki kullanıcı daha odaya katıldı');
+const likeSeen = waitFor(a, 'chat:likes', (x) => x.id === selam.id && x.likes === 1);
+const lk = await call(d, 'chat:like', { id: selam.id });
+ok(lk.ok && lk.liked && lk.likes === 1, 'mesaj beğenildi');
+ok(await likeSeen, 'beğeni sayısı odaya anında yayıldı');
+ok(!(await call(a, 'chat:like', { id: selam.id })).ok, 'kendi mesajını beğenme reddedildi');
+const rejoinD = await call(d, 'match:join', { matchId: live.id });
+ok(rejoinD.chatLiked.includes(selam.id) && rejoinD.chat.find((x) => x.id === selam.id)?.likes === 1, 'beğeni kalıcı, kullanıcı kendi beğenisini görüyor');
+const unlk = await call(d, 'chat:like', { id: selam.id });
+ok(unlk.ok && !unlk.liked && unlk.likes === 0, 'beğeni geri alındı');
+
+const gotC = waitFor(d, 'chat:message', (x) => x.text === 'Ben Can');
+const gotD = waitFor(c, 'chat:message', (x) => x.text === 'Ben Deniz');
+await call(c, 'chat:send', { text: 'Ben Can' });
+await call(d, 'chat:send', { text: 'Ben Deniz' });
+const uidC = (await gotC).uid;
+const uidD = (await gotD).uid;
+const dmSeen = waitFor(d, 'dm:new', (x) => x.message.text === 'Selam, maç nasıl?');
+const unreadD = waitFor(d, 'dm:unread', (x) => x.count === 1);
+const dm = await call(c, 'dm:send', { to: uidD, text: 'Selam, maç nasıl?' });
+ok(dm.ok && dm.message.from === uidC && dm.message.to === uidD, 'özel mesaj gönderildi');
+const dmGot = await dmSeen;
+ok(dmGot.peer.nick === 'Can' && dmGot.peer.uid === uidC, 'alıcı özel mesajı anında aldı');
+ok(await unreadD, 'alıcının okunmamış sayısı 1');
+const th = await call(d, 'dm:threads', {});
+ok(th.ok && th.threads.length === 1 && th.threads[0].nick === 'Can' && th.threads[0].unread === 1, 'konuşma listesi okunmamışla geldi');
+const readNow = waitFor(d, 'dm:unread', (x) => x.count === 0);
+const hist = await call(d, 'dm:history', { with: uidC });
+ok(hist.ok && hist.messages.length === 1 && hist.peer.nick === 'Can', 'konuşma geçmişi açıldı');
+ok(await readNow, 'açılınca okundu sayıldı');
+ok(!(await call(c, 'dm:send', { to: uidC, text: 'x' })).ok, 'kendine mesaj reddedildi');
+ok(!(await call(c, 'dm:send', { to: 'uyokboylebirkimlik', text: 'x' })).ok, 'olmayan kullanıcıya mesaj reddedildi');
+ok((await call(d, 'dm:block', { uid: uidC, block: true })).blocked, 'kullanıcı engellendi');
+ok(!(await call(c, 'dm:send', { to: uidD, text: 'Engelli mesaj' })).ok, 'engelleyen kullanıcıya mesaj gitmedi');
+await call(d, 'dm:block', { uid: uidC, block: false });
+ok((await call(c, 'dm:send', { to: uidD, text: 'Tekrar selam' })).ok, 'engel kalkınca mesaj gitti');
+c.close();
+d.close();
 
 // puanlama
 const p = m.lineups.home.startXI[9];
@@ -102,6 +146,7 @@ ok(await withCounts, 'yorum sayıları taraftar durumunda');
 
 const mine = await (await fetch(`${BASE}/api/matches/${live.id}/fan`)).json();
 ok(mine.chat.some((c) => c.text === 'Selam millet!'), 'sohbet geçmişi kalıcı (REST)');
+ok(!JSON.stringify(mine).includes('smoke-user-'), 'REST yanıtında gizli tarayıcı kimliği yok');
 
 a.close();
 b.close();

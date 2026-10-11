@@ -3,6 +3,7 @@ import { h, mount, storage, openSheet, closeSheet, toast, teamBadge } from './ut
 import { renderLobby } from './lobby.js';
 import { renderMatch } from './match.js';
 import { renderLeaderboard } from './leaderboard.js';
+import { initDm } from './dm.js';
 
 // ------------------------------------------------------------------ kimlik
 // Hesap sistemi yok (MVP): tarayıcıya özel anonim kimlik + takma ad.
@@ -13,6 +14,7 @@ const me = {
   userId: storage.get('safskor.userId') || uid(),
   nick: storage.get('safskor.nick') || `Taraftar${Math.floor(1000 + Math.random() * 9000)}`,
   team: storage.get('safskor.team', null),
+  uid: null, // sunucunun verdiği herkese açık kimlik (sohbette "Sen" ayrımı ve özel mesajlar için)
 };
 storage.set('safskor.userId', me.userId);
 storage.set('safskor.nick', me.nick);
@@ -97,6 +99,10 @@ app.socket.on('disconnect', () => {
   conn.title = 'Bağlantı koptu, yeniden deneniyor…';
 });
 app.socket.on('profile', (p) => {
+  if (p?.uid && p.uid !== me.uid) {
+    me.uid = p.uid;
+    app.onProfile?.();
+  }
   const team = p?.team ?? null;
   if (JSON.stringify(team) === JSON.stringify(me.team)) return;
   me.team = team;
@@ -148,6 +154,7 @@ function route() {
 }
 
 window.addEventListener('hashchange', route);
+initDm(document.getElementById('dmBtn'));
 if (!app.socket.connected) route();
 
 export { mount, h };

@@ -141,7 +141,8 @@ export function toast(text, kind = '') {
   const box = document.getElementById('toasts');
   const el = h('div.toast', { class: kind }, text);
   box.append(el);
-  setTimeout(() => el.remove(), kind === 'goal' ? 6000 : 3500);
+  setTimeout(() => el.remove(), kind === 'goal' || kind === 'dm' ? 6000 : 3500);
+  return el;
 }
 
 let sheetClose = null;

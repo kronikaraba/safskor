@@ -1,6 +1,7 @@
 import { app, editNick } from './app.js';
 import { h, mount, crest, statusPill, minuteText, ratingPill, timeText, toast, openSheet, colorFor, POS_TR, kickoffText, roundText, dayText, teamBadge, icon } from './util.js';
 import { openShare } from './share.js';
+import { openDm } from './dm.js';
 
 const TABS = [
   ['chat', 'Sohbet'],
@@ -27,6 +28,7 @@ export function renderMatch(root, matchId) {
     mine: null,
     meta: { formations: [], styles: [] },
     chat: [],
+    chatLiked: new Set(), // bu kullanıcının beğendiği sohbet mesajları
     presence: 0,
     // maça her girişte önce sohbet; masaüstünde sohbet sağ sütunda hep açık olduğundan ilk sekme Taraftar
     tab: isNarrow() ? 'chat' : 'fan',
@@ -68,6 +70,7 @@ export function renderMatch(root, matchId) {
       s.mine = r.mine;
       s.meta = r.meta;
       s.chat = r.chat;
+      s.chatLiked = new Set(r.chatLiked ?? []);
       drawBoard();
       drawTabs();
       drawBody();
@@ -103,6 +106,12 @@ export function renderMatch(root, matchId) {
       const items = commentCache.get(c.target);
       if (items && !items.some((x) => x.id === c.id)) items.push(c);
       if (activeBox?.target === c.target) activeBox.drawList();
+    },
+    'chat:likes': ({ matchId: mid, id, likes }) => {
+      if (mid !== matchId) return;
+      const msg = s.chat.find((x) => x.id === id);
+      if (msg) msg.likes = likes;
+      likeEls.get(id)?.();
     },
     'chat:message': (msg) => {
       if (msg.matchId !== matchId) return;
@@ -969,7 +978,7 @@ export function renderMatch(root, matchId) {
     const toBottom = () => (list.scrollTop = list.scrollHeight);
     const drawList = () => {
       const items = commentCache.get(target);
-      mount(list, !items ? h('p.muted.small', {}, 'Yorumlar yükleniyor…') : items.length ? items.map(chatMsg) : h('p.muted.small', {}, 'Henüz yorum yok. İlk yorumu sen yaz!'));
+      mount(list, !items ? h('p.muted.small', {}, 'Yorumlar yükleniyor…') : items.length ? items.map((c) => chatMsg(c)) : h('p.muted.small', {}, 'Henüz yorum yok. İlk yorumu sen yaz!'));
       toBottom();
     };
     const submit = async (e) => {
@@ -1042,7 +1051,8 @@ export function renderMatch(root, matchId) {
       ),
     );
     mount(chatHead, h('b', {}, '💬 Maç odası sohbeti'), h('button.btn.ghost.sm', { onclick: editNick, title: 'Takma adını değiştir' }, app.me.nick));
-    mount(chatList, s.chat.length ? s.chat.map(chatMsg) : h('p.muted.small', { style: { textAlign: 'center' } }, 'Sohbeti ilk sen başlat!'));
+    likeEls.clear();
+    mount(chatList, s.chat.length ? s.chat.map((m) => chatMsg(m, true)) : h('p.muted.small', { style: { textAlign: 'center' } }, 'Sohbeti ilk sen başlat!'));
     scrollChat(true);
     if (typing) chatInput.focus({ preventScroll: true }); // yeniden çizim yazmayı kesmesin
   }
@@ -1051,15 +1061,53 @@ export function renderMatch(root, matchId) {
     const r = await send('chat:send', { text });
     if (r?.ok && text === chatInput.value) chatInput.value = '';
   }
-  function chatMsg(msg) {
+  /** Sohbet mesajı ya da yorum. likeable: sohbet mesajlarında beğeni düğmesi */
+  function chatMsg(msg, likeable = false) {
     if (msg.kind === 'system') return h('div.msg.sys', { class: /GOL|gol/.test(msg.text) ? 'goal' : '' }, h('div.bubble', {}, msg.text));
-    const mine = msg.userId === app.me.userId;
+    const mine = !!msg.uid && msg.uid === app.me.uid;
+    // başkasının adına dokununca ona özel mesaj penceresi açılır
+    const name = mine || !msg.uid
+      ? (mine ? 'Sen' : msg.nick)
+      : h('button.nick-link', { type: 'button', title: `${msg.nick} kişisine özel mesaj gönder`, onclick: () => openDm({ uid: msg.uid, nick: msg.nick, team: msg.team ?? null }) }, msg.nick);
+    const bubble = h('div.bubble', {}, msg.text);
+    const like = likeable ? likeBtn(msg, mine) : null;
+    if (like && !mine) bubble.addEventListener('dblclick', () => like.click()); // çift dokunuşla beğen
     return h(
       'div.msg',
       { class: mine ? 'me' : '' },
-      h('div.who', { '--nc': colorFor(msg.nick) }, teamBadge(msg.team), mine ? 'Sen' : msg.nick, msgTime(msg)),
-      h('div.bubble', {}, msg.text),
+      h('div.who', { '--nc': colorFor(msg.nick) }, teamBadge(msg.team), name, msgTime(msg)),
+      like ? h('div.brow', {}, bubble, like) : bubble,
     );
+  }
+  const likeEls = new Map(); // mesaj id -> beğeni düğmesini yeniden çizen fonksiyon
+  function likeBtn(msg, mine) {
+    const el = h('button.like', { type: 'button', 'aria-label': 'Beğen' });
+    const draw = () => {
+      const on = s.chatLiked.has(msg.id);
+      el.className = `like${on ? ' on' : ''}${msg.likes ? ' has' : ''}${mine ? ' own' : ''}`;
+      el.setAttribute('aria-pressed', String(on));
+      el.title = mine ? `${msg.likes || 0} beğeni` : on ? 'Beğenmekten vazgeç' : 'Beğen';
+      mount(el, heartIcon(), msg.likes ? h('span', {}, msg.likes) : null);
+    };
+    if (mine) el.disabled = true;
+    else
+      el.onclick = async () => {
+        const r = await send('chat:like', { id: msg.id });
+        if (!r?.ok) return;
+        if (r.liked) s.chatLiked.add(msg.id);
+        else s.chatLiked.delete(msg.id);
+        msg.likes = r.likes;
+        draw();
+      };
+    likeEls.set(msg.id, draw);
+    draw();
+    return el;
+  }
+  function heartIcon() {
+    const el = h('span.like-ic', { 'aria-hidden': 'true' });
+    el.innerHTML =
+      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20s-7-4.4-8.6-8.6C2.2 8 4.3 5 7.5 5c1.9 0 3.4 1 4.5 2.6C13.1 6 14.6 5 16.5 5c3.2 0 5.3 3 4.1 6.4C19 15.6 12 20 12 20z"/></svg>';
+    return el;
   }
   // Telefonda sohbet ayrı bir kaydırma kutusu değil, sayfanın kendisi kayar (her yerden sürüklenebilsin)
   const pageScroll = () => isNarrow();
@@ -1092,9 +1140,9 @@ export function renderMatch(root, matchId) {
       ? window.innerHeight + window.scrollY >= el.scrollHeight - 160
       : chatList.scrollHeight - chatList.scrollTop - chatList.clientHeight < 80;
     if (chatList.firstChild?.tagName === 'P') chatList.replaceChildren();
-    chatList.append(chatMsg(msg));
+    chatList.append(chatMsg(msg, true));
     while (chatList.childElementCount > 300) chatList.firstChild.remove();
-    if (nearBottom || msg.userId === app.me.userId) scrollChat();
+    if (nearBottom || (msg.uid && msg.uid === app.me.uid)) scrollChat();
   }
   function scrollChat() {
     requestAnimationFrame(() => {

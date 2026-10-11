@@ -92,6 +92,7 @@ const server = http.createServer(app);
 const io = new Server(server, { serveClient: false, maxHttpBufferSize: 16_000 });
 
 const room = (id: string) => `match:${id}`;
+const userRoom = (userId: string) => `user:${userId}`;
 let lobbyTimer: NodeJS.Timeout | undefined;
 /** Odalardaki taraftar sayısı değişince lobiyi (en fazla saniyede bir) güncelle */
 function lobbyUpdate() {
@@ -197,9 +198,15 @@ io.on('connection', (socket: Socket) => {
   };
   data.team = isUserId(auth.userId) ? restoreTeam(data.userId, auth.teamId) : null;
   socket.data = data;
+  const canDm = isUserId(data.userId);
+  if (canDm) {
+    store.touchUser(data.userId, data.nick, data.team?.id ?? null);
+    socket.join(userRoom(data.userId)); // özel mesajlar kullanıcının açık tüm sekmelerine gider
+  }
   socket.emit('hello', { provider: matches.providerInfo, matches: withViewers() });
-  // tarayıcıdaki favori takım sunucudakiyle eşleşsin (ör. listeden kaldırılmış eski bir takım)
-  socket.emit('profile', { team: data.team });
+  // tarayıcıdaki favori takım sunucudakiyle eşleşsin (ör. listeden kaldırılmış eski bir takım); uid: herkese açık kimlik
+  socket.emit('profile', { team: data.team, uid: store.pubId(data.userId) });
+  if (canDm) socket.emit('dm:unread', { count: store.dmUnread(data.userId) });
 
   type Ack = (r: { ok: boolean; error?: string; [k: string]: unknown }) => void;
   const safeAck = (ack: unknown): Ack => (typeof ack === 'function' ? (ack as Ack) : () => {});
@@ -227,7 +234,10 @@ io.on('connection', (socket: Socket) => {
     }
     data.nick = nick;
     data.team = team;
-    if (isUserId(data.userId)) store.saveProfile(data.userId, nick, team?.id ?? null);
+    if (isUserId(data.userId)) {
+      store.saveProfile(data.userId, nick, team?.id ?? null);
+      store.touchUser(data.userId, nick, team?.id ?? null);
+    }
     a({ ok: true, nick, team });
   });
 
@@ -284,6 +294,7 @@ io.on('connection', (socket: Socket) => {
       fan: store.state(m.id),
       mine: store.mine(m.id, data.userId),
       chat: store.chatHistory(m.id),
+      chatLiked: store.chatLiked(m.id, data.userId),
       meta: { formations: FORMATIONS, styles: STYLES },
     });
     io.to(room(m.id)).emit('presence', { matchId: m.id, count: roomSize(m.id) });
@@ -312,6 +323,84 @@ io.on('connection', (socket: Socket) => {
     const msg = store.addChat(data.matchId, data.userId, data.nick, text, 'user', data.team, matchMinute(data.matchId));
     io.to(room(data.matchId)).emit('chat:message', msg);
     a({ ok: true });
+  });
+
+  // --- sohbet mesajı beğenme (kendi mesajını beğenemezsin)
+  socket.on('chat:like', async (p, ack) => {
+    const a = safeAck(ack);
+    const m = await context(a);
+    if (!m) return;
+    const id = Number(p?.id);
+    const msg = Number.isInteger(id) ? store.chatMessage(id) : null;
+    if (!msg || msg.matchId !== m.id || msg.kind !== 'user') return a({ ok: false, error: 'Mesaj bulunamadı.' });
+    if (msg.userId === data.userId) return a({ ok: false, error: 'Kendi mesajını beğenemezsin.' });
+    const r = store.toggleChatLike(id, data.userId);
+    io.to(room(m.id)).emit('chat:likes', { matchId: m.id, id, likes: r.likes });
+    a({ ok: true, ...r });
+  });
+
+  // --- özel mesajlar (DM)
+  /** Karşı tarafı herkese açık kimliğiyle bulur; DM için ortak kontroller */
+  function dmPeer(a: Ack, uid: unknown) {
+    if (!canDm) return a({ ok: false, error: 'Özel mesaj için tarayıcı kimliği gerekli.' }), null;
+    if (!actionLimit.ok(data.userId)) return a({ ok: false, error: 'Çok hızlı! Biraz yavaşla.' }), null;
+    const peer = typeof uid === 'string' ? store.userByPub(clean(uid, 40)) : null;
+    if (!peer) return a({ ok: false, error: 'Kullanıcı bulunamadı.' }), null;
+    if (peer.userId === data.userId) return a({ ok: false, error: 'Kendine mesaj gönderemezsin.' }), null;
+    return peer;
+  }
+  const publicPeer = (peer: { uid: string; nick: string; team: TeamBadge | null; userId: string }) => ({
+    uid: peer.uid, nick: peer.nick, team: peer.team, blocked: store.dmBlocked(data.userId, peer.userId),
+  });
+
+  socket.on('dm:send', (p, ack) => {
+    const a = safeAck(ack);
+    const peer = dmPeer(a, p?.to);
+    if (!peer) return;
+    const text = clean(p?.text, 500);
+    if (!text) return a({ ok: false, error: 'Boş mesaj gönderilemez.' });
+    if (store.dmBlocked(data.userId, peer.userId)) return a({ ok: false, error: 'Bu kullanıcıyı engelledin. Mesaj göndermek için engeli kaldır.' });
+    if (store.dmBlocked(peer.userId, data.userId)) return a({ ok: false, error: 'Bu kullanıcıya mesaj gönderilemiyor.' });
+    if (!chatLimit.ok(data.userId)) return a({ ok: false, error: 'Çok hızlı yazıyorsun, birkaç saniye bekle.' });
+    const msg = store.addDm(data.userId, peer.userId, text);
+    const sender = { uid: store.pubId(data.userId), nick: data.nick, team: data.team };
+    io.to(userRoom(peer.userId)).emit('dm:new', { message: msg, peer: sender });
+    socket.to(userRoom(data.userId)).emit('dm:new', { message: msg, peer: publicPeer(peer) }); // gönderenin diğer sekmeleri
+    io.to(userRoom(peer.userId)).emit('dm:unread', { count: store.dmUnread(peer.userId) });
+    a({ ok: true, message: msg });
+  });
+
+  socket.on('dm:threads', (_p, ack) => {
+    const a = safeAck(ack);
+    if (!canDm) return a({ ok: true, threads: [] });
+    a({ ok: true, threads: store.dmThreads(data.userId) });
+  });
+
+  /** Bir kişiyle konuşmayı açar ve okundu işaretler */
+  socket.on('dm:history', (p, ack) => {
+    const a = safeAck(ack);
+    const peer = dmPeer(a, p?.with);
+    if (!peer) return;
+    store.markDmRead(data.userId, peer.userId);
+    io.to(userRoom(data.userId)).emit('dm:unread', { count: store.dmUnread(data.userId) });
+    a({ ok: true, peer: publicPeer(peer), messages: store.dmHistory(data.userId, peer.userId) });
+  });
+
+  socket.on('dm:read', (p, ack) => {
+    const a = safeAck(ack);
+    const peer = dmPeer(a, p?.with);
+    if (!peer) return;
+    store.markDmRead(data.userId, peer.userId);
+    io.to(userRoom(data.userId)).emit('dm:unread', { count: store.dmUnread(data.userId) });
+    a({ ok: true });
+  });
+
+  socket.on('dm:block', (p, ack) => {
+    const a = safeAck(ack);
+    const peer = dmPeer(a, p?.uid);
+    if (!peer) return;
+    store.setDmBlock(data.userId, peer.userId, !!p?.block);
+    a({ ok: true, blocked: !!p?.block });
   });
 
   // --- maç olaylarına ve oyunculara yorum
