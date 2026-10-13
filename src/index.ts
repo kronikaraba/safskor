@@ -141,8 +141,14 @@ function lobbyUpdate() {
     io.to('lobby').emit('matches', { provider: matches.providerInfo, matches: withViewers(), clubs: clubsPayload() });
   }, 1000);
 }
+/** Büyük 4'ten biri canlı oynarken odadaki taraftar sayısı bu sayıdan başlar, gerçek girenler üstüne eklenir (Bat'ın isteği) */
+const BIG4_BASE = 35;
+const BIG4_IDS = new Set<string>(BIG4.flat());
 function roomSize(id: string) {
-  return io.sockets.adapter.rooms.get(room(id))?.size ?? 0;
+  const real = io.sockets.adapter.rooms.get(room(id))?.size ?? 0;
+  const m = matches.peek(id);
+  const big4Live = !!m && (m.status === 'LIVE' || m.status === 'HT') && (BIG4_IDS.has(m.home.id) || BIG4_IDS.has(m.away.id));
+  return big4Live ? BIG4_BASE + real : real;
 }
 
 // ------------------------------------------------------------------ yardımcılar
@@ -769,6 +775,7 @@ matches.on('events', (matchId: string, fresh: MatchEvent[], m: Match) => {
 });
 
 matches.on('status', (m: Match) => {
+  io.to(room(m.id)).emit('presence', { matchId: m.id, count: roomSize(m.id) });
   if (m.status === 'FT') scoreMatch(m).catch((e) => console.error('[tahmin] puanlama hatası', e));
   const text =
     m.status === 'LIVE' && m.minute != null && m.minute <= 1 ? '🟢 Maç başladı! İyi seyirler.'
