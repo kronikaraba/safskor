@@ -43,6 +43,14 @@ export interface ChatMessage {
   team?: TeamBadge | null;
   /** Mesaj yazıldığında maçın dakikası ("23'", "45+2'", "İY", "MS", "Maç öncesi") */
   minute?: string | null;
+  /** Yanıtlanan mesajın özeti */
+  reply?: ChatReply | null;
+}
+
+export interface ChatReply {
+  id: number;
+  nick: string;
+  text: string;
 }
 
 /** Herkese görünen kullanıcı bilgisi (özel mesajlar için) */
@@ -155,6 +163,7 @@ export class FanStore {
     const cols = new Set((this.db.prepare('PRAGMA table_info(chat)').all() as any[]).map((c) => c.name));
     if (!cols.has('team')) this.db.exec('ALTER TABLE chat ADD COLUMN team TEXT');
     if (!cols.has('minute')) this.db.exec('ALTER TABLE chat ADD COLUMN minute TEXT');
+    if (!cols.has('reply_to')) this.db.exec('ALTER TABLE chat ADD COLUMN reply_to INTEGER');
     const accCols = new Set((this.db.prepare('PRAGMA table_info(accounts)').all() as any[]).map((c) => c.name));
     if (!accCols.has('lockouts')) this.db.exec('ALTER TABLE accounts ADD COLUMN lockouts INTEGER NOT NULL DEFAULT 0');
     // yalnızca "Maçı kim kazanır?" ve "Hakem yönetimi" anketleri kalır: kaldırılan gol anketi ve kullanıcı anketlerini sil
@@ -289,12 +298,21 @@ export class FanStore {
 
   // ------------------------------------------------------------------ sohbet
 
-  addChat(matchId: string, userId: string | null, nick: string, text: string, kind: 'user' | 'system' = 'user', team: TeamBadge | null = null, minute: string | null = null): ChatMessage {
+  addChat(
+    matchId: string, userId: string | null, nick: string, text: string, kind: 'user' | 'system' = 'user', team: TeamBadge | null = null, minute: string | null = null,
+    reply: ChatReply | null = null,
+  ): ChatMessage {
     const createdAt = Date.now();
     const info = this.db
-      .prepare('INSERT INTO chat (match_id, user_id, nick, text, kind, created_at, team, minute) VALUES (?,?,?,?,?,?,?,?)')
-      .run(matchId, userId, nick, text, kind, createdAt, team ? JSON.stringify(team) : null, minute);
-    return { id: Number(info.lastInsertRowid), matchId, uid: userId ? this.pubId(userId) : null, nick, text, kind, createdAt, likes: 0, team, minute };
+      .prepare('INSERT INTO chat (match_id, user_id, nick, text, kind, created_at, team, minute, reply_to) VALUES (?,?,?,?,?,?,?,?,?)')
+      .run(matchId, userId, nick, text, kind, createdAt, team ? JSON.stringify(team) : null, minute, reply?.id ?? null);
+    return { id: Number(info.lastInsertRowid), matchId, uid: userId ? this.pubId(userId) : null, nick, text, kind, createdAt, likes: 0, team, minute, reply };
+  }
+
+  /** Aynı maçın sohbetindeki bir kullanıcı mesajının yanıt özeti (yoksa null) */
+  chatReply(matchId: string, id: number): ChatReply | null {
+    const r = this.db.prepare("SELECT id, nick, text FROM chat WHERE id = ? AND match_id = ? AND kind = 'user'").get(id, matchId) as any;
+    return r ? { id: r.id, nick: r.nick, text: r.text.slice(0, 120) } : null;
   }
 
   chatHistory(matchId: string, limit = 60): ChatMessage[] {
@@ -302,8 +320,10 @@ export class FanStore {
       this.db
         .prepare(
           `SELECT c.id, c.match_id, c.user_id, c.nick, c.text, c.kind, c.created_at, c.team, c.minute,
-             (SELECT COUNT(*) FROM chat_likes l WHERE l.chat_id = c.id) likes
-           FROM chat c WHERE c.match_id = ? ORDER BY c.id DESC LIMIT ?`,
+             (SELECT COUNT(*) FROM chat_likes l WHERE l.chat_id = c.id) likes,
+             r.id r_id, r.nick r_nick, r.text r_text
+           FROM chat c LEFT JOIN chat r ON r.id = c.reply_to
+           WHERE c.match_id = ? ORDER BY c.id DESC LIMIT ?`,
         )
         .all(matchId, limit) as any[]
     )
@@ -311,6 +331,7 @@ export class FanStore {
       .map((r) => ({
         id: r.id, matchId: r.match_id, uid: r.user_id ? this.pubId(r.user_id) : null, nick: r.nick, text: r.text, kind: r.kind,
         createdAt: r.created_at, likes: r.likes, team: r.team ? JSON.parse(r.team) : null, minute: r.minute ?? null,
+        reply: r.r_id ? { id: r.r_id, nick: r.r_nick, text: String(r.r_text).slice(0, 120) } : null,
       }));
   }
 

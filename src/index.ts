@@ -491,8 +491,11 @@ io.on('connection', (socket: Socket) => {
     const text = clean(p?.text, 280);
     if (!text) return a({ ok: false, error: 'Boş mesaj gönderilemez.' });
     if (!data.matchId) return a({ ok: false, error: 'Önce bir maç odasına katıl.' });
+    const replyId = Number(p?.replyTo);
+    const reply = Number.isInteger(replyId) && replyId > 0 ? store.chatReply(data.matchId, replyId) : null;
+    if (p?.replyTo != null && !reply) return a({ ok: false, error: 'Yanıtladığın mesaj bulunamadı.' });
     if (!chatLimit.ok(data.userId)) return a({ ok: false, error: 'Çok hızlı yazıyorsun, birkaç saniye bekle.' });
-    const msg = store.addChat(data.matchId, data.userId, data.nick, text, 'user', data.team, matchMinute(data.matchId));
+    const msg = store.addChat(data.matchId, data.userId, data.nick, text, 'user', data.team, matchMinute(data.matchId), reply);
     io.to(room(data.matchId)).emit('chat:message', msg);
     a({ ok: true });
   });

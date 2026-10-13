@@ -1049,6 +1049,38 @@ export function renderMatch(root, matchId) {
   const chatList = h('div.chat-list', { 'aria-live': 'polite' });
   const chatInput = h('input.input', { maxlength: 280, placeholder: 'Mesaj yaz…', 'aria-label': 'Sohbet mesajı', autocomplete: 'off', enterkeyhint: 'send' });
   const chatHead = h('div.chat-head');
+  // yanıtlanan mesaj: yazı kutusunun üstünde gösterilir, gönderince ya da ✕ ile kalkar
+  let replyTo = null;
+  const replyBar = h('div.reply-bar');
+  function setReply(msg) {
+    replyTo = msg;
+    drawReplyBar();
+    if (msg) chatInput.focus();
+  }
+  function drawReplyBar() {
+    if (!replyTo) return mount(replyBar), replyBar.classList.remove('on');
+    replyBar.classList.add('on');
+    mount(
+      replyBar,
+      replyIcon(),
+      h('div.rb-txt', {}, h('b', {}, `${replyTo.nick} kişisine yanıt`), h('span', {}, replyTo.text)),
+      h('button.rb-x', { type: 'button', 'aria-label': 'Yanıtı iptal et', onclick: () => setReply(null) }, '✕'),
+    );
+  }
+  function replyIcon() {
+    const el = h('span.reply-ic', { 'aria-hidden': 'true' });
+    el.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg>';
+    return el;
+  }
+  /** Yanıtlanan mesaja kaydır ve kısa süre vurgula */
+  function jumpTo(id) {
+    const el = chatList.querySelector(`[data-id="${id}"]`);
+    if (!el) return toast('Bu mesaj artık sohbet geçmişinde değil');
+    el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    el.classList.remove('flash');
+    void el.offsetWidth;
+    el.classList.add('flash');
+  }
   function drawChat() {
     const typing = document.activeElement === chatInput;
     mount(
@@ -1063,6 +1095,7 @@ export function renderMatch(root, matchId) {
           'div.chat-foot',
           {},
           h('div.chat-quick', {}, QUICK.map((q) => h('button', { type: 'button', onclick: () => sendChat(q) }, q))),
+          replyBar,
           h(
             'form.chat-form',
             { onsubmit: (e) => (e.preventDefault(), sendChat(chatInput.value)) },
@@ -1080,8 +1113,10 @@ export function renderMatch(root, matchId) {
   }
   async function sendChat(text) {
     if (!text.trim()) return;
-    const r = await send('chat:send', { text });
-    if (r?.ok && text === chatInput.value) chatInput.value = '';
+    const r = await send('chat:send', replyTo ? { text, replyTo: replyTo.id } : { text });
+    if (!r?.ok) return;
+    if (text === chatInput.value) chatInput.value = '';
+    setReply(null);
   }
   /** Sohbet mesajı ya da yorum. likeable: sohbet mesajlarında beğeni düğmesi */
   function chatMsg(msg, likeable = false) {
@@ -1091,14 +1126,18 @@ export function renderMatch(root, matchId) {
     const name = mine || !msg.uid
       ? (mine ? 'Sen' : msg.nick)
       : h('button.nick-link', { type: 'button', title: `${msg.nick} kişisine özel mesaj gönder`, onclick: () => openDm({ uid: msg.uid, nick: msg.nick, team: msg.team ?? null }) }, msg.nick);
-    const bubble = h('div.bubble', {}, msg.text);
+    const quote = msg.reply
+      ? h('button.quote', { type: 'button', title: 'Yanıtlanan mesaja git', onclick: () => jumpTo(msg.reply.id) }, h('b', { '--nc': colorFor(msg.reply.nick) }, msg.reply.nick), h('span', {}, msg.reply.text))
+      : null;
+    const bubble = h('div.bubble', {}, quote, msg.text);
     const like = likeable ? likeBtn(msg, mine) : null;
     if (like && !mine) bubble.addEventListener('dblclick', () => like.click()); // çift dokunuşla beğen
+    const reply = likeable ? h('button.reply', { type: 'button', 'aria-label': 'Yanıtla', title: 'Yanıtla', onclick: () => setReply(msg) }, replyIcon()) : null;
     return h(
       'div.msg',
-      { class: mine ? 'me' : '' },
+      { class: mine ? 'me' : '', dataset: { id: msg.id } },
       h('div.who', { '--nc': colorFor(msg.nick) }, teamBadge(msg.team), name, msgTime(msg)),
-      like ? h('div.brow', {}, bubble, like) : bubble,
+      like ? h('div.brow', {}, bubble, h('div.acts', {}, like, reply)) : bubble,
     );
   }
   const likeEls = new Map(); // mesaj id -> beğeni düğmesini yeniden çizen fonksiyon
