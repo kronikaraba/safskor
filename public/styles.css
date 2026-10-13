@@ -339,6 +339,7 @@ button { cursor: pointer; }
 .msg.me .bubble { background: rgba(0, 137, 254, 0.15); border-color: rgba(0, 137, 254, 0.35); border-radius: 12px 12px 4px 12px; }
 .msg.me .who { text-align: right; margin: 0 4px 2px 0; }
 .msg.sys { align-self: center; align-items: center; max-width: 100%; }
+.msg.sys .brow { align-items: center; }
 .msg.sys .bubble { background: transparent; border: 1px dashed var(--border); color: var(--muted); font-size: 12.5px; border-radius: 999px; padding: 4px 12px; text-align: center; }
 .msg.sys.goal .bubble { color: var(--accent); border-color: rgba(0, 137, 254, 0.5); font-weight: 700; }
 .chat-quick { display: flex; gap: 6px; padding: 6px 12px 0; overflow-x: auto; scrollbar-width: none; }

@@ -1063,7 +1063,7 @@ export function renderMatch(root, matchId) {
     mount(
       replyBar,
       replyIcon(),
-      h('div.rb-txt', {}, h('b', {}, `${replyTo.nick} kişisine yanıt`), h('span', {}, replyTo.text)),
+      h('div.rb-txt', {}, h('b', {}, replyTo.kind === 'system' ? 'Maç olayına yanıt' : `${replyTo.nick} kişisine yanıt`), h('span', {}, replyTo.text)),
       h('button.rb-x', { type: 'button', 'aria-label': 'Yanıtı iptal et', onclick: () => setReply(null) }, '✕'),
     );
   }
@@ -1120,7 +1120,12 @@ export function renderMatch(root, matchId) {
   }
   /** Sohbet mesajı ya da yorum. likeable: sohbet mesajlarında beğeni düğmesi */
   function chatMsg(msg, likeable = false) {
-    if (msg.kind === 'system') return h('div.msg.sys', { class: /GOL|gol/.test(msg.text) ? 'goal' : '' }, h('div.bubble', {}, msg.text));
+    if (msg.kind === 'system')
+      return h(
+        'div.msg.sys',
+        { class: /GOL|gol/.test(msg.text) ? 'goal' : '', dataset: { id: msg.id } },
+        h('div.brow', {}, h('div.bubble', {}, msg.text), likeable ? h('button.reply', { type: 'button', 'aria-label': 'Yanıtla', title: 'Yanıtla', onclick: () => setReply({ ...msg, nick: 'Maç olayı' }) }, replyIcon()) : null),
+      );
     const mine = !!msg.uid && msg.uid === app.me.uid;
     // başkasının adına dokununca ona özel mesaj penceresi açılır
     const name = mine || !msg.uid

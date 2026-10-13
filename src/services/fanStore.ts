@@ -53,6 +53,9 @@ export interface ChatReply {
   text: string;
 }
 
+/** Yanıt özeti; maç olayı (sistem mesajı) yanıtlanınca ad yerine "Maç olayı" görünür */
+const replyOf = (id: number, nick: string, text: string, kind: string): ChatReply => ({ id, nick: kind === 'system' ? 'Maç olayı' : nick, text: String(text).slice(0, 120) });
+
 /** Herkese görünen kullanıcı bilgisi (özel mesajlar için) */
 export interface PublicUser {
   uid: string;
@@ -309,10 +312,10 @@ export class FanStore {
     return { id: Number(info.lastInsertRowid), matchId, uid: userId ? this.pubId(userId) : null, nick, text, kind, createdAt, likes: 0, team, minute, reply };
   }
 
-  /** Aynı maçın sohbetindeki bir kullanıcı mesajının yanıt özeti (yoksa null) */
+  /** Aynı maçın sohbetindeki bir mesajın (maç olayları dahil) yanıt özeti (yoksa null) */
   chatReply(matchId: string, id: number): ChatReply | null {
-    const r = this.db.prepare("SELECT id, nick, text FROM chat WHERE id = ? AND match_id = ? AND kind = 'user'").get(id, matchId) as any;
-    return r ? { id: r.id, nick: r.nick, text: r.text.slice(0, 120) } : null;
+    const r = this.db.prepare('SELECT id, nick, text, kind FROM chat WHERE id = ? AND match_id = ?').get(id, matchId) as any;
+    return r ? replyOf(r.id, r.nick, r.text, r.kind) : null;
   }
 
   chatHistory(matchId: string, limit = 60): ChatMessage[] {
@@ -321,7 +324,7 @@ export class FanStore {
         .prepare(
           `SELECT c.id, c.match_id, c.user_id, c.nick, c.text, c.kind, c.created_at, c.team, c.minute,
              (SELECT COUNT(*) FROM chat_likes l WHERE l.chat_id = c.id) likes,
-             r.id r_id, r.nick r_nick, r.text r_text
+             r.id r_id, r.nick r_nick, r.text r_text, r.kind r_kind
            FROM chat c LEFT JOIN chat r ON r.id = c.reply_to
            WHERE c.match_id = ? ORDER BY c.id DESC LIMIT ?`,
         )
@@ -331,7 +334,7 @@ export class FanStore {
       .map((r) => ({
         id: r.id, matchId: r.match_id, uid: r.user_id ? this.pubId(r.user_id) : null, nick: r.nick, text: r.text, kind: r.kind,
         createdAt: r.created_at, likes: r.likes, team: r.team ? JSON.parse(r.team) : null, minute: r.minute ?? null,
-        reply: r.r_id ? { id: r.r_id, nick: r.r_nick, text: String(r.r_text).slice(0, 120) } : null,
+        reply: r.r_id ? replyOf(r.r_id, r.r_nick, r.r_text, r.r_kind) : null,
       }));
   }
 
