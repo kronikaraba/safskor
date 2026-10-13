@@ -167,6 +167,8 @@ export class FanStore {
     if (!cols.has('team')) this.db.exec('ALTER TABLE chat ADD COLUMN team TEXT');
     if (!cols.has('minute')) this.db.exec('ALTER TABLE chat ADD COLUMN minute TEXT');
     if (!cols.has('reply_to')) this.db.exec('ALTER TABLE chat ADD COLUMN reply_to INTEGER');
+    // maç olayı mesajlarında olayın kimliği: sohbetteki yanıtlar Özet'teki o olayın yorumlarına da düşer
+    if (!cols.has('ref')) this.db.exec('ALTER TABLE chat ADD COLUMN ref TEXT');
     const accCols = new Set((this.db.prepare('PRAGMA table_info(accounts)').all() as any[]).map((c) => c.name));
     if (!accCols.has('lockouts')) this.db.exec('ALTER TABLE accounts ADD COLUMN lockouts INTEGER NOT NULL DEFAULT 0');
     // yalnızca "Maçı kim kazanır?" ve "Hakem yönetimi" anketleri kalır: kaldırılan gol anketi ve kullanıcı anketlerini sil
@@ -304,12 +306,19 @@ export class FanStore {
   addChat(
     matchId: string, userId: string | null, nick: string, text: string, kind: 'user' | 'system' = 'user', team: TeamBadge | null = null, minute: string | null = null,
     reply: ChatReply | null = null,
+    ref: string | null = null,
   ): ChatMessage {
     const createdAt = Date.now();
     const info = this.db
-      .prepare('INSERT INTO chat (match_id, user_id, nick, text, kind, created_at, team, minute, reply_to) VALUES (?,?,?,?,?,?,?,?,?)')
-      .run(matchId, userId, nick, text, kind, createdAt, team ? JSON.stringify(team) : null, minute, reply?.id ?? null);
+      .prepare('INSERT INTO chat (match_id, user_id, nick, text, kind, created_at, team, minute, reply_to, ref) VALUES (?,?,?,?,?,?,?,?,?,?)')
+      .run(matchId, userId, nick, text, kind, createdAt, team ? JSON.stringify(team) : null, minute, reply?.id ?? null, ref);
     return { id: Number(info.lastInsertRowid), matchId, uid: userId ? this.pubId(userId) : null, nick, text, kind, createdAt, likes: 0, team, minute, reply };
+  }
+
+  /** Maç olayı mesajının bağlı olduğu olay kimliği (yoksa null) */
+  chatRef(id: number): string | null {
+    const r = this.db.prepare("SELECT ref FROM chat WHERE id = ? AND kind = 'system'").get(id) as any;
+    return r?.ref ?? null;
   }
 
   /** Aynı maçın sohbetindeki bir mesajın (maç olayları dahil) yanıt özeti (yoksa null) */

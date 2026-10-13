@@ -495,8 +495,16 @@ io.on('connection', (socket: Socket) => {
     const reply = Number.isInteger(replyId) && replyId > 0 ? store.chatReply(data.matchId, replyId) : null;
     if (p?.replyTo != null && !reply) return a({ ok: false, error: 'Yanıtladığın mesaj bulunamadı.' });
     if (!chatLimit.ok(data.userId)) return a({ ok: false, error: 'Çok hızlı yazıyorsun, birkaç saniye bekle.' });
-    const msg = store.addChat(data.matchId, data.userId, data.nick, text, 'user', data.team, matchMinute(data.matchId), reply);
+    const minute = matchMinute(data.matchId);
+    const msg = store.addChat(data.matchId, data.userId, data.nick, text, 'user', data.team, minute, reply);
     io.to(room(data.matchId)).emit('chat:message', msg);
+    // maç olayına verilen yanıt, Özet'te o olayın yorumlarında da görünsün
+    const ref = reply ? store.chatRef(reply.id) : null;
+    if (ref) {
+      const comment = store.addComment(data.matchId, `e:${ref}`, data.userId, data.nick, data.team, text.slice(0, 200), minute);
+      io.to(room(data.matchId)).emit('comment:new', comment);
+      broadcastFan(data.matchId);
+    }
     a({ ok: true });
   });
 
@@ -755,7 +763,7 @@ matches.on('events', (matchId: string, fresh: MatchEvent[], m: Match) => {
   for (const e of fresh) {
     const fmt = EVENT_TEXT[e.type];
     if (!fmt) continue;
-    const msg = store.addChat(matchId, null, 'Safskor', fmt(e, e.side === 'home' ? m.home.name : m.away.name), 'system');
+    const msg = store.addChat(matchId, null, 'Safskor', fmt(e, e.side === 'home' ? m.home.name : m.away.name), 'system', null, null, null, e.id);
     io.to(room(matchId)).emit('chat:message', msg);
   }
 });
