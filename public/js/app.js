@@ -244,12 +244,18 @@ app.socket.on('profile', (p) => {
 app.socket.on('hello', (d) => {
   app.matches = d.matches;
   app.clubs = d.clubs || [];
-  app.tomorrow = d.tomorrow || [];
+  app.tomorrow = d.tomorrow ?? null;
+  app.yesterday = d.yesterday ?? null;
   setProvider(d.provider);
   app.onMatches?.();
 });
+// gün dönünce sunucu önce null gönderir (liste yenilenene kadar "yükleniyor")
 app.socket.on('tomorrow', (list) => {
-  app.tomorrow = list || [];
+  app.tomorrow = list ?? null;
+  app.onMatches?.();
+});
+app.socket.on('yesterday', (list) => {
+  app.yesterday = list ?? null;
   app.onMatches?.();
 });
 app.socket.on('standings', (t) => {
@@ -279,17 +285,18 @@ function setProvider(p) {
 }
 
 // ------------------------------------------------------------------ yönlendirme
-// Adresler (Google her birini ayrı sayfa olarak görür): / bugün, /yarin, /puan-durumu, /siralama,
+// Adresler (Google her birini ayrı sayfa olarak görür): / bugün, /yarin, /dun, /puan-durumu, /siralama,
 // /mac/<id>/<ev-deplasman>. Eski #/ bağlantıları (paylaşılmış linkler) yeni adreslere çevrilir.
 const root = document.getElementById('app');
 let current = '';
 const TITLES = {
   '/': 'Safskor · Canlı Skor ve Taraftar Platformu',
   '/yarin': 'Yarının Maçları ve Başlama Saatleri · Safskor',
+  '/dun': 'Dünün Maç Sonuçları · Safskor',
   '/puan-durumu': 'Süper Lig Puan Durumu · Safskor',
   '/siralama': 'Haftalık Skor Tahmini Sıralaması · Safskor',
 };
-const APP_PATH = /^\/($|yarin$|puan-durumu$|siralama$|mac\/)/;
+const APP_PATH = /^\/($|yarin$|dun$|puan-durumu$|siralama$|mac\/)/;
 
 function fromHash(hash) {
   const m = hash.match(/^#\/m\/([\w-]+)/);
@@ -317,7 +324,7 @@ function route() {
   window.scrollTo(0, 0);
   const m = path.match(/^\/mac\/([\w-]+)/);
   const rank = path === '/siralama';
-  const tab = path === '/yarin' ? 'tomorrow' : path === '/puan-durumu' ? 'table' : 'today';
+  const tab = path === '/yarin' ? 'tomorrow' : path === '/dun' ? 'yesterday' : path === '/puan-durumu' ? 'table' : 'today';
   app.view = m ? renderMatch(root, decodeURIComponent(m[1])) : rank ? renderLeaderboard(root) : renderLobby(root, tab);
   if (!m) document.title = TITLES[path] ?? TITLES['/'];
   document.querySelector('.rank-link')?.classList.toggle('active', rank);

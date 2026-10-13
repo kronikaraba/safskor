@@ -109,6 +109,15 @@ export interface Standings {
   updatedAt: string;
 }
 
+export interface TeamProfile {
+  team: Team & { country?: string; founded?: number; venue?: { name: string; city?: string; capacity?: number } };
+  coach: { name: string; photo?: string } | null;
+  /** Oynanan (biten ya da süren) maçlar, en yeni önce, en fazla 5 */
+  last: MatchSummary[];
+  /** Sıradaki maçlar, en yakın önce, en fazla 3 */
+  next: MatchSummary[];
+}
+
 export interface TeamFixtures {
   next: MatchSummary | null;
   last: MatchSummary | null;
@@ -128,6 +137,10 @@ export interface FootballProvider {
   teamFixtures?(teamId: string): Promise<TeamFixtures | null>;
   /** İsteğe bağlı: yarının maçları (bugünkü listeyle aynı lig/takım filtresi). null: şu an kullanılamıyor */
   tomorrowMatches?(): Promise<MatchSummary[] | null>;
+  /** İsteğe bağlı: dünün maçları (aynı filtre). null: şu an kullanılamıyor */
+  yesterdayMatches?(): Promise<MatchSummary[] | null>;
+  /** İsteğe bağlı: takım künyesi, teknik direktörü, son 5 ve sıradaki 3 maçı. null: şu an kullanılamıyor */
+  teamProfile?(teamId: string): Promise<TeamProfile | null>;
   /** İsteğe bağlı: ligin güncel puan durumu. null: şu an kullanılamıyor */
   standings?(leagueId: string): Promise<Standings | null>;
   /** Önerilen yoklama aralığı (ms); demo için kısa, gerçek API için kota dostu */

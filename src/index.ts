@@ -33,7 +33,7 @@ app.use((_req, res, next) => {
 const withViewers = () => matches.getList().map((m) => ({ ...m, viewers: roomSize(m.id) }));
 
 app.get('/api/health', (_req, res) => res.json({ ok: true, provider: matches.providerInfo }));
-app.get('/api/matches', (_req, res) => res.json({ provider: matches.providerInfo, matches: withViewers(), clubs: clubsPayload(), tomorrow: matches.getTomorrow() }));
+app.get('/api/matches', (_req, res) => res.json({ provider: matches.providerInfo, matches: withViewers(), clubs: clubsPayload(), tomorrow: matches.getTomorrow(), yesterday: matches.getYesterday() }));
 app.get('/api/standings', (_req, res) => res.json({ standings: matches.getStandings() }));
 app.get('/api/matches/:id', async (req, res) => {
   const m = await matches.getMatch(req.params.id);
@@ -109,6 +109,7 @@ function sendPage(res: express.Response, page: Page) {
 }
 app.get('/', (_req, res) => sendPage(res, PAGES['/']));
 app.get('/yarin', (_req, res) => sendPage(res, PAGES['/yarin']));
+app.get('/dun', (_req, res) => sendPage(res, PAGES['/dun']));
 app.get('/siralama', (_req, res) => sendPage(res, PAGES['/siralama']));
 app.get('/puan-durumu', (_req, res) => sendPage(res, standingsPage(matches.getStandings())));
 app.get(['/mac/:id', '/mac/:id/:slug'], (req, res) => {
@@ -295,7 +296,7 @@ io.on('connection', (socket: Socket) => {
     store.touchUser(data.userId, data.nick, data.team?.id ?? null);
     socket.join(userRoom(data.userId)); // özel mesajlar kullanıcının açık tüm sekmelerine gider
   }
-  socket.emit('hello', { provider: matches.providerInfo, matches: withViewers(), clubs: clubsPayload(), tomorrow: matches.getTomorrow() });
+  socket.emit('hello', { provider: matches.providerInfo, matches: withViewers(), clubs: clubsPayload(), tomorrow: matches.getTomorrow(), yesterday: matches.getYesterday() });
   // tarayıcıdaki favori takım sunucudakiyle eşleşsin (ör. listeden kaldırılmış eski bir takım); uid: herkese açık kimlik
   socket.emit('profile', { team: data.team, uid: store.pubId(data.userId), account: canDm ? store.account(data.userId) : null });
   if (canDm) socket.emit('dm:unread', { count: store.dmUnread(data.userId) });
@@ -420,6 +421,16 @@ io.on('connection', (socket: Socket) => {
 
   socket.on('teams:list', (_p, ack) => safeAck(ack)({ ok: true, teams: PICKABLE_TEAMS }));
   socket.on('standings:get', (_p, ack) => safeAck(ack)({ ok: true, standings: matches.getStandings() }));
+
+  // --- takım profili: yalnızca sitede görünen takımlar (rastgele kimliklerle API kotası harcanmasın)
+  socket.on('team:get', async (p, ack) => {
+    const reply = safeAck(ack);
+    const id = typeof p?.teamId === 'string' ? p.teamId.slice(0, 40) : '';
+    if (!id || !matches.knowsTeam(id)) return reply({ ok: false, error: 'Takım bulunamadı' });
+    if (!actionLimit.ok(data.userId)) return reply({ ok: false, error: 'Çok hızlı! Biraz yavaşla.' });
+    const profile = await matches.teamProfile(id).catch(() => null);
+    reply(profile ? { ok: true, profile } : { ok: false, error: 'Takım bilgisi şu an alınamıyor' });
+  });
 
   socket.on('leaderboard:get', (p, ack) => {
     const week = typeof p?.week === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(p.week) ? p.week : weekKey(Date.now());
@@ -753,8 +764,9 @@ io.on('connection', (socket: Socket) => {
 
 matches.on('list', lobbyUpdate);
 matches.on('clubs', lobbyUpdate);
-// yarının listesi ve puan durumu seyrek değişir: herkese (maç odasındakiler dahil) gönder ki lobiye dönünce güncel olsun
+// yarının/dünün listesi ve puan durumu seyrek değişir: herkese (maç odasındakiler dahil) gönder ki lobiye dönünce güncel olsun
 matches.on('tomorrow', (list) => io.emit('tomorrow', list));
+matches.on('yesterday', (list) => io.emit('yesterday', list));
 matches.on('standings', (table) => io.emit('standings', table));
 
 // ------------------------------------------------------------------ takımlar ve tahmin puanlama

@@ -1,6 +1,6 @@
 import { EventEmitter } from 'node:events';
 import { istanbulDay } from '../providers/apiFootball.js';
-import type { FootballProvider, Match, MatchEvent, MatchSummary, Standings, TeamFixtures } from '../types.js';
+import type { FootballProvider, Match, MatchEvent, MatchSummary, StandingRow, Standings, TeamFixtures, TeamProfile } from '../types.js';
 
 const MIN = 60_000;
 
@@ -19,12 +19,20 @@ const MIN = 60_000;
  * - Öncelikli takımların bir sonraki/son maçı (bugün oynamasalar da lobide gösterilsin diye) 6 saatte bir,
  *   ya da bilinen sonraki maçları bitince yenilenir: takım başına 2 istek.
  * - Yarının maçları saatte bir (gün dönünce hemen) tek istekle; puan durumu 3 saatte bir ya da ligde maç bitince.
+ * - Dünün maçları gün dönünce bir kez tek istekle; gece yarısını geçen maçın skoru canlı akıştan güncellenir.
+ * - Gün dönümü (İstanbul 00:00) dakikada bir kontrol edilir: bugün/yarın/dün listeleri hemen yeni güne geçer.
+ * - Takım profili istenince çekilir (künye haftada bir, son/sıradaki maçlar 3 saatte bir).
  *
- * Olaylar: 'list' (MatchSummary[]), 'match' (Match), 'events' (matchId, MatchEvent[] yeni olaylar), 'clubs', 'tomorrow', 'standings'
+ * Olaylar: 'list' (MatchSummary[]), 'match' (Match), 'events' (matchId, MatchEvent[] yeni olaylar), 'clubs', 'tomorrow', 'yesterday', 'standings'
  */
 export class MatchService extends EventEmitter {
   private list: MatchSummary[] = [];
   private listJson = '';
+  /** Bugünün listesinin İstanbul tarihi (gün dönümünü yakalamak için) */
+  private listDay = '';
+  private dayTimer?: NodeJS.Timeout;
+  private profiles = new Map<string, { at: number; p: TeamProfile }>();
+  private profileJobs = new Map<string, Promise<TeamProfile | null>>();
   /** fullAt: son tam detay (kadro/istatistik) çekimi; canlı akış güncellemeleri bunu değiştirmez */
   private details = new Map<string, { match: Match; json: string; fullAt: number }>();
   private watched = new Map<string, number>();
@@ -40,6 +48,8 @@ export class MatchService extends EventEmitter {
   private tomorrow: MatchSummary[] = [];
   private tomorrowDay = '';
   private tomorrowAt = 0;
+  private yesterday: MatchSummary[] = [];
+  private yesterdayDay = '';
   private table: Standings | null = null;
   private tableAt = 0;
   /** Son puan durumu çekiminde bitmiş görünen lig maçları */
@@ -119,10 +129,26 @@ export class MatchService extends EventEmitter {
     this.clubsTimer = setTimeout(loopClubs, 20_000);
     const loopExtra = async () => {
       await this.refreshTomorrow().catch((e) => console.error('[matches] yarının maçları hatası', e));
+      await this.refreshYesterday().catch((e) => console.error('[matches] dünün maçları hatası', e));
       await this.refreshStandings().catch((e) => console.error('[matches] puan durumu hatası', e));
       this.extraTimer = setTimeout(loopExtra, 5 * MIN);
     };
     this.extraTimer = setTimeout(loopExtra, 30_000);
+    // gece yarısı: liste boştayken 2 saatte bir yenilendiği için gün dönümü ayrıca yakalanır
+    const loopDay = async () => {
+      if (!this.provider.isDemo && this.listDay && this.listDay !== istanbulDay(0)) await this.rollover().catch((e) => console.error('[matches] gün dönümü hatası', e));
+      this.dayTimer = setTimeout(loopDay, MIN);
+    };
+    this.dayTimer = setTimeout(loopDay, MIN);
+  }
+
+  /** Gün döndü: eski "yarın" ve "dün" listeleri artık yanlış güne ait; hepsi hemen yenilenir */
+  private async rollover() {
+    this.emit('tomorrow', null);
+    this.emit('yesterday', null);
+    await this.refreshList();
+    await this.refreshTomorrow();
+    await this.refreshYesterday();
   }
 
   stop() {
@@ -132,6 +158,7 @@ export class MatchService extends EventEmitter {
     clearTimeout(this.focusTimer);
     clearTimeout(this.clubsTimer);
     clearTimeout(this.extraTimer);
+    clearTimeout(this.dayTimer);
   }
 
   getList() {
@@ -142,6 +169,11 @@ export class MatchService extends EventEmitter {
   getTomorrow() {
     // gün döndüyse eldeki liste artık "bugün"ün listesi: yenisi gelene kadar gösterme
     return this.tomorrowDay === istanbulDay(1) ? this.tomorrow : null;
+  }
+
+  /** null: henüz alınmadı (ya da sağlayıcı dünün listesini vermiyor) */
+  getYesterday() {
+    return this.yesterdayDay === istanbulDay(-1) ? this.yesterday : null;
   }
 
   getStandings() {
@@ -156,13 +188,13 @@ export class MatchService extends EventEmitter {
       return summary;
     }
     const clubs = [...this.clubs.values()].flatMap((c) => [c.next, c.last]).filter((m): m is MatchSummary => Boolean(m));
-    return [...this.list, ...this.tomorrow, ...clubs].find((m) => m.id === id) ?? null;
+    return [...this.list, ...this.tomorrow, ...this.yesterday, ...clubs].find((m) => m.id === id) ?? null;
   }
 
-  /** Site haritasındaki maçlar: bugün, yarın ve Büyük 4'ün sıradaki maçları */
+  /** Site haritasındaki maçlar: bugün, yarın, dün ve Büyük 4'ün sıradaki maçları */
   knownMatches(): MatchSummary[] {
     const next = [...this.clubs.values()].map((c) => c.next).filter((m): m is MatchSummary => Boolean(m));
-    return [...this.list, ...(this.getTomorrow() ?? []), ...next];
+    return [...this.list, ...(this.getTomorrow() ?? []), ...(this.getYesterday() ?? []), ...next];
   }
 
   /** Öncelikli takımın bilinen sonraki/son maçı (bugünün listesinde yoksa lobi bunları gösterir) */
@@ -197,6 +229,55 @@ export class MatchService extends EventEmitter {
     const n = (this.watched.get(id) ?? 1) - 1;
     if (n <= 0) this.watched.delete(id);
     else this.watched.set(id, n);
+  }
+
+  // ------------------------------------------------------------ takım profili
+
+  /** İstemcinin sorduğu takım sitede görünüyor mu (rastgele kimliklerle kota harcatılmasın) */
+  knowsTeam(id: string) {
+    const has = (m?: MatchSummary | null) => Boolean(m && (m.home.id === id || m.away.id === id));
+    if ([...this.list, ...this.tomorrow, ...this.yesterday].some(has)) return true;
+    if ([...this.details.values()].some((d) => has(d.match))) return true;
+    if (this.focus.has(id) || [...this.clubs.values()].some((c) => has(c.next) || has(c.last))) return true;
+    return Boolean(this.table?.rows.some((r) => r.team.id === id));
+  }
+
+  /**
+   * Takım profili: 3 saatte bir (ya da bilinen sıradaki maçı bittiyse) yenilenir; kota sıkışıksa eldeki gösterilir.
+   * Bugünün/dünün listesindeki maçlar güncel hâliyle yansır; oynanan maç sıradakilerden son maçlara geçer.
+   */
+  async teamProfile(id: string): Promise<(TeamProfile & { standing: (StandingRow & { league: string }) | null }) | null> {
+    if (!this.provider.teamProfile) return null;
+    const now = Date.now();
+    const hit = this.profiles.get(id);
+    // bilinen sıradaki maç profil alındıktan sonra bittiyse yenile (alınırken zaten geçmişse tekrar tekrar isteme)
+    const end = hit?.p.next[0] ? Date.parse(hit.p.next[0].kickoff) + 150 * MIN : 0;
+    const nextOver = Boolean(hit && end > hit.at && end < now);
+    const ttl = this.provider.isDemo ? MIN : 3 * 60 * MIN;
+    let p = hit?.p ?? null;
+    if ((!hit || now - hit.at > ttl || nextOver) && this.pressure() !== 'critical') {
+      // aynı takımı aynı anda açan herkes tek isteği bekler
+      let job = this.profileJobs.get(id);
+      if (!job) {
+        job = this.provider.teamProfile(id).catch(() => null);
+        this.profileJobs.set(id, job);
+        job.finally(() => this.profileJobs.delete(id));
+      }
+      const fresh = await job;
+      if (fresh) this.profiles.set(id, { at: now, p: (p = fresh) });
+    }
+    if (!p) return null;
+    const cur = (m: MatchSummary) => this.list.find((x) => x.id === m.id) ?? this.yesterday.find((x) => x.id === m.id) ?? m;
+    const seen = new Set<string>();
+    const all = [...p.next, ...p.last].map(cur).filter((m) => !m.id || (!seen.has(m.id) && seen.add(m.id)));
+    const played = (m: MatchSummary) => m.status === 'LIVE' || m.status === 'HT' || m.status === 'FT';
+    const row = this.table?.rows.find((r) => r.team.id === id);
+    return {
+      ...p,
+      last: all.filter(played).sort((a, b) => b.kickoff.localeCompare(a.kickoff)).slice(0, 5),
+      next: all.filter((m) => !played(m) && !(m.status === 'POSTPONED' && Date.parse(m.kickoff) < now)).sort((a, b) => a.kickoff.localeCompare(b.kickoff)).slice(0, 3),
+      standing: row ? { ...row, league: this.table!.league.name } : null,
+    };
   }
 
   // ------------------------------------------------------------ kota bütçesi
@@ -279,7 +360,19 @@ export class MatchService extends EventEmitter {
   // ------------------------------------------------------------ yenileme
 
   private async refreshList() {
+    const day = istanbulDay(0);
     const list = await this.provider.listMatches();
+    this.listDay = day;
+    // gün dönünce yeni listede dünün maçları yok: gece yarısını geçip hâlâ oynanan maç bitene kadar Bugün'de kalsın
+    if (!this.provider.isDemo) {
+      const ids = new Set(list.map((m) => m.id));
+      for (const m of [...this.list, ...this.yesterday]) {
+        if ((m.status === 'LIVE' || m.status === 'HT') && !m.id.startsWith('demo-') && !ids.has(m.id)) {
+          ids.add(m.id);
+          list.push(m);
+        }
+      }
+    }
     const order = { LIVE: 0, HT: 0, SCHEDULED: 1, FT: 2, POSTPONED: 3 } as const;
     // aynı durumdaki maçlarda öncelikli takımların maçları (ve ligleri) üstte
     list.sort((a, b) => order[a.status] - order[b.status] || this.focusLevel(b) - this.focusLevel(a) || a.kickoff.localeCompare(b.kickoff));
@@ -362,6 +455,19 @@ export class MatchService extends EventEmitter {
     if (changed) this.emit('tomorrow', list);
   }
 
+  /** Dünün maçları: gün dönünce bir kez (biten maçlar değişmez; süren maç patchList ile güncellenir) */
+  private async refreshYesterday() {
+    if (!this.provider.yesterdayMatches || this.provider.isDemo || this.pressure() === 'critical') return;
+    const day = istanbulDay(-1);
+    if (this.yesterdayDay === day) return;
+    const list = await this.provider.yesterdayMatches();
+    if (!list) return;
+    // bugünün listesinde daha güncel hâli olan maç (gece yarısını geçen) oradan alınır
+    this.yesterday = list.map((m) => this.list.find((x) => x.id === m.id) ?? m);
+    this.yesterdayDay = day;
+    this.emit('yesterday', this.yesterday);
+  }
+
   /** Puan durumu: 3 saatte bir; ligde bugün yeni bir maç bitince 10 dk sonra */
   private async refreshStandings() {
     if (!this.standingsLeague || !this.provider.standings || this.provider.isDemo || this.pressure() === 'critical') return;
@@ -393,9 +499,18 @@ export class MatchService extends EventEmitter {
 
   /** Detaydan gelen skor/dakika/durumu listeye de yansıt (lobi ek istek olmadan güncel kalır) */
   private patchList(m: Match) {
+    const { events, lineups, stats, ...summary } = m;
+    // dünün listesindeki maç (gece yarısını geçen ya da sonradan açılan) da güncel kalsın
+    const y = this.yesterday.findIndex((x) => x.id === m.id);
+    if (y >= 0) {
+      const next = { ...this.yesterday[y], ...summary };
+      if (JSON.stringify(next) !== JSON.stringify(this.yesterday[y])) {
+        this.yesterday = this.yesterday.map((x, j) => (j === y ? next : x));
+        if (this.yesterdayDay === istanbulDay(-1)) this.emit('yesterday', this.yesterday);
+      }
+    }
     const i = this.list.findIndex((x) => x.id === m.id);
     if (i < 0) return;
-    const { events, lineups, stats, ...summary } = m;
     const next = { ...this.list[i], ...summary };
     if (JSON.stringify(next) === JSON.stringify(this.list[i])) return;
     this.list = this.list.map((x, j) => (j === i ? next : x));

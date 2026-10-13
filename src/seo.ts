@@ -64,6 +64,11 @@ export const PAGES: Record<string, Page> = {
     description: 'Yarın oynanacak Süper Lig, Premier Lig, La Liga ve Avrupa maçları, başlama saatleri. Maç odasına gir, skor tahminini şimdiden yap.',
     path: '/yarin',
   },
+  '/dun': {
+    title: 'Dünün Maç Sonuçları · Safskor',
+    description: 'Dün oynanan Süper Lig, Premier Lig, La Liga ve Avrupa maçlarının sonuçları. Maç odasına gir, taraftar yorumlarını ve oyuncu puanlarını gör.',
+    path: '/dun',
+  },
   '/puan-durumu': {
     title: 'Süper Lig Puan Durumu · Safskor',
     description: 'Trendyol Süper Lig güncel puan durumu: sıralama, oynanan maç, galibiyet, beraberlik, mağlubiyet, averaj ve puanlar.',
@@ -156,13 +161,14 @@ export function robotsTxt() {
   return `User-agent: *\nAllow: /\nDisallow: /api/\n\nSitemap: ${SITE}/sitemap.xml\n`;
 }
 
-/** Site haritası: sabit sayfalar + bugünün, yarının ve Büyük 4'ün bilinen maçları */
+/** Site haritası: sabit sayfalar + bugünün, yarının, dünün ve Büyük 4'ün bilinen maçları */
 export function sitemapXml(matches: MatchSummary[]) {
   const now = new Date().toISOString();
   const seen = new Set<string>();
   const urls: { loc: string; freq: string; prio: string; mod: string }[] = [
     { loc: '/', freq: 'always', prio: '1.0', mod: now },
     { loc: '/yarin', freq: 'hourly', prio: '0.8', mod: now },
+    { loc: '/dun', freq: 'daily', prio: '0.6', mod: now },
     { loc: '/puan-durumu', freq: 'daily', prio: '0.8', mod: now },
     { loc: '/siralama', freq: 'daily', prio: '0.5', mod: now },
   ];

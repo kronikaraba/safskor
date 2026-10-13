@@ -1,5 +1,5 @@
 import { config } from '../config.js';
-import type { FootballProvider, Match, MatchSummary, Standings, TeamFixtures } from '../types.js';
+import type { FootballProvider, Match, MatchSummary, Standings, TeamFixtures, TeamProfile } from '../types.js';
 import { ApiFootballProvider, PlanError, QuotaError } from './apiFootball.js';
 import { DemoProvider } from './demo.js';
 
@@ -95,6 +95,28 @@ export class FallbackProvider implements FootballProvider {
       return await this.primary.tomorrowMatches();
     } catch (e) {
       console.warn(`[provider] yarının maçları alınamadı: ${e instanceof Error ? e.message : e}`);
+      return null;
+    }
+  }
+
+  async yesterdayMatches(): Promise<MatchSummary[] | null> {
+    if (this.isDemo || this.stale) return null;
+    try {
+      return await this.primary.yesterdayMatches();
+    } catch (e) {
+      console.warn(`[provider] dünün maçları alınamadı: ${e instanceof Error ? e.message : e}`);
+      return null;
+    }
+  }
+
+  /** Takım profili de ek bilgi: hata siteyi demoya geçirmez. Demo modunda demo takımlarının profili */
+  async teamProfile(teamId: string): Promise<TeamProfile | null> {
+    if (this.isDemo) return this.demo.teamProfile(teamId);
+    if (this.stale) return null;
+    try {
+      return await this.primary.teamProfile(teamId);
+    } catch (e) {
+      console.warn(`[provider] takım profili alınamadı (${teamId}): ${e instanceof Error ? e.message : e}`);
       return null;
     }
   }

@@ -1,4 +1,4 @@
-import type { FootballProvider, TeamFixtures, Standings, Lineup, Match, MatchEvent, MatchStatus, MatchSummary, Player, StatLine, Side } from '../types.js';
+import type { FootballProvider, TeamFixtures, TeamProfile, Standings, Lineup, Match, MatchEvent, MatchStatus, MatchSummary, Player, StatLine, Side } from '../types.js';
 
 /** Günlük istek hakkı bitti; gün dönümüne (00:00 UTC) kadar istek atılmaz. */
 export class QuotaError extends Error {
@@ -141,6 +141,12 @@ export class ApiFootballProvider implements FootballProvider {
     return rows.map(toSummary).sort((a, b) => a.kickoff.localeCompare(b.kickoff));
   }
 
+  /** Dünün maçları (tek istek; günde bir kez çağrılır) */
+  async yesterdayMatches(): Promise<MatchSummary[]> {
+    const rows = await this.dayFixtures(istanbulDay(-1));
+    return rows.map(toSummary).sort((a, b) => a.kickoff.localeCompare(b.kickoff));
+  }
+
   /** Ligin güncel sezon puan durumu (tek istek) */
   async standings(leagueId: string): Promise<Standings | null> {
     const now = new Date();
@@ -192,6 +198,38 @@ export class ApiFootballProvider implements FootballProvider {
       }
     }
     return m;
+  }
+
+  /** Takım profili: künye (haftada bir istek), son 5 ve sıradaki 3 maç (iki istek), TD (günde bir istek) */
+  private teamInfos = new Map<string, { at: number; info: TeamProfile['team'] | null }>();
+  async teamProfile(teamId: string): Promise<TeamProfile | null> {
+    let hit = this.teamInfos.get(teamId);
+    if (!hit || Date.now() - hit.at > 7 * 24 * 3600_000) {
+      const r = (await this.get('/teams', { id: teamId }))[0];
+      const info = r?.team
+        ? {
+            id: String(r.team.id),
+            name: r.team.name,
+            short: abbreviate(r.team.name),
+            logo: r.team.logo,
+            country: trCountry(r.team.country),
+            founded: r.team.founded ?? undefined,
+            venue: r.venue?.name ? { name: r.venue.name, city: r.venue.city ?? undefined, capacity: r.venue.capacity ?? undefined } : undefined,
+          }
+        : null;
+      hit = { at: Date.now(), info };
+      this.teamInfos.set(teamId, hit);
+    }
+    if (!hit.info) return null;
+    const last = await this.get('/fixtures', { team: teamId, last: '5', timezone: 'Europe/Istanbul' });
+    const next = await this.get('/fixtures', { team: teamId, next: '3', timezone: 'Europe/Istanbul' });
+    const coach = await this.teamCoach(teamId).catch(() => null);
+    return {
+      team: hit.info,
+      coach,
+      last: last.map(toSummary).sort((a, b) => b.kickoff.localeCompare(a.kickoff)),
+      next: next.map(toSummary).sort((a, b) => a.kickoff.localeCompare(b.kickoff)),
+    };
   }
 
   /** Takımın güncel teknik direktörü; takım başına günde en fazla bir istek */

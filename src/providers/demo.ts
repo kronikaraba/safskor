@@ -1,4 +1,4 @@
-import type { FootballProvider, Lineup, Match, MatchEvent, MatchSummary, Player, Side, StatLine, Team } from '../types.js';
+import type { FootballProvider, Lineup, Match, MatchEvent, MatchSummary, Player, Side, StatLine, Team, TeamProfile } from '../types.js';
 
 /**
  * Demo sağlayıcı: API anahtarı yokken ya da API'ye ulaşılamadığında devreye girer.
@@ -166,6 +166,35 @@ export class DemoProvider implements FootballProvider {
   async getMatch(id: string): Promise<Match | null> {
     const m = this.matches.get(id);
     return m ? this.full(m) : null;
+  }
+  /** Demo takım profili: simüle edilen maçlarından sonra uydurma geçmiş maçlar (adresi yok, tıklanmaz) */
+  async teamProfile(teamId: string): Promise<TeamProfile | null> {
+    const t = TEAMS[teamId];
+    if (!t) return null;
+    const { strength, formation, coach, pool, ...team } = t;
+    const r = rng(hash(`profil-${teamId}`));
+    const rivals = Object.values(TEAMS).filter((x) => x.id !== teamId && x.pool === pool);
+    const mine = [...this.matches.values()].filter((m) => m.home.id === teamId || m.away.id === teamId).map((m) => this.summary(m));
+    const old = Array.from({ length: 5 }, (_, i): MatchSummary => {
+      const { strength, formation, coach, pool: _p, ...o } = rivals[Math.floor(r() * rivals.length)];
+      const atHome = r() < 0.5;
+      return {
+        id: '',
+        competition: pool === 'tr' ? { name: COMPS.sl.name, country: COMPS.sl.country, round: `${8 - i}. Hafta` } : { name: COMPS.ucl.name, country: COMPS.ucl.country },
+        status: 'FT',
+        minute: 90,
+        kickoff: new Date(Date.now() - (i + 1) * 7 * 24 * 3600_000).toISOString(),
+        home: atHome ? team : o,
+        away: atHome ? o : team,
+        score: { home: Math.floor(r() * 4), away: Math.floor(r() * 3) },
+      };
+    });
+    return {
+      team: { ...team, country: pool === 'tr' ? 'Türkiye' : undefined, venue: { name: VENUES[teamId] } },
+      coach: { name: coach },
+      last: [...mine.filter((m) => m.status !== 'SCHEDULED'), ...old].slice(0, 5),
+      next: mine.filter((m) => m.status === 'SCHEDULED'),
+    };
   }
 
   // ---------------------------------------------------------------- kurulum

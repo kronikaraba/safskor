@@ -1,6 +1,7 @@
 import { app } from './app.js';
 import { h, mount, crest, kickoffText, storage, roundText, minuteText, dayText, icon, matchHref } from './util.js';
 import { lbRow } from './leaderboard.js';
+import { openTeam } from './team.js';
 
 const FILTERS = [
   ['all', 'Tümü', () => true],
@@ -12,6 +13,7 @@ const isLive = (m) => m.status === 'LIVE' || m.status === 'HT';
 const hasStarted = (m) => m.status !== 'SCHEDULED' && m.status !== 'POSTPONED';
 
 const TABS = [
+  ['yesterday', 'Dün', '/dun', 'Dünün maç sonuçları'],
   ['today', 'Bugün', '/', 'Bugünün maçları ve canlı skorlar'],
   ['tomorrow', 'Yarın', '/yarin', 'Yarının maçları'],
   ['table', 'Puan durumu', '/puan-durumu', 'Süper Lig puan durumu'],
@@ -23,7 +25,7 @@ const dateLabel = (offset) => {
   return d.toLocaleDateString('tr-TR', { day: 'numeric', month: 'long' });
 };
 
-/** tab: 'today' (bugünün maçları), 'tomorrow' (yarının maçları), 'table' (puan durumu) */
+/** tab: 'yesterday' (dünün maçları), 'today' (bugünün maçları), 'tomorrow' (yarının maçları), 'table' (puan durumu) */
 export function renderLobby(root, tab = 'today') {
   let filter = storage.get('safskor.filter', 'all');
   let featuredId = null; // sağ sütunda gösterilen maç
@@ -109,6 +111,7 @@ export function renderLobby(root, tab = 'today') {
 
   function drawList() {
     if (tab === 'tomorrow') return drawTomorrow();
+    if (tab === 'yesterday') return drawYesterday();
     if (tab === 'table') return drawTable();
     mount(dateEl, `Bugün · ${dateLabel(0)}`);
     const all = app.matches || [];
@@ -155,6 +158,17 @@ export function renderLobby(root, tab = 'today') {
     mount(list, h('p.muted.small.list-note', {}, 'Maç odasına girip skor tahminini şimdiden yapabilirsin.'), groups(all));
   }
 
+  // ---------------------------------------------------------------- dünün maçları
+  function drawYesterday() {
+    mount(dateEl, `Dün · ${dateLabel(-1)}`);
+    const all = app.yesterday;
+    if (!all?.length) {
+      const text = app.provider?.demo ? 'Demo modunda dünün maçları gösterilmiyor.' : all ? 'Dün takip edilen liglerde maç yok.' : 'Dünün maçları yükleniyor…';
+      return mount(list, h('div.empty', {}, text));
+    }
+    mount(list, h('p.muted.small.list-note', {}, 'Maç odaları açık: sohbet, puanlar ve yorumlar duruyor.'), groups(all));
+  }
+
   // ---------------------------------------------------------------- puan durumu
   let tableAsked = false;
   function drawTable() {
@@ -177,9 +191,17 @@ export function renderLobby(root, tab = 'today') {
     const rows = t.rows.map((r) => {
       const z = zoneOf(r.description);
       if (z) zones.set(z.key, z);
+      // satıra basınca takım profili açılır
+      const open = () => openTeam(r.team);
       return h(
-        'tr',
-        { class: [z ? `z-${z.key}` : '', r.team.id === mine ? 'mine' : ''].join(' ').trim() },
+        'tr.st-link',
+        {
+          class: [z ? `z-${z.key}` : '', r.team.id === mine ? 'mine' : ''].join(' ').trim(),
+          tabindex: '0',
+          'aria-label': `${r.team.name} takım profili`,
+          onclick: open,
+          onkeydown: (e) => (e.key === 'Enter' || e.key === ' ') && (e.preventDefault(), open()),
+        },
         h('td.st-rank', {}, r.rank),
         h('td.st-team', {}, h('span', {}, crest(r.team, 'sm'), h('b', {}, r.team.name))),
         h('td', {}, r.played),

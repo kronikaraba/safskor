@@ -2,6 +2,7 @@ import { app, editNick } from './app.js';
 import { h, mount, crest, statusPill, minuteText, ratingPill, timeText, toast, openSheet, colorFor, POS_TR, kickoffText, roundText, dayText, teamBadge, icon, matchHref, face, playerPhoto } from './util.js';
 import { openShare } from './share.js';
 import { openDm } from './dm.js';
+import { openTeam } from './team.js';
 
 const TABS = [
   ['chat', 'Sohbet'],
@@ -145,6 +146,9 @@ export function renderMatch(root, matchId) {
     presenceEl.textContent = `👥 ${s.presence || 1} taraftar odada`;
   }
 
+  // takıma basınca profili (son 5 maç, sıradaki maçlar, lig sırası) açılır
+  const teamBtn = (t) => h('button.sb-teambtn', { type: 'button', onclick: () => openTeam(t), 'aria-label': `${t.name} takım profili` }, crest(t, 'lg'), h('span.name', {}, t.name));
+
   function drawBoard(flash = false) {
     const m = s.match;
     if (!m) return;
@@ -160,14 +164,14 @@ export function renderMatch(root, matchId) {
       h(
         'div.sb-main',
         {},
-        h('div.sb-team', {}, crest(m.home, 'lg'), h('span.name', {}, m.home.name), h('div.sb-scorers', {}, scorers('home').map((t) => h('div', {}, t)))),
+        h('div.sb-team', {}, teamBtn(m.home), h('div.sb-scorers', {}, scorers('home').map((t) => h('div', {}, t)))),
         h(
           'div.sb-center',
           {},
           h('div.sb-score', { class: [flash ? 'flash' : '', m.status === 'LIVE' || m.status === 'HT' ? 'live' : ''].join(' ').trim() }, started ? `${m.score.home} - ${m.score.away}` : kickoffText(m.kickoff)),
           started || m.status === 'POSTPONED' ? statusPill(m) : h('span.status', {}, dayText(m.kickoff)),
         ),
-        h('div.sb-team', {}, crest(m.away, 'lg'), h('span.name', {}, m.away.name), h('div.sb-scorers', {}, scorers('away').map((t) => h('div', {}, t)))),
+        h('div.sb-team', {}, teamBtn(m.away), h('div.sb-scorers', {}, scorers('away').map((t) => h('div', {}, t)))),
       ),
       h('div.sb-foot', {}, m.venue && h('span', {}, `🏟️ ${m.venue}`), presenceEl),
     );
