@@ -39,6 +39,13 @@ export function renderMatch(root, matchId) {
   };
 
   const board = h('div');
+  // taraftar kartı: skor tabelasının hemen altında, her sekmede görünür
+  const shareBar = h(
+    'div.card.share-cta.share-bar',
+    {},
+    h('div', {}, h('b', {}, 'Taraftar kartını paylaş'), h('div.muted.small', {}, 'Puanların, tahminin, yorumların ve tüm taraftar işlemlerin tek görselde.')),
+    h('button.btn.sm', { onclick: () => openCard() }, '📤 Paylaş'),
+  );
   const titleEl = h('h1.sr-only');
   const tabs = h('nav.tabs', { role: 'tablist' });
   const body = h('div');
@@ -47,7 +54,7 @@ export function renderMatch(root, matchId) {
     root,
     h('a.back', { href: '/' }, '← Tüm maçlar'),
     titleEl,
-    h('div.match-layout', {}, h('div', {}, board, tabs, body), chatCol),
+    h('div.match-layout', {}, h('div', {}, board, shareBar, tabs, body), chatCol),
   );
   mount(body, h('div.empty', {}, 'Maç odası yükleniyor…'));
 
@@ -441,19 +448,13 @@ export function renderMatch(root, matchId) {
     };
   }
 
-  function openCard() {
-    const m = s.match;
-    const all = m.lineups ? ['home', 'away'].flatMap((side) => [...m.lineups[side].startXI, ...m.lineups[side].subs]) : [];
-    const best = Object.entries(s.mine?.ratings ?? {}).sort((a, b) => b[1] - a[1])[0];
-    const pl = best && all.find((x) => x.id === best[0]);
-    const p = s.mine?.prediction;
-    openShare({
-      match: m,
-      nick: app.me.nick,
-      team: app.me.team,
-      motm: pl ? { name: pl.name, score: best[1] } : null,
-      prediction: p ? { home: p.home, away: p.away, points: p.points } : null,
-    });
+  /** Kart, kullanıcının bu maçtaki tüm işlemleriyle (puanlar, tahmin, taktik, değişiklik, anket, yorumlar) çizilir */
+  async function openCard() {
+    if (!s.match) return;
+    const r = await send('card:get', {});
+    if (!r?.ok) return;
+    const { ok, ...activity } = r;
+    openShare({ match: s.match, nick: app.me.nick, team: app.me.team, activity });
   }
 
   // --- Kadrolar: saha + yedekler
@@ -643,13 +644,6 @@ export function renderMatch(root, matchId) {
         const myCount = Object.keys(s.mine?.ratings ?? {}).length;
         mount(
           el,
-          !locked &&
-            h(
-              'div.card.share-cta',
-              {},
-              h('div', {}, h('b', {}, 'Taraftar kartını paylaş'), h('div.muted.small', {}, 'Skor, maçın adamın ve tahminin tek görselde.')),
-              h('button.btn.sm', { onclick: openCard }, '📤 Paylaş'),
-            ),
           best ? motm(best) : null,
           h(
             'div.card',

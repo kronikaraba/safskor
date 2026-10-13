@@ -640,6 +640,37 @@ io.on('connection', (socket: Socket) => {
     a({ ok: true });
   });
 
+  // --- taraftar kartı: kullanıcının bu maçtaki tüm işlemleri, isimleriyle
+  socket.on('card:get', async (_p, ack) => {
+    const a = safeAck(ack);
+    const m = await context(a);
+    if (!m) return;
+    const act = store.activity(m.id, data.userId);
+    const coaches = (['home', 'away'] as Side[]).flatMap((side) => (m.lineups?.[side].coach ? [{ id: `coach:${side}`, name: m.lineups[side].coach! }] : []));
+    const people = new Map([...allPlayers(m), ...coaches].map((p) => [p.id, p.name]));
+    const events = new Map(m.events.map((e) => [e.id, e]));
+    const EV: Partial<Record<MatchEvent['type'], string>> = { goal: 'Gol', penalty: 'Penaltı golü', own_goal: 'Kendi kalesine gol', missed_penalty: 'Kaçan penaltı', yellow: 'Sarı kart', red: 'Kırmızı kart', sub: 'Değişiklik', var: 'VAR' };
+    const about = (target: string) => {
+      const id = target.slice(2);
+      if (target.startsWith('p:')) return people.get(id) ?? 'Oyuncu';
+      const e = events.get(id);
+      return e ? `${e.minute}' ${EV[e.type] ?? 'Olay'}${e.player ? ` · ${e.player}` : ''}` : 'Maç olayı';
+    };
+    a({
+      ok: true,
+      ratings: Object.entries(act.ratings)
+        .filter(([id]) => people.has(id))
+        .map(([id, score]) => ({ name: people.get(id)!, score, coach: id.startsWith('coach:') }))
+        .sort((x, y) => y.score - x.score),
+      prediction: act.prediction,
+      tactics: (['home', 'away'] as Side[]).flatMap((side) => (act.tactics[side] ? [{ team: m[side].short, ...act.tactics[side]! }] : [])),
+      subs: act.subs.map((s) => ({ ...s, team: m[s.side].short })),
+      polls: act.polls,
+      comments: act.comments.map((c) => ({ about: about(c.target), text: c.text })),
+      chat: act.chat,
+    });
+  });
+
   // --- anketler
   socket.on('poll:vote', async (p, ack) => {
     const a = safeAck(ack);

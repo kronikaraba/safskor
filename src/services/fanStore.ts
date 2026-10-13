@@ -761,6 +761,29 @@ export class FanStore {
       : null;
     return { ratings, polls, tactics, tacticLikes, subVotes, subOwn, prediction };
   }
+
+  /** Taraftar kartı için kullanıcının bu maçtaki tüm işlemleri (isimler sunucuda maç verisiyle çözülür) */
+  activity(matchId: string, userId: string) {
+    const { ratings, tactics, prediction } = this.mine(matchId, userId);
+    const polls = (
+      this.db
+        .prepare('SELECT p.question, p.options, v.option_idx FROM poll_votes v JOIN polls p ON p.id = v.poll_id WHERE p.match_id = ? AND v.user_id = ? ORDER BY p.id')
+        .all(matchId, userId) as any[]
+    ).map((r) => ({ question: r.question as string, answer: (JSON.parse(r.options) as string[])[r.option_idx] ?? '' }));
+    const subs = (
+      this.db
+        .prepare(
+          `SELECT s.side, s.out_name, s.in_name, s.created_by = ? own, (SELECT COUNT(*) FROM sub_votes x WHERE x.request_id = s.id) votes
+           FROM sub_requests s JOIN sub_votes v ON v.request_id = s.id AND v.user_id = ? WHERE s.match_id = ? ORDER BY own DESC, votes DESC`,
+        )
+        .all(userId, userId, matchId) as any[]
+    ).map((r) => ({ side: r.side as Side, outName: r.out_name as string, inName: r.in_name as string, own: Boolean(r.own), votes: r.votes as number }));
+    const comments = (
+      this.db.prepare('SELECT target, text FROM comments WHERE match_id = ? AND user_id = ? ORDER BY id DESC').all(matchId, userId) as any[]
+    ).map((r) => ({ target: r.target as string, text: r.text as string }));
+    const { c: chat } = this.db.prepare("SELECT COUNT(*) c FROM chat WHERE match_id = ? AND user_id = ? AND kind = 'user'").get(matchId, userId) as any;
+    return { ratings, tactics, prediction, polls, subs, comments, chat: chat as number };
+  }
 }
 
 function rowTeam(r: any): TeamBadge {

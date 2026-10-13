@@ -415,6 +415,8 @@ button { cursor: pointer; }
 .pred-total { display: flex; justify-content: space-between; align-items: center; padding: 10px 12px; border-radius: var(--radius-sm); background: rgba(0, 137, 254, 0.15); border: 1px solid rgba(0, 137, 254, 0.4); font-size: 16px; }
 .pred-total b { color: var(--accent); font-size: 20px; }
 .share-cta { display: flex; align-items: center; justify-content: space-between; gap: 12px; border-color: rgba(0, 137, 254, 0.4); }
+.share-bar { margin: 10px 0 0; padding: 10px 14px; }
+.share-cta .btn { white-space: nowrap; flex: none; }
 
 .lb-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin: 4px 0 8px; }
 .lb-head h1 { margin: 0; font-size: 22px; letter-spacing: -0.02em; }
