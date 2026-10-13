@@ -781,8 +781,26 @@ export class FanStore {
     const comments = (
       this.db.prepare('SELECT target, text FROM comments WHERE match_id = ? AND user_id = ? ORDER BY id DESC').all(matchId, userId) as any[]
     ).map((r) => ({ target: r.target as string, text: r.text as string }));
-    const { c: chat } = this.db.prepare("SELECT COUNT(*) c FROM chat WHERE match_id = ? AND user_id = ? AND kind = 'user'").get(matchId, userId) as any;
-    return { ratings, tactics, prediction, polls, subs, comments, chat: chat as number };
+    // sohbette yazdıkları (en yeni önce; yanıtladığı mesajla) ve beğendikleri
+    const chat = (
+      this.db
+        .prepare(
+          `SELECT c.text, r.nick r_nick, r.kind r_kind FROM chat c LEFT JOIN chat r ON r.id = c.reply_to
+           WHERE c.match_id = ? AND c.user_id = ? AND c.kind = 'user' ORDER BY c.id DESC LIMIT 30`,
+        )
+        .all(matchId, userId) as any[]
+    ).map((r) => ({ text: r.text as string, replyTo: r.r_nick ? (r.r_kind === 'system' ? 'Maç olayı' : (r.r_nick as string)) : null }));
+    const chatLikes = (
+      this.db
+        .prepare('SELECT c.nick, c.text FROM chat_likes l JOIN chat c ON c.id = l.chat_id WHERE c.match_id = ? AND l.user_id = ? ORDER BY c.id DESC LIMIT 20')
+        .all(matchId, userId) as any[]
+    ).map((r) => ({ nick: r.nick as string, text: r.text as string }));
+    const tacticLikes = (
+      this.db
+        .prepare('SELECT t.side, t.nick, t.formation, t.style FROM tactic_likes l JOIN tactics t ON t.id = l.tactic_id WHERE t.match_id = ? AND l.user_id = ? AND t.user_id != ?')
+        .all(matchId, userId, userId) as any[]
+    ).map((r) => ({ side: r.side as Side, nick: r.nick as string, formation: r.formation as string, style: r.style as string }));
+    return { ratings, tactics, prediction, polls, subs, comments, chat, chatLikes, tacticLikes };
   }
 }
 

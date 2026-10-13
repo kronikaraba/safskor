@@ -668,6 +668,8 @@ io.on('connection', (socket: Socket) => {
       polls: act.polls,
       comments: act.comments.map((c) => ({ about: about(c.target), text: c.text })),
       chat: act.chat,
+      chatLikes: act.chatLikes,
+      tacticLikes: act.tacticLikes.map((t) => ({ ...t, team: m[t.side].short })),
     });
   });
 

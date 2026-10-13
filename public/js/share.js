@@ -21,7 +21,7 @@ function loadImg(src) {
 }
 
 /**
- * card: { match, nick, team, activity: card:get yanıtı (puanlar, tahmin, taktik, değişiklik, anket, yorumlar, sohbet sayısı) }
+ * card: { match, nick, team, activity: card:get yanıtı (puanlar, tahmin, taktik, değişiklik, anket, yorumlar, sohbet mesajları, beğeniler) }
  */
 export function openShare(card) {
   let format = 'story';
@@ -74,8 +74,11 @@ function sections(card, img) {
     const pts = p.points != null ? ` · ${p.points} puan` : '';
     out.push({ icon: '🎯', label: 'Skor tahminim', color: C.accent, big: true, lines: [`${p.home}-${p.away}${pts}${p.xi?.length && p.points != null ? ` · İlk 11: ${p.xiHits}/11` : ''}`] });
   }
-  if (a.tactics?.length)
-    out.push({ icon: img.tactic || '📋', label: 'Taktik önerim', lines: a.tactics.map((t) => `${t.team}: ${t.formation} · ${t.style}${t.note ? ` · “${t.note}”` : ''}`) });
+  const tl = [
+    ...(a.tactics ?? []).map((t) => `${t.team}: ${t.formation} · ${t.style}${t.note ? ` · “${t.note}”` : ''}`),
+    ...(a.tacticLikes ?? []).map((t) => `Beğendim: ${t.team} ${t.formation} · ${t.style} (${t.nick})`),
+  ];
+  if (tl.length) out.push({ icon: img.tactic || '📋', label: a.tactics?.length ? 'Taktik önerim' : 'Beğendiğim taktikler', lines: tl });
   if (a.subs?.length)
     out.push({
       icon: img.sub || '🔁',
@@ -84,10 +87,11 @@ function sections(card, img) {
     });
   if (a.polls?.length) out.push({ icon: img.poll || '📊', label: 'Anket oylarım', lines: a.polls.map((q) => `${q.question} → ${q.answer}`) });
   const cm = a.comments ?? [];
-  if (cm.length || a.chat) {
-    const label = ['Yorumlarım', cm.length ? `${cm.length} yorum` : null, a.chat ? `${a.chat} sohbet mesajı` : null].filter(Boolean).join(' · ');
-    out.push({ icon: '💬', label, lines: cm.length ? cm.map((c) => `${c.about}: “${c.text}”`) : [`Maç odasında ${a.chat} mesaj yazdım`] });
-  }
+  if (cm.length) out.push({ icon: '💬', label: 'Yorumlarım', lines: cm.map((c) => `${c.about}: “${c.text}”`) });
+  const chat = a.chat ?? [];
+  if (chat.length) out.push({ icon: '🗨️', label: 'Sohbette yazdıklarım', lines: chat.map((c) => (c.replyTo ? `↩ ${c.replyTo}: “${c.text}”` : `“${c.text}”`)) });
+  const likes = a.chatLikes ?? [];
+  if (likes.length) out.push({ icon: '❤️', label: 'Beğendiğim mesajlar', lines: likes.map((c) => `${c.nick}: “${c.text}”`) });
   if (!out.length) out.push({ icon: '⚽', label: 'Maçı Safskor’da', color: C.accent, big: true, lines: ['taraftarla birlikte izledim'] });
   return out;
 }
@@ -132,8 +136,19 @@ async function drawCard(canvas, card, format) {
   ]);
   const secs = sections(card, { trophy, rate, tactic, sub, poll });
   const story = format === 'story';
-  // çok işlem varsa üst kısım sıkışır, bölümlere yer açılır
-  const busy = secs.reduce((n, sc) => n + sc.lines.length, 0) > 3;
+  const nLines = secs.reduce((n, sc) => n + sc.lines.length, 0);
+  // çok işlem varsa üst kısım sıkışır, bölümlere yer açılır; hikâyede çok kalabalıksa tabela en kısa hâline iner
+  const busy = nLines > 3;
+  const dense = story && nLines > 8;
+  const L = story
+    ? dense
+      ? { top: 70, logo: 60, logoGap: 40, lg: 30, lgGap: 40, box: 250, crest: 120, cOff: 30, name: 32, nameGap: 48, score: 110, scoreOff: 38, st: 28, stOff: 88, after: 30 }
+      : busy
+        ? { top: 100, logo: 76, logoGap: 60, lg: 36, lgGap: 50, box: 340, crest: 160, cOff: 45, name: 40, nameGap: 70, score: 130, scoreOff: 46, st: 34, stOff: 110, after: 40 }
+        : { top: 150, logo: 92, logoGap: 90, lg: 36, lgGap: 70, box: 430, crest: 200, cOff: 70, name: 40, nameGap: 70, score: 150, scoreOff: 46, st: 34, stOff: 110, after: 70 }
+    : busy
+      ? { top: 40, logo: 52, logoGap: 34, lg: 26, lgGap: 30, box: 190, crest: 96, cOff: 20, name: 26, nameGap: 38, score: 84, scoreOff: 28, st: 24, stOff: 70, after: 22 }
+      : { top: 70, logo: 70, logoGap: 40, lg: 30, lgGap: 50, box: 400, crest: 150, cOff: 50, name: 34, nameGap: 70, score: 120, scoreOff: 42, st: 28, stOff: 100, after: 40 };
 
   // zemin
   const g = x.createLinearGradient(0, 0, 0, H);
@@ -148,62 +163,58 @@ async function drawCard(canvas, card, format) {
   x.fillStyle = glow;
   x.fillRect(0, 0, W, H);
 
-  let y = story ? (busy ? 100 : 150) : busy ? 40 : 70;
+  let y = L.top;
 
   // logo
   if (logo) {
-    const lh = story ? (busy ? 76 : 92) : busy ? 52 : 70;
-    const lw = (logo.width / logo.height) * lh;
-    x.drawImage(logo, (W - lw) / 2, y, lw, lh);
-    y += lh + (story ? (busy ? 60 : 90) : busy ? 34 : 40);
+    const lw = (logo.width / logo.height) * L.logo;
+    x.drawImage(logo, (W - lw) / 2, y, lw, L.logo);
+    y += L.logo + L.logoGap;
   }
 
   // lig satırı
   x.textAlign = 'center';
   x.fillStyle = C.muted;
-  x.font = `600 ${story ? 36 : busy ? 26 : 30}px ${FONT}`;
+  x.font = `600 ${L.lg}px ${FONT}`;
   x.fillText(fit(x, [m.competition.name, roundText(m.competition.round)].filter(Boolean).join(' · '), W - 160), W / 2, y);
-  y += story ? (busy ? 50 : 70) : busy ? 30 : 50;
+  y += L.lgGap;
 
-  // skor tabelası (yoğun kartta daha alçak)
-  const boxH = story ? (busy ? 340 : 520) : busy ? 190 : 400;
-  roundRect(x, 60, y, W - 120, boxH, 40);
+  // skor tabelası
+  roundRect(x, 60, y, W - 120, L.box, 40);
   x.fillStyle = 'rgba(18,24,33,0.92)';
   x.fill();
   x.strokeStyle = C.border;
   x.lineWidth = 3;
   x.stroke();
-  const crestS = story ? (busy ? 160 : 200) : busy ? 96 : 150;
-  const cy = y + (story ? (busy ? 45 : 70) : busy ? 20 : 50);
-  drawCrest(x, hc, m.home, W * 0.22, cy + crestS / 2, crestS);
-  drawCrest(x, ac, m.away, W * 0.78, cy + crestS / 2, crestS);
+  const cy = y + L.cOff;
+  drawCrest(x, hc, m.home, W * 0.22, cy + L.crest / 2, L.crest);
+  drawCrest(x, ac, m.away, W * 0.78, cy + L.crest / 2, L.crest);
   x.fillStyle = C.text;
-  x.font = `700 ${story ? 40 : busy ? 26 : 34}px ${FONT}`;
-  x.fillText(fit(x, m.home.name, 300), W * 0.22, cy + crestS + (busy && !story ? 38 : 70));
-  x.fillText(fit(x, m.away.name, 300), W * 0.78, cy + crestS + (busy && !story ? 38 : 70));
+  x.font = `700 ${L.name}px ${FONT}`;
+  x.fillText(fit(x, m.home.name, 300), W * 0.22, cy + L.crest + L.nameGap);
+  x.fillText(fit(x, m.away.name, 300), W * 0.78, cy + L.crest + L.nameGap);
   const started = m.status !== 'SCHEDULED' && m.status !== 'POSTPONED';
-  x.font = `800 ${story ? (busy ? 130 : 150) : busy ? 84 : 120}px ${FONT}`;
-  x.fillText(started ? `${m.score.home}-${m.score.away}` : 'vs', W / 2, cy + crestS / 2 + (story ? 46 : busy ? 28 : 42));
+  x.font = `800 ${L.score}px ${FONT}`;
+  x.fillText(started ? `${m.score.home}-${m.score.away}` : 'vs', W / 2, cy + L.crest / 2 + L.scoreOff);
   x.fillStyle = m.status === 'FT' ? C.muted : '#ff8994';
-  x.font = `700 ${story ? 34 : busy ? 24 : 28}px ${FONT}`;
-  x.fillText(m.status === 'FT' ? 'MAÇ SONU' : m.status === 'HT' ? 'DEVRE ARASI' : m.status === 'LIVE' ? `CANLI ${m.minute ?? ''}'` : '', W / 2, cy + crestS / 2 + (story ? 110 : busy ? 70 : 100));
-  y += boxH + (story ? (busy ? 40 : 70) : busy ? 22 : 40);
+  x.font = `700 ${L.st}px ${FONT}`;
+  x.fillText(m.status === 'FT' ? 'MAÇ SONU' : m.status === 'HT' ? 'DEVRE ARASI' : m.status === 'LIVE' ? `CANLI ${m.minute ?? ''}'` : '', W / 2, cy + L.crest / 2 + L.stOff);
+  y += L.box + L.after;
 
-  // işlem bölümleri: sığana kadar yazı küçülür ve bölüm başına satır azalır
-  const footY = H - (story ? 170 : 60);
-  const room = footY - (story ? 90 : 62) - y;
-  const gap = story ? 18 : 12;
-  const textW = W - 120 - 200;
+  // işlem bölümleri tek panelde: önce yazı küçülür, en son bölüm başına satır azalır (kalanlar "+N" olur)
+  const footY = H - (story ? (dense ? 140 : 170) : 60);
+  const room = footY - (story ? 80 : 56) - y;
+  const textW = W - 120 - 72;
+  const PLANS = [[1, 6], [0.92, 6], [0.85, 6], [0.8, 5], [0.75, 5], [0.72, 4], [0.68, 4], [0.66, 3], [0.62, 3], [0.6, 2], [0.56, 2], [0.56, 1], [0.5, 1]];
   let plan = null;
-  for (const [scale, maxLines] of [[1, 5], [1, 4], [0.92, 4], [0.92, 3], [0.85, 3], [0.85, 2], [0.78, 2], [0.72, 2], [0.78, 1], [0.72, 1], [0.66, 1], [0.6, 1]]) {
+  for (const [scale, maxLines] of PLANS) {
     const f = (n) => Math.round(n * scale * (story ? 1 : 0.86));
-    const sz = { label: f(28), big: f(44), line: f(32), lh: f(42), pad: f(24), icon: f(64) };
-    let total = 0;
+    const sz = { label: f(27), big: f(42), line: f(31), lh: f(41), icon: f(40), head: f(46), sep: f(30), pad: f(30) };
     const laid = secs.map((sc) => {
       x.font = `${sc.big ? 800 : 600} ${sc.big ? sz.big : sz.line}px ${FONT}`;
       let rows = [];
       if (sc.joined) rows = wrap(x, sc.lines[0], textW, maxLines);
-      else {
+      else
         for (const [i, l] of sc.lines.entries()) {
           const cap = maxLines - rows.length;
           const left = sc.lines.length - i;
@@ -216,44 +227,59 @@ async function drawCard(canvas, card, format) {
           }
           rows.push(...wrap(x, l, textW, Math.min(2, left > 1 ? cap - 1 : cap)));
         }
-      }
-      const hgt = sz.pad * 2 + sz.label + 10 + rows.length * (sc.big ? sz.big * 1.2 : sz.lh);
-      total += hgt + gap;
-      return { sc, rows, hgt };
+      return { sc, rows, hgt: sz.head + rows.length * (sc.big ? sz.big * 1.25 : sz.lh) };
     });
-    plan = { sz, laid };
-    if (total - gap <= room) break;
+    const total = sz.pad * 2 + laid.reduce((n, l) => n + l.hgt, 0) + sz.sep * (laid.length - 1);
+    plan = { sz, laid, total };
+    if (total <= room) break;
   }
-  // hâlâ sığmıyorsa sondaki bölümler düşer
-  let used = 0;
-  const shown = plan.laid.filter((l) => (used += l.hgt + gap) - gap <= room);
   const { sz } = plan;
-  for (const { sc, rows, hgt } of shown) {
-    roundRect(x, 60, y, W - 120, hgt, 28);
-    x.fillStyle = 'rgba(25,33,45,0.9)';
-    x.fill();
+  // en küçük planda bile sığmıyorsa sondaki bölümler düşer
+  let laid = plan.laid;
+  let total = plan.total;
+  while (total > room && laid.length > 1) {
+    total -= laid[laid.length - 1].hgt + sz.sep;
+    laid = laid.slice(0, -1);
+  }
+  roundRect(x, 60, y, W - 120, total, 32);
+  x.fillStyle = 'rgba(22,29,40,0.92)';
+  x.fill();
+  x.strokeStyle = C.border;
+  x.lineWidth = 2;
+  x.stroke();
+  let ty = y + sz.pad;
+  laid.forEach(({ sc, rows, hgt }, i) => {
+    if (i) {
+      x.strokeStyle = 'rgba(141,154,171,0.18)';
+      x.lineWidth = 2;
+      x.beginPath();
+      x.moveTo(96, ty + sz.sep / 2);
+      x.lineTo(W - 96, ty + sz.sep / 2);
+      x.stroke();
+      ty += sz.sep;
+    }
+    const top = ty;
+    // başlık satırı: ikon + etiket
     x.textAlign = 'left';
-    const ix = 92;
-    const iy = y + (hgt - sz.icon) / 2;
+    const iy = top + (sz.head - sz.icon) / 2 - sz.icon * 0.12;
     if (typeof sc.icon === 'string') {
-      x.font = `${Math.round(sz.icon * 0.8)}px ${FONT}`;
+      x.font = `${Math.round(sz.icon * 0.82)}px ${FONT}`;
       x.fillStyle = C.text;
-      x.fillText(sc.icon, ix, iy + sz.icon * 0.78);
-    } else x.drawImage(sc.icon, ix, iy, sz.icon, sz.icon);
-    const tx = 92 + sz.icon + 32;
-    let ty = y + sz.pad + sz.label;
+      x.fillText(sc.icon, 96, iy + sz.icon * 0.8);
+    } else x.drawImage(sc.icon, 96, iy, sz.icon, sz.icon);
     x.fillStyle = C.muted;
-    x.font = `600 ${sz.label}px ${FONT}`;
-    x.fillText(fit(x, sc.label, textW), tx, ty);
-    ty += 10;
+    x.font = `700 ${sz.label}px ${FONT}`;
+    x.fillText(fit(x, sc.label.toLocaleUpperCase('tr-TR'), textW - sz.icon - 16), 96 + sz.icon + 16, top + sz.head / 2 + sz.label * 0.25);
+    let ry = top + sz.head;
     x.fillStyle = sc.color || C.text;
     x.font = `${sc.big ? 800 : 600} ${sc.big ? sz.big : sz.line}px ${FONT}`;
     for (const r of rows) {
-      ty += sc.big ? sz.big * 1.2 : sz.lh;
-      x.fillText(r, tx, ty - (sc.big ? sz.big * 0.22 : sz.lh * 0.25));
+      const rh = sc.big ? sz.big * 1.25 : sz.lh;
+      x.fillText(r, 96, ry + rh * 0.72);
+      ry += rh;
     }
-    y += hgt + gap;
-  }
+    ty = top + hgt;
+  });
 
   // taraftar imzası
   x.textAlign = 'center';
