@@ -636,14 +636,6 @@ export function renderMatch(root, matchId) {
         const m = s.match;
         if (!m.lineups) return mount(el, h('div.card', {}, h('p.muted', {}, 'Kadrolar açıklanınca oyuncuları puanlayabileceksin.')));
         const locked = m.status === 'SCHEDULED' || m.status === 'POSTPONED';
-        const teamAvg = (side) => {
-          const ids = played(m, side).map((p) => p.id);
-          const rs = ids.map((id) => s.fan?.ratings[id]).filter(Boolean);
-          const votes = rs.reduce((a, r) => a + r.count, 0);
-          return votes ? rs.reduce((a, r) => a + r.avg * r.count, 0) / votes : null;
-        };
-        const ha = teamAvg('home');
-        const aa = teamAvg('away');
         const best = topRated(1)[0];
         const cs = s.side.community;
         const starters = new Set(m.lineups[cs].startXI.map((p) => p.id));
@@ -659,12 +651,6 @@ export function renderMatch(root, matchId) {
               h('button.btn.sm', { onclick: openCard }, '📤 Paylaş'),
             ),
           best ? motm(best) : null,
-          h(
-            'div.team-avg',
-            {},
-            h('div', {}, h('span.muted.small', {}, `${m.home.short} taraftar ortalaması`), h('b', {}, ha != null ? ha.toFixed(1) : '–')),
-            h('div', {}, h('span.muted.small', {}, `${m.away.short} taraftar ortalaması`), h('b', {}, aa != null ? aa.toFixed(1) : '–')),
-          ),
           h(
             'div.card',
             {},
