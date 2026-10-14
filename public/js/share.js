@@ -1,4 +1,4 @@
-// Paylaşılabilir taraftar kartı: tarayıcıda tuvale çizilir (hikâye 1080x1920, kare 1080x1080).
+// Paylaşılabilir taraftar kartı: tarayıcıda tuvale çizilir (hikâye 1080x1920, kare 1080x1080); puanlar fotoğraflı kutularla.
 import { h, toast, openSheet, colorFor, crestUrl, roundText } from './util.js';
 
 const FONT = 'system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif';
