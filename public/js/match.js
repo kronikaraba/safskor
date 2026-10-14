@@ -1005,7 +1005,13 @@ export function renderMatch(root, matchId) {
               'div.score-pick',
               { role: 'radiogroup', 'aria-label': '0 ile 10 arası puan' },
               Array.from({ length: 11 }, (_, i) =>
-                h('button', { class: mine === i ? 'on' : '', role: 'radio', 'aria-checked': String(mine === i), onclick: () => send('rating:set', { playerId: p.id, score: i }) }, i),
+                h('button', { class: mine === i ? 'on' : '', role: 'radio', 'aria-checked': String(mine === i), onclick: async () => {
+                    // puan kaydedilince kart kapanır, kadroya dönülür
+                    if ((await send('rating:set', { playerId: p.id, score: i }))?.ok) {
+                      toast(`${fresh.name}: ${i} puan verdin`);
+                      close();
+                    }
+                  } }, i),
               ),
             ),
         h('div.cm-head', {}, h('b', {}, 'Yorumlar'), h('span.muted.small', {}, ` · ${commentCount(target)}`)),
