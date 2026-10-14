@@ -255,6 +255,23 @@ export function renderMatch(root, matchId) {
     );
   };
 
+  // taktik ve değişiklik formlarında hangi takım için öneri yapıldığı: armalı, tam genişlik, başlığın üstünde
+  const teamPick = (key, onChange) => {
+    const m = s.match;
+    return h(
+      'div.team-pick',
+      { role: 'tablist', 'aria-label': 'Takım seç' },
+      ['home', 'away'].map((side) =>
+        h(
+          'button',
+          { type: 'button', role: 'tab', 'aria-selected': String(s.side[key] === side), class: s.side[key] === side ? 'active' : '', onclick: () => ((s.side[key] = side), onChange()) },
+          crest(m[side], 'sm'),
+          h('span', {}, m[side].name),
+        ),
+      ),
+    );
+  };
+
   // --- Özet: olay akışı + istatistikler
   function Summary() {
     const el = h('div.stack');
@@ -696,7 +713,8 @@ export function renderMatch(root, matchId) {
       if (m.status === 'FT')
         return mount(
           formCard,
-          h('h3', {}, h('span.h-ic', {}, icon('taktik-oner'), 'Taktik önerin'), sideToggle('tactics', () => (drawForm(), drawResults()))),
+          teamPick('tactics', () => (drawForm(), drawResults())),
+        h('h3', {}, h('span.h-ic', {}, icon('taktik-oner'), 'Taktik önerin')),
           h('p.muted', { style: { margin: 0 } }, prev ? `Maç bitti. Önerin: ${prev.formation} · ${prev.style}. Sonuçlar aşağıda.` : 'Maç bitti; taktik önerileri kapandı. Sonuçlar aşağıda.'),
         );
       const d = (s.tacticDraft[side] ??= { formation: prev?.formation ?? m.lineups?.[side]?.formation ?? '4-3-3', style: prev?.style ?? 'Dengeli', note: prev?.note ?? '' });
@@ -712,7 +730,8 @@ export function renderMatch(root, matchId) {
         );
       mount(
         formCard,
-        h('h3', {}, h('span.h-ic', {}, icon('taktik-oner'), 'Taktik önerin'), sideToggle('tactics', () => (drawForm(), drawResults()))),
+        teamPick('tactics', () => (drawForm(), drawResults())),
+        h('h3', {}, h('span.h-ic', {}, icon('taktik-oner'), 'Taktik önerin')),
         h(
           'form.form',
           {
@@ -800,7 +819,8 @@ export function renderMatch(root, matchId) {
       };
       mount(
         formCard,
-        h('h3', {}, h('span.h-ic', {}, icon('degisiklik-talebi'), 'Değişiklik talep et'), sideToggle('subs', () => ((draft.out = draft.in = ''), drawForm(), drawResults()))),
+        teamPick('subs', () => ((draft.out = draft.in = ''), drawForm(), drawResults())),
+        h('h3', {}, h('span.h-ic', {}, icon('degisiklik-talebi'), 'Değişiklik talep et')),
         !open
           ? h('p.muted', {}, m.status === 'FT' ? 'Maç bitti; talepler aşağıda arşivlendi.' : 'Değişiklik talepleri maç başlayınca açılır.')
           : h(

@@ -805,3 +805,14 @@ a.tp-row:hover { background: var(--surface-3); }
 .tp-score { font-weight: 800; font-variant-numeric: tabular-nums; }
 .card h3 .nw, .poll-q .nw { white-space: nowrap; flex: none; }
 .poll.closed .poll-opt { cursor: default; }
+
+/* taktik/değişiklik formunda takım seçici: armalı, iki eşit büyük düğme */
+.team-pick { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 14px; }
+.team-pick button { display: flex; align-items: center; justify-content: center; gap: 10px; min-height: 52px; padding: 8px 12px; border-radius: 12px; border: 2px solid var(--border); background: var(--surface-2, #1a2230); color: var(--muted); font: inherit; font-weight: 700; font-size: 15px; cursor: pointer; }
+.team-pick button span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.team-pick button .crest { flex: none; }
+.team-pick button.active { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 16%, transparent); color: var(--text); }
+.team-pick button:not(.active) .crest { opacity: .6; }
+.team-pick button .crest { width: 30px; height: 30px; font-size: 10px; }
+.team-pick button .crest img { width: 100%; height: 100%; object-fit: contain; }
+@media (min-width: 641px) { .team-pick button { min-height: 58px; font-size: 16px; } .team-pick button .crest { width: 34px; height: 34px; } }
