@@ -61,14 +61,20 @@ async function share(canvas, card) {
   toast('Kart indirildi');
 }
 
-/** Kullanıcının işlemlerinden kart bölümleri: { icon, label, color, lines, joined } */
+/** Kullanıcının işlemlerinden kart bölümleri: { icon, label, color, lines } ya da puanlar için { tiles } */
 function sections(card, img) {
   const a = card.activity ?? {};
   const out = [];
   const ratings = a.ratings ?? [];
+  // en yüksek puanlı oyuncu "maçın adamım" olarak ilk kutuda, altın çerçeveyle
   const best = ratings.find((r) => !r.coach);
-  if (best) out.push({ icon: img.trophy || '🏆', label: 'Maçın adamım', color: C.gold, big: true, lines: [`${best.name} · ${best.score}`] });
-  if (ratings.length) out.push({ icon: img.rate || '⭐', label: `Puanlarım · ${ratings.length} kişi`, joined: true, lines: [ratings.map((r) => `${r.coach ? 'TD ' : ''}${r.name} ${r.score}`).join(' · ')] });
+  if (ratings.length)
+    out.push({
+      icon: img.rate || '⭐',
+      label: ratings.length > 1 ? 'Verdiğim puanlar' : 'Verdiğim puan',
+      lines: [],
+      tiles: [best, ...ratings.filter((r) => r !== best)].filter(Boolean).map((r) => ({ ...r, star: r === best })),
+    });
   const p = a.prediction;
   if (p) {
     const pts = p.points != null ? ` · ${p.points} puan` : '';
@@ -135,8 +141,11 @@ async function drawCard(canvas, card, format) {
     loadImg('/img/icons/anketler.png'),
   ]);
   const secs = sections(card, { trophy, rate, tactic, sub, poll });
+  await Promise.all(secs.flatMap((sc) => (sc.tiles ?? []).slice(0, 12).map(async (t) => (t.img = await loadImg(t.photo)))));
   const story = format === 'story';
-  const nLines = secs.reduce((n, sc) => n + sc.lines.length, 0);
+  // puan kutularının her sırası bir satır sayılır (tam genişlik kutular bir buçuk), başlıkla birlikte
+  const tileRows = (n) => (n > 3 ? Math.ceil(n / 2) : n * 1.5);
+  const nLines = secs.reduce((n, sc) => n + (sc.tiles ? tileRows(sc.tiles.length) + 1 : sc.lines.length), 0);
   // çok işlem varsa üst kısım sıkışır, bölümlere yer açılır; hikâyede çok kalabalıksa tabela en kısa hâline iner
   const busy = nLines > 3;
   const dense = story && nLines > 8;
@@ -205,28 +214,43 @@ async function drawCard(canvas, card, format) {
   const footY = H - (story ? (dense ? 140 : 170) : 60);
   const room = footY - (story ? 80 : 56) - y;
   const textW = W - 120 - 72;
-  const PLANS = [[1, 6], [0.92, 6], [0.85, 6], [0.8, 5], [0.75, 5], [0.72, 4], [0.68, 4], [0.66, 3], [0.62, 3], [0.6, 2], [0.56, 2], [0.56, 1], [0.5, 1]];
+  // az işlem varsa yazılar ve kutular büyür, kart boş görünmez
+  const PLANS = [[1.45, 6], [1.3, 6], [1.15, 6], [1, 6], [0.92, 6], [0.85, 6], [0.8, 5], [0.75, 5], [0.72, 4], [0.68, 4], [0.66, 3], [0.62, 3], [0.6, 2], [0.56, 2], [0.56, 1], [0.5, 1]];
   let plan = null;
   for (const [scale, maxLines] of PLANS) {
     const f = (n) => Math.round(n * scale * (story ? 1 : 0.86));
-    const sz = { label: f(27), big: f(42), line: f(31), lh: f(41), icon: f(40), head: f(46), sep: f(30), pad: f(30) };
+    const sz = { label: f(27), big: f(42), line: f(31), lh: f(41), icon: f(40), head: f(46), sep: f(30), pad: f(30), gap: f(16), tgap: f(10) };
     const laid = secs.map((sc) => {
+      if (sc.tiles) {
+        // tek puan ve kartta başka şey yoksa hikâyede ortalanmış büyük kutu; 1-3 puan tam genişlik;
+        // daha fazlası iki sütun (isimler sığsın diye kutular fazla büyümez), sığmayanlar son kutuda "+N"
+        const n = sc.tiles.length;
+        const cols = n > 3 ? 2 : 1;
+        const ft = (v) => Math.round(v * Math.min(scale, cols === 2 ? 1.1 : 1.45) * (story ? 1 : 0.86));
+        const t =
+          story && n === 1 && secs.length === 1
+            ? { hero: true, th: ft(500), pd: ft(170), name: ft(52), sub: ft(30), bw: ft(180), bh: ft(110), score: ft(76) }
+            : cols === 1
+              ? { th: ft(128), pd: ft(96), name: ft(40), sub: ft(26), bw: ft(116), score: ft(60) }
+              : { th: ft(96), pd: ft(60), name: ft(30), sub: ft(22), bw: ft(72), score: ft(42) };
+        const rows = cols === 1 ? n : Math.min(Math.ceil(n / 2), maxLines);
+        const shown = n > rows * cols ? sc.tiles.slice(0, rows * cols - 1) : sc.tiles;
+        return { sc, grid: { ...t, cols, rows, shown, more: n - shown.length }, hgt: sz.head + sz.tgap + rows * t.th + (rows - 1) * sz.gap };
+      }
       x.font = `${sc.big ? 800 : 600} ${sc.big ? sz.big : sz.line}px ${FONT}`;
-      let rows = [];
-      if (sc.joined) rows = wrap(x, sc.lines[0], textW, maxLines);
-      else
-        for (const [i, l] of sc.lines.entries()) {
-          const cap = maxLines - rows.length;
-          const left = sc.lines.length - i;
-          if (cap <= 0) break;
-          // son satır ve hâlâ girdi var: bu girdinin sonuna kalanların sayısı eklenir ("… +2")
-          if (cap === 1 && left > 1) {
-            const more = `  +${left - 1}`;
-            rows.push(fit(x, l, textW - x.measureText(more).width) + more);
-            break;
-          }
-          rows.push(...wrap(x, l, textW, Math.min(2, left > 1 ? cap - 1 : cap)));
+      const rows = [];
+      for (const [i, l] of sc.lines.entries()) {
+        const cap = maxLines - rows.length;
+        const left = sc.lines.length - i;
+        if (cap <= 0) break;
+        // son satır ve hâlâ girdi var: bu girdinin sonuna kalanların sayısı eklenir ("… +2")
+        if (cap === 1 && left > 1) {
+          const more = `  +${left - 1}`;
+          rows.push(fit(x, l, textW - x.measureText(more).width) + more);
+          break;
         }
+        rows.push(...wrap(x, l, textW, Math.min(2, left > 1 ? cap - 1 : cap)));
+      }
       return { sc, rows, hgt: sz.head + rows.length * (sc.big ? sz.big * 1.25 : sz.lh) };
     });
     const total = sz.pad * 2 + laid.reduce((n, l) => n + l.hgt, 0) + sz.sep * (laid.length - 1);
@@ -241,6 +265,8 @@ async function drawCard(canvas, card, format) {
     total -= laid[laid.length - 1].hgt + sz.sep;
     laid = laid.slice(0, -1);
   }
+  // panel boş alanın ortasına yakın durur
+  y += Math.max(0, Math.round((room - total) * 0.42));
   roundRect(x, 60, y, W - 120, total, 32);
   x.fillStyle = 'rgba(22,29,40,0.92)';
   x.fill();
@@ -248,7 +274,7 @@ async function drawCard(canvas, card, format) {
   x.lineWidth = 2;
   x.stroke();
   let ty = y + sz.pad;
-  laid.forEach(({ sc, rows, hgt }, i) => {
+  laid.forEach(({ sc, rows, grid, hgt }, i) => {
     if (i) {
       x.strokeStyle = 'rgba(141,154,171,0.18)';
       x.lineWidth = 2;
@@ -271,6 +297,13 @@ async function drawCard(canvas, card, format) {
     x.font = `700 ${sz.label}px ${FONT}`;
     x.fillText(fit(x, sc.label.toLocaleUpperCase('tr-TR'), textW - sz.icon - 16), 96 + sz.icon + 16, top + sz.head / 2 + sz.label * 0.25);
     let ry = top + sz.head;
+    if (grid) {
+      const tw = (textW - sz.gap * (grid.cols - 1)) / grid.cols;
+      const items = grid.more ? [...grid.shown, null] : grid.shown;
+      items.forEach((t, k) => drawTile(x, t, 96 + (k % grid.cols) * (tw + sz.gap), ry + sz.tgap + Math.floor(k / grid.cols) * (grid.th + sz.gap), tw, grid, trophy));
+      ty = top + hgt;
+      return;
+    }
     x.fillStyle = sc.color || C.text;
     x.font = `${sc.big ? 800 : 600} ${sc.big ? sz.big : sz.line}px ${FONT}`;
     for (const r of rows) {
@@ -303,6 +336,119 @@ async function drawCard(canvas, card, format) {
   x.fillStyle = C.muted;
   x.font = `500 ${story ? 30 : 24}px ${FONT}`;
   x.fillText(location.host || 'safskor', W / 2, footY + (story ? 60 : 40));
+}
+
+const scoreText = (s) => (Number.isInteger(s) ? String(s) : Number(s).toFixed(1));
+/** sitedeki puan renkleriyle aynı eşikler (yüksek yeşil, orta sarı, düşük kırmızı), paylaşım için daha canlı */
+const scoreColor = (s) => (s >= 7.5 ? '#1f9d58' : s >= 6.5 ? '#b38b12' : s < 6 ? '#c8353e' : '#4a5870');
+
+/** Tek puan kutusu: fotoğraf (yoksa numara/baş harfler), isim, alt satır, sağda renkli puan; t null ise "+N" kutusu */
+function drawTile(x, t, l, top, w, g, trophy) {
+  const th = g.th;
+  const pad = (th - g.pd) / 2;
+  roundRect(x, l, top, w, th, Math.round(th * 0.22));
+  x.fillStyle = t?.star ? 'rgba(255,197,66,0.08)' : 'rgba(255,255,255,0.045)';
+  x.fill();
+  x.strokeStyle = t?.star ? C.gold : 'rgba(141,154,171,0.25)';
+  x.lineWidth = t?.star ? 3 : 2;
+  x.stroke();
+  if (!t) {
+    x.textAlign = 'center';
+    x.fillStyle = C.muted;
+    x.font = `800 ${g.score}px ${FONT}`;
+    x.fillText(`+${g.more}`, l + w / 2, top + th / 2 + g.score * 0.36);
+    return;
+  }
+  const sub = t.star ? 'Maçın adamım' : t.coach ? 'Teknik direktör' : [t.team, t.number != null && `#${t.number}`].filter(Boolean).join(' · ');
+  const subFull = (t.star || t.coach) && t.team ? `${sub} · ${t.team}` : sub;
+  if (g.hero) {
+    // ortalanmış büyük kutu: fotoğraf, isim, alt satır, altta büyük puan
+    const cx = l + w / 2;
+    let y = top + (th - (g.pd + g.name * 1.25 + g.sub * 2.9 + g.bh)) / 2;
+    face(x, t, cx, y + g.pd / 2, g.pd);
+    y += g.pd + g.name * 1.25;
+    x.textAlign = 'center';
+    x.fillStyle = C.text;
+    x.font = `800 ${g.name}px ${FONT}`;
+    x.fillText(fit(x, t.name, w - 80), cx, y);
+    y += g.sub * 1.5;
+    x.fillStyle = t.star ? C.gold : C.muted;
+    x.font = `600 ${g.sub}px ${FONT}`;
+    x.fillText(fit(x, subFull, w - 80), cx, y);
+    y += g.sub * 1.4;
+    roundRect(x, cx - g.bw / 2, y, g.bw, g.bh, Math.round(g.bh * 0.28));
+    x.fillStyle = scoreColor(t.score);
+    x.fill();
+    x.fillStyle = '#fff';
+    x.font = `800 ${g.score}px ${FONT}`;
+    x.fillText(scoreText(t.score), cx, y + g.bh / 2 + g.score * 0.36);
+    return;
+  }
+  const cx = l + pad + g.pd / 2;
+  const cy = top + th / 2;
+  face(x, t, cx, cy, g.pd);
+  // puan rozeti
+  const bh = th - pad * 1.2;
+  const bx = l + w - pad * 0.6 - g.bw;
+  roundRect(x, bx, top + (th - bh) / 2, g.bw, bh, Math.round(bh * 0.26));
+  x.fillStyle = scoreColor(t.score);
+  x.fill();
+  x.fillStyle = '#fff';
+  x.textAlign = 'center';
+  x.font = `800 ${g.score}px ${FONT}`;
+  x.fillText(scoreText(t.score), bx + g.bw / 2, cy + g.score * 0.36);
+  // isim ve alt satır
+  const tx = cx + g.pd / 2 + pad * 0.7;
+  const tw = bx - tx - pad * 0.5;
+  const block = g.name + g.sub * 1.25;
+  const nameY = cy - block / 2 + g.name * 0.8;
+  const subY = nameY + g.sub * 1.4;
+  x.textAlign = 'left';
+  x.fillStyle = C.text;
+  x.font = `800 ${g.name}px ${FONT}`;
+  x.fillText(fit(x, t.name, tw), tx, nameY);
+  x.font = `600 ${g.sub}px ${FONT}`;
+  let sx = tx;
+  if (t.star && trophy) {
+    const s = Math.round(g.sub * 1.15);
+    x.drawImage(trophy, sx, subY - s * 0.85, s, s);
+    sx += s + 8;
+  }
+  x.fillStyle = t.star ? C.gold : C.muted;
+  // dar kutuda takım kısaltması sığmazsa yalnızca "Maçın adamım"
+  const room = tw - (sx - tx);
+  x.fillText(fit(x, x.measureText(subFull).width <= room ? subFull : sub, room), sx, subY);
+}
+
+/** açık renk zemin (ör. sarı) üstünde yazı koyu olsun; yalnızca #rrggbb renkler, colorFor zaten orta tonda */
+function light(c) {
+  const m = /^#([0-9a-f]{6})$/i.exec(c);
+  if (!m) return false;
+  const n = parseInt(m[1], 16);
+  return 0.299 * (n >> 16) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255) > 170;
+}
+
+/** Yuvarlak fotoğraf; yoksa takım renginde daire içinde forma numarası (teknik direktörde baş harfler) */
+function face(x, t, cx, cy, pd) {
+  x.save();
+  x.beginPath();
+  x.arc(cx, cy, pd / 2, 0, Math.PI * 2);
+  x.closePath();
+  const bg = t.img ? '#1b2431' : t.color || colorFor(t.team || t.name);
+  x.fillStyle = bg;
+  x.fill();
+  x.clip();
+  if (t.img) {
+    const r = Math.max(pd / t.img.width, pd / t.img.height);
+    x.drawImage(t.img, cx - (t.img.width * r) / 2, cy - (t.img.height * r) / 2, t.img.width * r, t.img.height * r);
+  } else {
+    const init = t.coach || t.number == null ? t.name.split(/[\s.]+/).filter(Boolean).map((w) => w[0]).slice(0, 2).join('').toLocaleUpperCase('tr-TR') : String(t.number);
+    x.fillStyle = light(bg) ? '#10161f' : '#fff';
+    x.textAlign = 'center';
+    x.font = `800 ${Math.round(pd * 0.4)}px ${FONT}`;
+    x.fillText(init, cx, cy + pd * 0.14);
+  }
+  x.restore();
 }
 
 function drawCrest(x, img, team, cx, cy, size) {

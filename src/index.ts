@@ -70,11 +70,11 @@ const BIG4 = [
 const clubsPayload = () =>
   BIG4.map(([id, demo]) => ({ ...pickable.get(id)!, ids: [id, demo], ...(matches.clubFixtures(id) ?? { next: null, last: null }) }));
 
-// Paylaşım kartı tuvale arma çizebilsin diye API-Football armalarını aynı kökenden sun (yalnızca media.api-sports.io)
+// Paylaşım kartı tuvale arma ve oyuncu/teknik direktör fotoğrafı çizebilsin diye API-Football görsellerini aynı kökenden sun (yalnızca media.api-sports.io)
 const crestCache = new Map<string, { type: string; body: Buffer }>();
 app.get('/img/crest/:kind/:file', async (req, res) => {
   const { kind, file } = req.params;
-  if (!/^(teams|leagues)$/.test(kind) || !/^\d{1,9}\.png$/.test(file)) return res.status(404).end();
+  if (!/^(teams|leagues|players|coachs)$/.test(kind) || !/^\d{1,9}\.png$/.test(file)) return res.status(404).end();
   const key = `${kind}/${file}`;
   let hit = crestCache.get(key);
   if (!hit) {
@@ -669,13 +669,20 @@ io.on('connection', (socket: Socket) => {
     const m = await context(a);
     if (!m) return;
     const act = store.activity(m.id, data.userId);
-    const coaches = (['home', 'away'] as Side[]).flatMap((side) => (m.lineups?.[side].coach ? [{ id: `coach:${side}`, name: m.lineups[side].coach! }] : []));
-    const people = new Map([...allPlayers(m), ...coaches].map((p) => [p.id, p.name]));
+    // kartta puan kutuları için: isim, takım, forma numarası ve aynı kökenden fotoğraf
+    const people = new Map<string, { name: string; side: Side; number?: number; photo?: string }>();
+    for (const side of ['home', 'away'] as Side[]) {
+      const l = m.lineups?.[side];
+      if (!l) continue;
+      for (const p of [...l.startXI, ...l.subs]) people.set(p.id, { name: p.name, side, number: p.number, photo: /^\d+$/.test(p.id) ? `/img/crest/players/${p.id}.png` : undefined });
+      const cp = /media(?:-\d+)?\.api-sports\.io\/football\/coachs\/(\d+)\.png$/.exec(l.coachPhoto ?? '');
+      if (l.coach) people.set(`coach:${side}`, { name: l.coach, side, photo: cp ? `/img/crest/coachs/${cp[1]}.png` : undefined });
+    }
     const events = new Map(m.events.map((e) => [e.id, e]));
     const EV: Partial<Record<MatchEvent['type'], string>> = { goal: 'Gol', penalty: 'Penaltı golü', own_goal: 'Kendi kalesine gol', missed_penalty: 'Kaçan penaltı', yellow: 'Sarı kart', red: 'Kırmızı kart', sub: 'Değişiklik', var: 'VAR' };
     const about = (target: string) => {
       const id = target.slice(2);
-      if (target.startsWith('p:')) return people.get(id) ?? 'Oyuncu';
+      if (target.startsWith('p:')) return people.get(id)?.name ?? 'Oyuncu';
       const e = events.get(id);
       return e ? `${e.minute}' ${EV[e.type] ?? 'Olay'}${e.player ? ` · ${e.player}` : ''}` : 'Maç olayı';
     };
@@ -683,7 +690,11 @@ io.on('connection', (socket: Socket) => {
       ok: true,
       ratings: Object.entries(act.ratings)
         .filter(([id]) => people.has(id))
-        .map(([id, score]) => ({ name: people.get(id)!, score, coach: id.startsWith('coach:') }))
+        .map(([id, score]) => {
+          const p = people.get(id)!;
+          const t = m[p.side];
+          return { name: p.name, score, coach: id.startsWith('coach:'), number: p.number, photo: p.photo, team: t.short, color: t.color };
+        })
         .sort((x, y) => y.score - x.score),
       prediction: act.prediction,
       tactics: (['home', 'away'] as Side[]).flatMap((side) => (act.tactics[side] ? [{ team: m[side].short, ...act.tactics[side]! }] : [])),
