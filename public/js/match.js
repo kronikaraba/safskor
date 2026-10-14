@@ -156,7 +156,7 @@ export function renderMatch(root, matchId) {
     const scorers = (side) =>
       m.events
         .filter((e) => e.side === side && ['goal', 'penalty', 'own_goal'].includes(e.type))
-        .map((e) => `${e.player ?? ''} ${e.minute}'${e.type === 'penalty' ? ' (P)' : e.type === 'own_goal' ? ' (KK)' : ''}`);
+        .map((e) => `${e.player ?? ''} ${e.minute}'${e.type === 'penalty' ? '\u00a0(P)' : e.type === 'own_goal' ? '\u00a0(KK)' : ''}`);
     const board_ = h(
       'section.scoreboard',
       { '--hc': m.home.color || 'transparent', '--ac': m.away.color || 'transparent' },
@@ -418,6 +418,8 @@ export function renderMatch(root, matchId) {
       const m = s.match;
       const st = s.fan?.predictions;
       const pct = (n) => (st.total ? Math.round((n / st.total) * 100) : 0);
+      // tahmin kapandıysa ve kimse tahmin yapmadıysa boş kart gösterme
+      if (!st?.total && !isOpen()) return mount(extra);
       mount(
         extra,
         st?.total
@@ -431,7 +433,7 @@ export function renderMatch(root, matchId) {
               h('div.muted.small', { style: { marginTop: '12px' } }, 'En çok tahmin edilen skorlar'),
               h('div.pick', {}, st.top.map((x) => h('span.chip', {}, `${x.home}-${x.away} · ${x.count}`))),
             )
-          : h('div.card', {}, h('p.muted', { style: { margin: 0 } }, isOpen() ? 'Henüz kimse tahmin yapmadı. İlk sen ol!' : 'Bu maçta kimse tahmin yapmadı.')),
+          : h('div.card', {}, h('p.muted', { style: { margin: 0 } }, 'Henüz kimse tahmin yapmadı. İlk sen ol!')),
       );
     };
     mount(el, main, extra);
@@ -675,7 +677,7 @@ export function renderMatch(root, matchId) {
       { style: { cursor: 'pointer' }, onclick: () => openPlayer(p, side), tabindex: 0, onkeydown: (e) => e.key === 'Enter' && openPlayer(p, side) },
       h('span.pface', { class: playerPhoto(p) ? 'has-face' : '' }, face(p)),
       h('span.pn', {}, p.name, h('small', {}, `${POS_TR[p.pos] ?? ''}${mine != null ? ` · Senin puanın: ${mine}` : ''}`)),
-      ratingPill(p.stats?.rating),
+      p.pos === 'C' ? null : ratingPill(p.stats?.rating),
       h('span', { style: { display: 'flex', flexDirection: 'column', alignItems: 'center' } }, ratingPill(fan?.avg, 'fan'), h('small.muted', { style: { fontSize: '10.5px' } }, fan ? `${fan.count} oy` : '')),
     );
   }
@@ -685,10 +687,18 @@ export function renderMatch(root, matchId) {
     const el = h('div.stack');
     const formCard = h('div.card');
     const results = h('div.stack');
+    let formKey = '';
     const drawForm = () => {
       const m = s.match;
       const side = s.side.tactics;
       const prev = s.mine?.tactics?.[side];
+      formKey = `${side}|${m.status === 'FT'}|${Boolean(prev)}`;
+      if (m.status === 'FT')
+        return mount(
+          formCard,
+          h('h3', {}, h('span.h-ic', {}, icon('taktik-oner'), 'Taktik önerin'), sideToggle('tactics', () => (drawForm(), drawResults()))),
+          h('p.muted', { style: { margin: 0 } }, prev ? `Maç bitti. Önerin: ${prev.formation} · ${prev.style}. Sonuçlar aşağıda.` : 'Maç bitti; taktik önerileri kapandı. Sonuçlar aşağıda.'),
+        );
       const d = (s.tacticDraft[side] ??= { formation: prev?.formation ?? m.lineups?.[side]?.formation ?? '4-3-3', style: prev?.style ?? 'Dengeli', note: prev?.note ?? '' });
       if (!s.meta.formations.includes(d.formation)) d.formation = s.meta.formations[0];
       const note = h('textarea.input', { rows: 2, maxlength: 200, placeholder: 'Örn: Sol kanattan bindirme yapılmalı, 10 numara daha önde oynamalı…' });
@@ -708,8 +718,9 @@ export function renderMatch(root, matchId) {
           {
             onsubmit: async (e) => {
               e.preventDefault();
+              const had = Boolean(s.mine?.tactics?.[side]);
               const r = await send('tactic:submit', { side, formation: d.formation, style: d.style, note: d.note });
-              if (r?.ok) toast(prev ? 'Önerin güncellendi' : 'Önerin taraftar anketine eklendi');
+              if (r?.ok) toast(had ? 'Önerin güncellendi' : 'Önerin taraftar anketine eklendi');
             },
           },
           h('label', {}, `Diziliş${m.lineups?.[side]?.formation ? ` (sahada: ${m.lineups[side].formation})` : ''}`, pickRow(s.meta.formations, 'formation')),
@@ -730,7 +741,7 @@ export function renderMatch(root, matchId) {
         h(
           'div.card',
           {},
-          h('h3', {}, `${m[side].name} için taraftar taktik anketi`, h('span.muted', {}, `${t?.total ?? 0} öneri`)),
+          h('h3', {}, `${m[side].name} için taraftar taktik anketi`, h('span.muted.nw', {}, `${t?.total ?? 0} öneri`)),
           !t?.total
             ? h('p.muted', {}, 'Henüz öneri yok. İlk taktiği sen öner!')
             : [
@@ -759,7 +770,15 @@ export function renderMatch(root, matchId) {
     };
     mount(el, formCard, results);
     drawForm();
-    return { el, update: drawResults };
+    return {
+      el,
+      update() {
+        // öneri kaydedilince buton "güncelle" olur; maç bitince form kapanır
+        const side = s.side.tactics;
+        if (`${side}|${s.match.status === 'FT'}|${Boolean(s.mine?.tactics?.[side])}` !== formKey) drawForm();
+        drawResults();
+      },
+    };
   }
 
   // --- Oyuncu değişikliği talepleri
@@ -817,7 +836,7 @@ export function renderMatch(root, matchId) {
         h(
           'div.card',
           {},
-          h('h3', {}, `${m[side].name} taraftarı ne istiyor?`, h('span.muted', {}, `${list.length} talep`)),
+          h('h3', {}, `${m[side].name} taraftarı ne istiyor?`, h('span.muted.nw', {}, `${list.length} talep`)),
           !list.length
             ? h('p.muted', {}, 'Henüz talep yok.')
             : list.map((r) => {
@@ -839,7 +858,9 @@ export function renderMatch(root, matchId) {
                     ),
                     own.has(r.id)
                       ? h('span.vote-btn.on.own', { title: 'Senin talebin, desteğin sayıldı' }, `✓ ${r.votes}`)
-                      : h('button.vote-btn', { class: voted.has(r.id) ? 'on' : '', onclick: () => send('sub:vote', { id: r.id }), 'aria-pressed': String(voted.has(r.id)) }, `${voted.has(r.id) ? '✓ ' : '+ '}${r.votes}`),
+                      : m.status === 'FT'
+                        ? h('span.vote-btn', { class: voted.has(r.id) ? 'on own' : 'own', title: 'Maç bitti; oylama kapandı' }, `${voted.has(r.id) ? '✓ ' : ''}${r.votes}`)
+                        : h('button.vote-btn', { class: voted.has(r.id) ? 'on' : '', onclick: () => send('sub:vote', { id: r.id }), 'aria-pressed': String(voted.has(r.id)) }, `${voted.has(r.id) ? '✓ ' : '+ '}${r.votes}`),
                   ),
                   h('div.fbar-track', { style: { height: '4px', marginTop: '-4px', marginBottom: '6px' } }, h('i', { style: { width: `${(r.votes / max) * 100}%` } })),
                 );
@@ -865,8 +886,23 @@ export function renderMatch(root, matchId) {
 
   // --- Anketler
   function PredictAndPolls() {
-    const parts = [Predict(), Polls()];
-    return { el: h('div.stack', {}, parts.map((p) => p.el)), update: () => parts.forEach((p) => p.update()) };
+    const pred = Predict();
+    const polls = Polls();
+    const el = h('div.stack');
+    let order = '';
+    return {
+      el,
+      update() {
+        // maç başlamadan tahmin üstte; başlayınca tahmin kilitlendiği için anketler öne geçer
+        const started = s.match.status !== 'SCHEDULED';
+        if (String(started) !== order) {
+          order = String(started);
+          mount(el, started ? [polls.el, pred.el] : [pred.el, polls.el]);
+        }
+        pred.update();
+        polls.update();
+      },
+    };
   }
 
   function Polls() {
@@ -882,18 +918,20 @@ export function renderMatch(root, matchId) {
 
   function pollCard(p) {
     const mine = s.mine?.polls?.[p.id];
-    const voted = mine != null;
+    // sonuç belli olunca "kim kazanır" oylaması kapanır; sonuçlar oy vermeyenlere de görünür
+    const closed = p.key === 'winner' && s.match.status === 'FT';
+    const shown = mine != null || closed;
     return h(
       'div.poll',
-      {},
-      h('div.poll-q', {}, h('span', {}, p.question), h('span.muted.small', {}, `${p.total} oy${p.kind === 'user' && p.nick ? ` · ${p.nick}` : ''}`)),
+      { class: closed ? 'closed' : '' },
+      h('div.poll-q', {}, h('span', {}, p.question), h('span.muted.small.nw', {}, `${p.total} oy${closed ? ' · kapandı' : ''}${p.kind === 'user' && p.nick ? ` · ${p.nick}` : ''}`)),
       p.options.map((o, i) => {
         const pct = p.total ? Math.round((o.votes / p.total) * 100) : 0;
         return h(
           'button.poll-opt',
-          { class: mine === i ? 'mine' : '', onclick: () => send('poll:vote', { pollId: p.id, option: i }), 'aria-pressed': String(mine === i) },
-          h('span.fill', { style: { width: voted ? `${pct}%` : '0%' } }),
-          h('span.lbl', {}, h('span', {}, mine === i ? `✓ ${o.label}` : o.label), voted ? h('span.pct', {}, `${pct}%`) : null),
+          { class: mine === i ? 'mine' : '', disabled: closed, onclick: closed ? null : () => send('poll:vote', { pollId: p.id, option: i }), 'aria-pressed': String(mine === i) },
+          h('span.fill', { style: { width: shown ? `${pct}%` : '0%' } }),
+          h('span.lbl', {}, h('span', {}, mine === i ? `✓ ${o.label}` : o.label), shown ? h('span.pct', {}, `${pct}%`) : null),
         );
       }),
     );

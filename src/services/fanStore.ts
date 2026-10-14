@@ -590,9 +590,9 @@ export class FanStore {
     for (const [key, q, opts] of auto) stmt.run(match.id, q, JSON.stringify(opts), 'auto', key, Date.now());
   }
 
-  poll(pollId: number): { id: number; matchId: string; options: string[] } | null {
-    const r = this.db.prepare('SELECT id, match_id, options FROM polls WHERE id = ?').get(pollId) as any;
-    return r ? { id: r.id, matchId: r.match_id, options: JSON.parse(r.options) } : null;
+  poll(pollId: number): { id: number; matchId: string; options: string[]; key: string | null } | null {
+    const r = this.db.prepare('SELECT id, match_id, options, auto_key FROM polls WHERE id = ?').get(pollId) as any;
+    return r ? { id: r.id, matchId: r.match_id, options: JSON.parse(r.options), key: r.auto_key ?? null } : null;
   }
 
   vote(pollId: number, userId: string, idx: number) {
@@ -674,7 +674,7 @@ export class FanStore {
         if (v.option_idx < counts.length) counts[v.option_idx] = v.c;
       }
       const total = counts.reduce((a, b) => a + b, 0);
-      return { id: p.id, question: p.question, kind: p.kind, nick: p.nick, total, options: opts.map((label, i) => ({ label, votes: counts[i] })) };
+      return { id: p.id, key: p.auto_key ?? null, question: p.question, kind: p.kind, nick: p.nick, total, options: opts.map((label, i) => ({ label, votes: counts[i] })) };
     });
 
     const tactics: Record<Side, any> = { home: null, away: null };

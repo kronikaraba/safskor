@@ -692,6 +692,8 @@ io.on('connection', (socket: Socket) => {
     const poll = store.poll(Number(p?.pollId));
     const idx = Number(p?.option);
     if (!poll || poll.matchId !== m.id) return a({ ok: false, error: 'Anket bulunamadı.' });
+    // sonuç belli olunca "kim kazanır" oylaması kapanır (hakem anketi maç sonunda da açık)
+    if (poll.key === 'winner' && m.status === 'FT') return a({ ok: false, error: 'Maç bitti; bu anket kapandı.' });
     if (!Number.isInteger(idx) || idx < 0 || idx >= poll.options.length) return a({ ok: false, error: 'Geçersiz seçenek.' });
     store.vote(poll.id, data.userId, idx);
     broadcastFan(m.id);
@@ -705,6 +707,7 @@ io.on('connection', (socket: Socket) => {
     const a = safeAck(ack);
     const m = await context(a);
     if (!m) return;
+    if (m.status === 'FT') return a({ ok: false, error: 'Maç bitti; taktik önerileri kapandı.' });
     if (!isSide(p?.side)) return a({ ok: false, error: 'Takım seç.' });
     if (!FORMATIONS.includes(p?.formation)) return a({ ok: false, error: 'Geçersiz diziliş.' });
     if (!STYLES.includes(p?.style)) return a({ ok: false, error: 'Geçersiz oyun anlayışı.' });
@@ -753,6 +756,7 @@ io.on('connection', (socket: Socket) => {
     if (!m) return;
     const r = store.subRequest(Number(p?.id));
     if (!r || r.matchId !== m.id) return a({ ok: false, error: 'Talep bulunamadı.' });
+    if (m.status === 'FT') return a({ ok: false, error: 'Maç bitti; talepler arşivlendi.' });
     store.toggleSubVote(Number(p.id), data.userId);
     broadcastFan(m.id);
     sendMine(m.id);

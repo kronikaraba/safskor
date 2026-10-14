@@ -803,3 +803,5 @@ a.tp-row:hover { background: var(--surface-3); }
 .tp-ha { flex: none; font-size: 10.5px; font-weight: 700; color: var(--muted); border: 1px solid var(--border); border-radius: 5px; padding: 0 4px; }
 .tp-comp { font-size: 11.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tp-score { font-weight: 800; font-variant-numeric: tabular-nums; }
+.card h3 .nw, .poll-q .nw { white-space: nowrap; flex: none; }
+.poll.closed .poll-opt { cursor: default; }
