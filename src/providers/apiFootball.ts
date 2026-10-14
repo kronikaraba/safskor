@@ -4,6 +4,10 @@ import type { FootballProvider, TeamFixtures, TeamProfile, Standings, Lineup, Ma
 export class QuotaError extends Error {
   readonly kind = 'quota';
 }
+/** Dakikalık istek sınırı (HTTP 429): geçici; bir dakika beklenir, site demoya geçmez. */
+export class RateError extends Error {
+  readonly kind = 'rate';
+}
 /** Anahtar geçersiz ya da plan bu veriye (ör. güncel sezon) izin vermiyor; tekrar denemek boşuna. */
 export class PlanError extends Error {
   readonly kind = 'plan';
@@ -73,8 +77,12 @@ export class ApiFootballProvider implements FootballProvider {
     return left <= this.opts.reserve;
   }
 
+  /** dakikalık sınıra takılınca bu zamana kadar istek atılmaz */
+  private pauseUntil = 0;
+
   private async get(path: string, params: Record<string, string>): Promise<any[]> {
     if (this.exhausted()) throw new QuotaError('Günlük API kotası doldu');
+    if (Date.now() < this.pauseUntil) throw new RateError('API-Football dakikalık istek sınırı; kısa bir mola');
     const url = new URL(this.opts.baseUrl.replace(/\/$/, '') + path);
     for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
     const headers: Record<string, string> = { 'x-apisports-key': this.opts.key };
@@ -89,7 +97,8 @@ export class ApiFootballProvider implements FootballProvider {
     if (res.status === 429) {
       // günlük hak gerçekten bittiyse kota hatası; değilse dakikalık sınır: geçici hata olarak kısa süre sonra tekrar dene
       if (this.remaining === 0) throw new QuotaError('Günlük API kotası doldu (HTTP 429)');
-      throw new Error('API-Football dakikalık istek sınırı (HTTP 429)');
+      this.pauseUntil = Date.now() + 65_000;
+      throw new RateError('API-Football dakikalık istek sınırı (HTTP 429)');
     }
     if (res.status === 401 || res.status === 403) throw new PlanError(`API-Football HTTP ${res.status}`);
     if (!res.ok) throw new Error(`API-Football HTTP ${res.status}`);

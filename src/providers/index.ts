@@ -1,12 +1,13 @@
 import { config } from '../config.js';
 import type { FootballProvider, Match, MatchSummary, Standings, TeamFixtures, TeamProfile } from '../types.js';
-import { ApiFootballProvider, PlanError, QuotaError } from './apiFootball.js';
+import { ApiFootballProvider, PlanError, QuotaError, RateError } from './apiFootball.js';
 import { DemoProvider } from './demo.js';
 
 /**
  * Gerçek sağlayıcıyı sarar:
  * - Günlük kota dolarsa demoya geçmez; son alınan gerçek veriyi göstermeye devam eder (stale).
  * - Anahtar/plan hatasında (ör. plan güncel sezonu kapsamıyor) demoya geçer ve 6 saat sonra tekrar dener.
+ * - Dakikalık istek sınırında (429) demoya geçmez; son veriyle devam eder, bir dakika sonra tekrar dener.
  * - Geçici hatada (ağ, 5xx) demoya geçer ve 10 dakika sonra tekrar dener.
  */
 export class FallbackProvider implements FootballProvider {
@@ -39,6 +40,11 @@ export class FallbackProvider implements FootballProvider {
   /** true: son gerçek veriyle devam et; false: demoya geç */
   private handle(err: unknown): boolean {
     this.lastError = err instanceof Error ? err.message : String(err);
+    // dakikalık sınır geçici: son gerçek veri ekranda kalır, bir dakika sonra kendiliğinden devam eder
+    if (err instanceof RateError) {
+      console.warn(`[provider] ${this.lastError}; son alınan veriler gösteriliyor`);
+      return true;
+    }
     if (err instanceof QuotaError) {
       if (!this.stale) console.warn(`[provider] ${this.lastError}; son alınan veriler gösteriliyor`);
       this.stale = true;
