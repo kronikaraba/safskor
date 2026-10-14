@@ -182,6 +182,17 @@ function allPlayers(m: Match, side?: Side): Player[] {
   return sides.flatMap((s) => [...m.lineups![s].startXI, ...m.lineups![s].subs]);
 }
 
+/** Maçta oynamış oyuncu: ilk 11 ya da oyuna giren yedek (değişiklik olayında giren/çıkan sırası sağlayıcıya göre değişebilir) */
+function hasPlayed(m: Match, id: string): boolean {
+  if (!m.lineups) return false;
+  return (['home', 'away'] as Side[]).some((side) => {
+    const l = m.lineups![side];
+    if (l.startXI.some((p) => p.id === id)) return true;
+    const sub = l.subs.find((p) => p.id === id);
+    return Boolean(sub && ((sub.stats?.minutes ?? 0) > 0 || m.events.some((e) => e.side === side && e.type === 'sub' && (e.playerId === id || e.relatedId === id))));
+  });
+}
+
 /** Sahada olan oyuncular: ilk 11 + girenler − çıkanlar − kırmızı görenler */
 function onPitch(m: Match, side: Side): Set<string> {
   const l = m.lineups![side];
@@ -645,6 +656,7 @@ io.on('connection', (socket: Socket) => {
     if (!Number.isInteger(score) || score < 0 || score > 10) return a({ ok: false, error: 'Puan 0-10 arasında olmalı.' });
     const id = String(p?.playerId);
     if (!isCoach(m, id) && !allPlayers(m).some((x) => x.id === id)) return a({ ok: false, error: 'Oyuncu bulunamadı.' });
+    if (!isCoach(m, id) && !hasPlayed(m, id)) return a({ ok: false, error: 'Oyuna girmeyen oyuncu puanlanamaz.' });
     store.rate(m.id, id, data.userId, score);
     broadcastFan(m.id);
     sendMine(m.id);

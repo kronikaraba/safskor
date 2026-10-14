@@ -978,6 +978,8 @@ export function renderMatch(root, matchId) {
       const fan = s.fan?.ratings[p.id];
       const mine = s.mine?.ratings[p.id];
       const locked = m.status === 'SCHEDULED' || m.status === 'POSTPONED';
+      // oyuna girmemiş yedek puanlanamaz (teknik direktör her zaman puanlanır)
+      const benched = !locked && fresh.pos !== 'C' && !played(m, side).some((x) => x.id === p.id);
       return [
         h(
           'div.sheet-head',
@@ -997,8 +999,8 @@ export function renderMatch(root, matchId) {
           kv(`${st.shots ?? 0} / ${st.passes ?? 0}`, 'Şut / Pas'),
         ),
         h('div', {}, h('b', {}, 'Senin puanın'), mine != null ? h('span.muted.small', {}, ` · şu an ${mine}, değiştirebilirsin`) : null),
-        locked
-          ? h('p.muted', {}, 'Puanlama maç başlayınca açılır.')
+        locked || benched
+          ? h('p.muted', {}, locked ? 'Puanlama maç başlayınca açılır.' : 'Oyuna girmeyen oyuncu puanlanamaz. Oyuna girerse puanlayabilirsin.')
           : h(
               'div.score-pick',
               { role: 'radiogroup', 'aria-label': '0 ile 10 arası puan' },
@@ -1325,6 +1327,7 @@ function coachOf(m, side) {
 
 function played(m, side) {
   const l = m.lineups[side];
-  const cameIn = new Set(m.events.filter((e) => e.side === side && e.type === 'sub').map((e) => e.relatedId));
+  // değişiklik olayında giren/çıkan sırası sağlayıcıya göre değişebilir: olayda adı geçen yedek oyuna girmiştir
+  const cameIn = new Set(m.events.filter((e) => e.side === side && e.type === 'sub').flatMap((e) => [e.playerId, e.relatedId]));
   return [...l.startXI, ...l.subs.filter((p) => cameIn.has(p.id) || (p.stats?.minutes ?? 0) > 0)];
 }

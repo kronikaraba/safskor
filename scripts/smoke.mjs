@@ -94,6 +94,9 @@ ok((await call(a, 'rating:set', { playerId: p.id, score: 8 })).ok, 'oyuncu puanl
 ok((await call(b, 'rating:set', { playerId: p.id, score: 5 })).ok, 'ikinci kullanıcı puanladı (5)');
 ok((await fanA).ratings[p.id].avg === 6.5, 'topluluk ortalaması 6.5');
 ok(!(await call(a, 'rating:set', { playerId: p.id, score: 11 })).ok, '11 puan reddedildi');
+// yedek kaleci (oyuna girmemiş) puanlanamaz
+const bench = m.lineups.home.subs.find((x) => x.pos === 'G');
+ok(!(await call(a, 'rating:set', { playerId: bench.id, score: 7 })).ok, 'oyuna girmeyen yedek puanlanamadı');
 
 // anket
 const poll = ja.fan.polls[0];
