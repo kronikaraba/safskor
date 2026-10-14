@@ -168,7 +168,7 @@ export function renderMatch(root, matchId) {
         h(
           'div.sb-center',
           {},
-          h('div.sb-score', { class: [flash ? 'flash' : '', m.status === 'LIVE' || m.status === 'HT' ? 'live' : ''].join(' ').trim() }, started ? `${m.score.home} - ${m.score.away}` : kickoffText(m.kickoff)),
+          h('div.sb-score', { class: [flash ? 'flash' : '', m.status === 'LIVE' || m.status === 'HT' ? 'live' : ''].join(' ').trim() }, started ? `${m.score.home} - ${m.score.away}` : timeText(m.kickoff)),
           started || m.status === 'POSTPONED' ? statusPill(m) : h('span.status', {}, dayText(m.kickoff)),
         ),
         h('div.sb-team', {}, teamBtn(m.away), h('div.sb-scorers', {}, scorers('away').map((t) => h('div', {}, t)))),

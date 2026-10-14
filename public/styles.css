@@ -775,7 +775,7 @@ a.club:hover { border-color: var(--accent); }
 
 /* ---------------------------------------------------------------- takım profili */
 .sb-teambtn { display: flex; flex-direction: column; align-items: center; gap: 10px; min-width: 0; max-width: 100%; padding: 0; border: 0; background: none; text-align: center; }
-.sb-teambtn .name { overflow-wrap: anywhere; }
+.sb-teambtn .name { overflow-wrap: break-word; }
 @media (hover: hover) { .sb-teambtn:hover .name { text-decoration: underline; text-underline-offset: 3px; } }
 .st-link { cursor: pointer; }
 @media (hover: hover) { .st-link:hover td { background: rgba(255, 255, 255, 0.04); } }

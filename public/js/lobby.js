@@ -1,5 +1,5 @@
 import { app } from './app.js';
-import { h, mount, crest, kickoffText, storage, roundText, minuteText, dayText, icon, matchHref } from './util.js';
+import { h, mount, crest, storage, roundText, minuteText, dayText, icon, matchHref } from './util.js';
 import { lbRow } from './leaderboard.js';
 import { openTeam } from './team.js';
 
@@ -325,7 +325,7 @@ export function renderLobby(root, tab = 'today') {
           h(
             'div.feat-mid',
             {},
-            h('div.feat-score', { class: isLive(m) ? 'live' : '' }, started ? `${m.score.home} - ${m.score.away}` : kickoffText(m.kickoff)),
+            h('div.feat-score', { class: isLive(m) ? 'live' : '' }, started ? `${m.score.home} - ${m.score.away}` : hhmm(m.kickoff)),
             h('div.feat-state', { class: m.status.toLowerCase() }, started || m.status === 'POSTPONED' ? minuteText(m) : dayText(m.kickoff)),
           ),
           h('div.feat-team', {}, crest(m.away, 'lg'), h('span', {}, m.away.name)),
