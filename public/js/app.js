@@ -447,5 +447,7 @@ window.addEventListener('hashchange', () => {
 });
 initDm(document.getElementById('dmBtn'));
 if (!app.socket.connected) route();
+// Android uygulaması ve ana ekrana ekleme için: bağlantı yokken çevrimdışı sayfası gösterilir
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
 
 export { mount, h };

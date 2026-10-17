@@ -122,6 +122,15 @@ app.get(['/mac/:id', '/mac/:id/:slug'], (req, res) => {
   if (req.path !== canonical) return res.redirect(301, canonical + (req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : ''));
   sendPage(res, matchPage(m));
 });
+// Android uygulaması (TWA) bu alan adının kendisine ait olduğunu bu dosyayla kanıtlar; yoksa üstte adres çubuğu görünür.
+// Parmak izleri: yükleme anahtarı ve Play Console > Uygulama imzalama anahtarı (ANDROID_CERT_SHA256, virgülle ayrılmış)
+const ANDROID_PACKAGE = 'com.safskor.app';
+const ANDROID_CERTS: string[] = [];
+app.get('/.well-known/assetlinks.json', (_req, res) => {
+  const certs = [...ANDROID_CERTS, ...(process.env.ANDROID_CERT_SHA256 ?? '').split(',')].map((s) => s.trim().toUpperCase()).filter(Boolean);
+  res.setHeader('Cache-Control', 'public, max-age=3600');
+  res.json(certs.length ? [{ relation: ['delegate_permission/common.handle_all_urls'], target: { namespace: 'android_app', package_name: ANDROID_PACKAGE, sha256_cert_fingerprints: certs } }] : []);
+});
 app.get('/robots.txt', (_req, res) => res.type('text/plain').send(robotsTxt()));
 app.get('/sitemap.xml', (_req, res) => {
   res.setHeader('Cache-Control', 'public, max-age=900');
