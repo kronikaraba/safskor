@@ -17,10 +17,25 @@ const me = {
   nick: storage.get('safskor.nick') || `Taraftar${Math.floor(1000 + Math.random() * 9000)}`,
   team: storage.get('safskor.team', null),
   account: null, // { phone (maskeli), name, devices } — telefonla üye olduysa
+  ref: null, // kendi davet kodu
+  invites: 0, // davet bağlantısıyla üye olanlar
   uid: null, // sunucunun verdiği herkese açık kimlik (sohbette "Sen" ayrımı ve özel mesajlar için)
 };
 storage.set('safskor.userId', me.userId);
 storage.set('safskor.nick', me.nick);
+
+// ------------------------------------------------------------------ davet bağlantısı (?ref=kod)
+// Davetle gelen ziyaretçinin davet edeni hatırlanır (ilk gelen bağlantı geçerli); üye olunca davet edene yazılır.
+// Adres çubuğundan kaldırılır ki paylaşılan sayfa adresleri ve kanonik adres temiz kalsın.
+{
+  const q = new URLSearchParams(location.search);
+  const ref = (q.get('ref') || '').toLowerCase();
+  if (/^[a-z0-9]{4,12}$/.test(ref) && !storage.get('safskor.ref', null)) storage.set('safskor.ref', ref);
+  if (q.has('ref')) {
+    q.delete('ref');
+    history.replaceState(history.state, '', location.pathname + (q.size ? `?${q}` : '') + location.hash);
+  }
+}
 
 export const app = {
   me,
@@ -29,7 +44,30 @@ export const app = {
   provider: null,
   matches: [],
   view: null, // aktif görünümün temizleme fonksiyonu
+  ranks: {}, // en az bir arkadaşını üye yapanların rütbesi: herkese açık kimlik -> rütbe
 };
+
+/** Davet rütbeleri: bağlantınla üye olan arkadaş sayısına göre (sunucudaki RANKS ile aynı) */
+export const RANKS = [
+  { key: 'taraftar', min: 0, name: 'Taraftar', icon: '⚽', perk: null },
+  { key: 'tribun', min: 3, name: 'Tribün Üyesi', icon: '🎟️', perk: 'Adının yanında rütben görünür' },
+  { key: 'lider', min: 10, name: 'Tribün Lideri', icon: '🚩', perk: 'Maç için kendi özel odanı açarsın' },
+  { key: 'efsane', min: 25, name: 'Efsane', icon: '👑', perk: 'Maç sohbetinde bir mesajı herkese sabitlersin' },
+];
+export const rankByKey = (k) => RANKS.find((r) => r.key === k) ?? RANKS[0];
+export const rankOf = (n) => RANKS.reduce((cur, r) => (n >= r.min ? r : cur), RANKS[0]);
+/** kendi rütben en az verilen seviyede mi */
+export const myRankAtLeast = (k) => RANKS.indexOf(rankOf(me.invites)) >= RANKS.findIndex((r) => r.key === k);
+/** Kendi davet bağlantın: verilen sayfa (varsayılan ana sayfa) + ?ref=kod */
+export function inviteUrl(path = '/') {
+  return `https://safskor.com${path}${me.ref ? `?ref=${me.ref}` : ''}`;
+}
+/** Sohbet ve sıralamada isim yanındaki rütbe (Taraftar için gösterilmez) */
+export function rankBadge(key) {
+  const r = rankByKey(key);
+  if (r.key === 'taraftar') return null;
+  return h('span.rank-badge', { class: `rk-${r.key}`, title: `${r.name}: en az ${r.min} arkadaşını Safskor'a üye yaptı` }, `${r.icon} ${r.name}`);
+}
 
 // ------------------------------------------------------------------ üst bar
 const nickBtn = document.getElementById('nickBtn');
@@ -87,9 +125,51 @@ export function editNick() {
         h('div.field', { role: 'group', 'aria-label': 'Favori takımın' }, h('span', {}, 'Favori takımın (dokunarak seç, tekrar dokunursan kaldırılır)'), list),
         h('button.btn', { type: 'submit' }, 'Kaydet'),
       ),
+      inviteBox(),
       accountBox(input),
     ];
   });
+}
+
+// ------------------------------------------------------------------ arkadaş davet et ve rütbeler
+function inviteBox() {
+  const n = me.invites;
+  const url = inviteUrl();
+  const cur = rankOf(n);
+  const next = RANKS[RANKS.indexOf(cur) + 1] ?? null;
+  const shareLink = async () => {
+    const text = 'Maçları Safskor\'da canlı takip ediyorum, oyuncuları puanlıyor, taktik öneriyoruz. Sen de gel:';
+    if (navigator.share) {
+      try {
+        return await navigator.share({ title: 'Safskor', text, url });
+      } catch (e) {
+        if (e?.name === 'AbortError') return;
+      }
+    }
+    try {
+      await navigator.clipboard.writeText(`${text} ${url}`);
+      toast('Davet bağlantın kopyalandı');
+    } catch {
+      prompt('Davet bağlantını kopyala:', url);
+    }
+  };
+  const pct = next ? ((n - cur.min) / (next.min - cur.min)) * 100 : 100;
+  return h(
+    'div.invite',
+    {},
+    h('h3', {}, '🤝 Arkadaşını davet et, rütbe atla'),
+    h('div.invite-rank', {}, h('span.invite-rank-ic', {}, cur.icon), h('div', {}, h('small', {}, 'Rütben'), h('b', {}, cur.name)), h('div.invite-n', {}, h('b', {}, n), h('small', {}, 'üye getirdin'))),
+    next
+      ? [h('div.invite-bar', {}, h('i', { style: { width: `${Math.max(4, pct)}%` } })), h('p.small', {}, `${next.icon} ${next.name} için ${next.min - n} arkadaşın daha üye olmalı.`)]
+      : h('p.small', {}, 'En yüksek rütbedesin!'),
+    h('button.btn.invite-btn', { type: 'button', onclick: shareLink, disabled: !me.ref }, me.ref ? 'Davet bağlantını paylaş' : 'Bağlantı hazırlanıyor…'),
+    h('p.muted.small.invite-url', {}, url),
+    h(
+      'ul.rank-list',
+      {},
+      RANKS.slice(1).map((r) => h('li', { class: n >= r.min ? 'on' : '' }, h('span.rl-ic', {}, r.icon), h('div', {}, h('b', {}, `${r.name} · ${r.min} üye`), h('span', {}, r.perk)), h('span.rl-ok', {}, n >= r.min ? '✓' : ''))),
+    ),
+  );
 }
 
 // ------------------------------------------------------------------ üyelik (telefon + isim + şifre)
@@ -146,7 +226,7 @@ function accountBox(nickInput) {
     const pin = field(login ? 'Şifre' : 'Şifre belirle (6 haneli)', { ...pinAttrs, autocomplete: login ? 'current-password' : 'new-password', placeholder: login ? 'Şifren' : '6 haneli sayı' });
     const submit = async (e) => {
       e.preventDefault();
-      const r = await send(login ? 'account:login' : 'account:register', { phone: val(phone), pin: val(pin), name: nickInput.value });
+      const r = await send(login ? 'account:login' : 'account:register', { phone: val(phone), pin: val(pin), name: nickInput.value, ref: login ? undefined : storage.get('safskor.ref', null) });
       if (!r?.ok) return toast(r?.error || 'İşlem başarısız', 'err');
       setSession(r.session);
       if (login) {
@@ -231,6 +311,8 @@ app.socket.on('disconnect', (reason) => {
 });
 app.socket.on('profile', (p) => {
   me.account = p?.account ?? null;
+  me.ref = p?.ref ?? null;
+  me.invites = p?.invites ?? 0;
   if (p?.uid && p.uid !== me.uid) {
     me.uid = p.uid;
     app.onProfile?.();
@@ -246,10 +328,26 @@ app.socket.on('hello', (d) => {
   app.clubs = d.clubs || [];
   app.tomorrow = d.tomorrow ?? null;
   app.yesterday = d.yesterday ?? null;
+  app.ranks = d.ranks ?? {};
   setProvider(d.provider);
   app.onMatches?.();
 });
 // gün dönünce sunucu önce null gönderir (liste yenilenene kadar "yükleniyor")
+// biri rütbe atladı: açık sohbet yeniden çizilir
+app.socket.on('ranks', (map) => {
+  app.ranks = map ?? {};
+  app.onProfile?.();
+});
+// bağlantınla biri üye oldu
+app.socket.on('invites', (d) => {
+  const was = me.invites;
+  me.invites = d?.count ?? me.invites;
+  if (me.invites <= was) return;
+  const r = rankOf(me.invites);
+  toast(r !== rankOf(was) ? `Tebrikler! Yeni rütben: ${r.icon} ${r.name}` : 'Davet bağlantınla bir arkadaşın üye oldu 🤝');
+  app.onProfile?.();
+});
+
 app.socket.on('tomorrow', (list) => {
   app.tomorrow = list ?? null;
   app.onMatches?.();

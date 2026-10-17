@@ -92,6 +92,21 @@ export function weekEnd(key: string): number {
   return Date.parse(`${key}T00:00:00+03:00`) + 7 * DAY;
 }
 
+/** Davet rütbeleri: bağlantıyla üye olan arkadaş sayısına göre (istemcideki RANKS ile aynı) */
+export const RANKS = [
+  { key: 'taraftar', min: 0 },
+  { key: 'tribun', min: 3 },
+  { key: 'lider', min: 10 }, // maç için özel oda açar
+  { key: 'efsane', min: 25 }, // maç sohbetinde mesaj sabitler
+] as const;
+export type RankKey = (typeof RANKS)[number]['key'];
+export function rankOf(invites: number): RankKey {
+  let k: RankKey = 'taraftar';
+  for (const r of RANKS) if (invites >= r.min) k = r.key;
+  return k;
+}
+export const rankAtLeast = (k: RankKey, min: RankKey) => RANKS.findIndex((r) => r.key === k) >= RANKS.findIndex((r) => r.key === min);
+
 export class FanStore {
   private db: Database.Database;
   private secret: string;
@@ -157,6 +172,11 @@ export class FanStore {
       CREATE TABLE IF NOT EXISTS sessions (
         token_hash TEXT PRIMARY KEY, user_id TEXT NOT NULL, created_at INTEGER NOT NULL, seen_at INTEGER NOT NULL);
       CREATE INDEX IF NOT EXISTS sessions_user ON sessions (user_id);
+      CREATE TABLE IF NOT EXISTS ref_codes (code TEXT PRIMARY KEY, user_id TEXT NOT NULL UNIQUE);
+      CREATE TABLE IF NOT EXISTS referrals (user_id TEXT PRIMARY KEY, referrer_id TEXT NOT NULL, created_at INTEGER NOT NULL);
+      CREATE INDEX IF NOT EXISTS referrals_by ON referrals (referrer_id);
+      CREATE TABLE IF NOT EXISTS fan_rooms (code TEXT PRIMARY KEY, match_id TEXT NOT NULL, owner_id TEXT NOT NULL, created_at INTEGER NOT NULL);
+      CREATE INDEX IF NOT EXISTS fan_rooms_owner ON fan_rooms (owner_id, match_id);
     `);
     // herkese açık kimlikleri türetmek için sunucuya özel gizli anahtar (yeniden başlatmada değişmesin diye veritabanında)
     const saved = this.db.prepare("SELECT value FROM meta WHERE key = 'id_secret'").get() as any;
@@ -190,6 +210,63 @@ export class FanStore {
       this.pubCache.set(userId, id);
     }
     return id;
+  }
+
+  // ------------------------------------------------------------------ davet
+
+  /** Davet bağlantısındaki kısa kod (safskor.com/?ref=kod); kimlikten türetilir, geri çevrilemez */
+  refCode(userId: string): string {
+    const had = this.db.prepare('SELECT code FROM ref_codes WHERE user_id = ?').get(userId) as any;
+    if (had) return had.code;
+    const base = crypto.createHmac('sha256', this.secret).update(`ref:${userId}`).digest().readUInt32BE(0).toString(36).padStart(6, '0').slice(0, 6);
+    for (let i = 0; ; i++) {
+      const code = i ? `${base}${i.toString(36)}` : base;
+      if (this.db.prepare('INSERT OR IGNORE INTO ref_codes (code, user_id) VALUES (?, ?)').run(code, userId).changes) return code;
+    }
+  }
+
+  /** Yeni üye bir davet bağlantısıyla geldiyse davet edene yazılır (üye başına bir kez, kendini davet edemez) */
+  creditReferral(newUserId: string, code: string): { referrerId: string; count: number } | null {
+    const r = this.db.prepare('SELECT user_id FROM ref_codes WHERE code = ?').get(code) as any;
+    if (!r || r.user_id === newUserId) return null;
+    if (!this.db.prepare('INSERT OR IGNORE INTO referrals (user_id, referrer_id, created_at) VALUES (?, ?, ?)').run(newUserId, r.user_id, Date.now()).changes) return null;
+    return { referrerId: r.user_id, count: this.inviteCount(r.user_id) };
+  }
+
+  inviteCount(userId: string): number {
+    return (this.db.prepare('SELECT COUNT(*) n FROM referrals WHERE referrer_id = ?').get(userId) as any).n;
+  }
+
+  rank(userId: string): RankKey {
+    return rankOf(this.inviteCount(userId));
+  }
+
+  /** en az bir üye getirenlerin rütbesi (kullanıcı kimliğine göre) */
+  private rankIds(): Map<string, RankKey> {
+    return new Map((this.db.prepare('SELECT referrer_id, COUNT(*) n FROM referrals GROUP BY referrer_id').all() as any[]).map((r) => [r.referrer_id, rankOf(r.n)]));
+  }
+
+  /** rütbeler, herkese açık kimlikleriyle (sohbette ve sıralamada isim yanında gösterilir) */
+  rankMap(): Record<string, RankKey> {
+    return Object.fromEntries([...this.rankIds()].map(([id, k]) => [this.pubId(id), k]));
+  }
+
+  // ------------------------------------------------------------------ özel odalar (Tribün Lideri)
+
+  /** sahibin bu maçtaki odası; yoksa yeni kısa kodla açılır */
+  openRoom(matchId: string, ownerId: string): string {
+    const had = this.db.prepare('SELECT code FROM fan_rooms WHERE owner_id = ? AND match_id = ?').get(ownerId, matchId) as any;
+    if (had) return had.code;
+    for (;;) {
+      const code = crypto.randomBytes(6).toString('base64url').replace(/[^a-zA-Z0-9]/g, '').slice(0, 8).toLowerCase();
+      if (code.length < 8) continue;
+      if (this.db.prepare('INSERT OR IGNORE INTO fan_rooms (code, match_id, owner_id, created_at) VALUES (?,?,?,?)').run(code, matchId, ownerId, Date.now()).changes) return code;
+    }
+  }
+
+  room(code: string): { code: string; matchId: string; ownerId: string; owner: string } | null {
+    const r = this.db.prepare('SELECT f.code, f.match_id, f.owner_id, COALESCE(p.nick, a.name, u.nick) nick FROM fan_rooms f LEFT JOIN profiles p ON p.user_id = f.owner_id LEFT JOIN accounts a ON a.user_id = f.owner_id LEFT JOIN users u ON u.user_id = f.owner_id WHERE f.code = ?').get(code) as any;
+    return r ? { code: r.code, matchId: r.match_id, ownerId: r.owner_id, owner: r.nick ?? 'Tribün Lideri' } : null;
   }
 
   // ------------------------------------------------------------------ takımlar ve profil
@@ -295,7 +372,8 @@ export class FanStore {
     ).map((r, i, arr) => ({ ...r, rank: i && arr[i - 1].points === r.points && arr[i - 1].exact === r.exact ? -1 : i + 1 }));
     // eşit puan ve isabette aynı sıra
     for (let i = 0; i < rows.length; i++) if (rows[i].rank === -1) rows[i].rank = rows[i - 1].rank;
-    const out = (r: any) => ({ rank: r.rank, nick: r.nick, team: r.team_id ? this.team(r.team_id) : null, points: r.points, exact: r.exact, predictions: r.n, me: r.user_id === viewer });
+    const ranks = this.rankIds();
+    const out = (r: any) => ({ rank: r.rank, nick: r.nick, team: r.team_id ? this.team(r.team_id) : null, points: r.points, exact: r.exact, predictions: r.n, me: r.user_id === viewer, title: ranks.get(r.user_id) ?? null });
     const top = rows.slice(0, limit).map(out);
     const mineIdx = rows.findIndex((r) => r.user_id === viewer);
     return { week, endsAt: weekEnd(week), players: rows.length, rows: top, me: mineIdx >= limit ? out(rows[mineIdx]) : null };

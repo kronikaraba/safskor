@@ -1,4 +1,4 @@
-import { app } from './app.js';
+import { app, rankBadge } from './app.js';
 import { h, mount, teamBadge, icon } from './util.js';
 
 const DAY = 86_400_000;
@@ -71,7 +71,7 @@ export function lbRow(x) {
     'li.lb-row',
     { class: `${x.me ? 'me' : ''} ${x.rank <= 3 ? `top${x.rank}` : ''}` },
     h('span.lb-rank', {}, x.rank <= 3 ? h('span.lb-medal', { title: `${x.rank}.` }, icon('haftalik-siralama-madalya'), h('b', {}, x.rank)) : x.rank),
-    h('span.lb-name', {}, teamBadge(x.team), h('b', {}, x.nick), x.me ? h('span.lb-you', {}, 'Sen') : null),
+    h('span.lb-name', {}, teamBadge(x.team), h('b', {}, x.nick), x.title ? rankBadge(x.title) : null, x.me ? h('span.lb-you', {}, 'Sen') : null),
     h('span.lb-n.muted', { title: 'Tahmin sayısı' }, `${x.predictions} tahmin`),
     h('span.lb-pts', {}, h('b', {}, x.points), h('small', {}, 'puan')),
   );

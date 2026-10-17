@@ -1,4 +1,4 @@
-import { app, editNick } from './app.js';
+import { app, editNick, rankBadge, inviteUrl, myRankAtLeast } from './app.js';
 import { h, mount, crest, statusPill, minuteText, ratingPill, timeText, toast, openSheet, colorFor, POS_TR, kickoffText, roundText, dayText, teamBadge, icon, matchHref, face, playerPhoto } from './util.js';
 import { openShare } from './share.js';
 import { openDm } from './dm.js';
@@ -37,6 +37,10 @@ export function renderMatch(root, matchId) {
     side: { lineups: 'home', tactics: 'home', subs: 'home', community: 'home' },
     unread: 0,
     tacticDraft: {},
+    room: null, // girilen özel oda: { code, owner, mine }
+    roomChat: [],
+    chatView: 'main', // 'main' maç sohbeti, 'room' özel oda
+    pinned: null, // Efsane'nin sabitlediği mesaj
   };
 
   const board = h('div');
@@ -84,6 +88,10 @@ export function renderMatch(root, matchId) {
       s.meta = r.meta;
       s.chat = r.chat;
       s.chatLiked = new Set(r.chatLiked ?? []);
+      s.pinned = r.pinned ?? null;
+      // özel oda bağlantısıyla geldiyse (?oda=kod) ya da yeniden bağlandıysa odaya gir
+      const oda = s.room?.code || new URLSearchParams(location.search).get('oda');
+      if (oda) joinRoom(oda, !s.room);
       drawBoard();
       drawTabs();
       drawBody();
@@ -126,11 +134,22 @@ export function renderMatch(root, matchId) {
       if (msg) msg.likes = likes;
       likeEls.get(id)?.();
     },
+    'chat:pinned': (p) => {
+      if (p.matchId !== matchId) return;
+      s.pinned = p.pin;
+      drawPin();
+    },
     'chat:message': (msg) => {
+      if (s.room && msg.matchId === `${matchId}#${s.room.code}`) {
+        s.roomChat.push(msg);
+        if (s.roomChat.length > 300) s.roomChat.splice(0, s.roomChat.length - 300);
+        if (s.chatView === 'room') appendChat(msg);
+        return;
+      }
       if (msg.matchId !== matchId) return;
       s.chat.push(msg);
       if (s.chat.length > 300) s.chat.splice(0, s.chat.length - 300);
-      appendChat(msg);
+      if (s.chatView === 'main') appendChat(msg);
       if (msg.kind === 'system' && /GOL/.test(msg.text)) toast(msg.text, 'goal');
       if (isNarrow() && s.tab !== 'chat' && msg.kind === 'user') {
         s.unread++;
@@ -477,7 +496,7 @@ export function renderMatch(root, matchId) {
     const r = await send('card:get', {});
     if (!r?.ok) return;
     const { ok, ...activity } = r;
-    openShare({ match: s.match, nick: app.me.nick, team: app.me.team, activity });
+    openShare({ match: s.match, nick: app.me.nick, team: app.me.team, activity, invite: inviteUrl(location.pathname), ref: app.me.ref });
   }
 
   // --- Kadrolar: saha + yedekler
@@ -1139,6 +1158,7 @@ export function renderMatch(root, matchId) {
         'div.chat',
         {},
         chatHead,
+        pinBar,
         chatList,
         // telefonda ekranın altına yapışan alt kısım: hızlı tepkiler + yazı kutusu
         h(
@@ -1155,15 +1175,89 @@ export function renderMatch(root, matchId) {
         ),
       ),
     );
-    mount(chatHead, h('b', {}, '💬 Maç odası sohbeti'), h('button.btn.ghost.sm', { onclick: editNick, title: 'Takma adını değiştir' }, app.me.nick));
+    drawChatHead();
+    drawPin();
+    chatInput.maxLength = 280;
+    chatInput.placeholder = s.chatView === 'room' ? 'Özel odaya yaz…' : 'Mesaj yaz…';
     likeEls.clear();
-    mount(chatList, s.chat.length ? s.chat.map((m) => chatMsg(m, true)) : h('p.muted.small', { style: { textAlign: 'center' } }, 'Sohbeti ilk sen başlat!'));
+    const list = s.chatView === 'room' ? s.roomChat : s.chat;
+    const main = s.chatView === 'main';
+    mount(chatList, list.length ? list.map((m) => chatMsg(m, main)) : h('p.muted.small', { style: { textAlign: 'center' } }, main ? 'Sohbeti ilk sen başlat!' : 'Özel oda hazır. Bağlantıyı arkadaşlarına gönder, ilk mesajı sen yaz!'));
     scrollChat(true);
     if (typing) chatInput.focus({ preventScroll: true }); // yeniden çizim yazmayı kesmesin
   }
+  // ---- özel oda (Tribün Lideri) ve sabit mesaj (Efsane)
+  const pinBar = h('div.pin-bar');
+  function drawPin() {
+    const p = s.pinned;
+    if (!p || s.chatView !== 'main') return mount(pinBar), pinBar.classList.remove('on');
+    pinBar.classList.add('on');
+    mount(
+      pinBar,
+      h('span.pin-ic', {}, '📌'),
+      h('div.pin-txt', {}, h('small', {}, `${p.by} sabitledi`), h('span', {}, h('b', {}, `${p.nick}: `), p.text)),
+      myRankAtLeast('efsane') ? h('button.rb-x', { type: 'button', 'aria-label': 'Sabitlemeyi kaldır', onclick: () => send('chat:pin', { id: null }) }, '✕') : null,
+    );
+  }
+  const roomLink = () => `${inviteUrl(location.pathname)}${inviteUrl(location.pathname).includes('?') ? '&' : '?'}oda=${s.room.code}`;
+  async function shareRoom() {
+    const url = roomLink();
+    const text = `${s.match.home.name} - ${s.match.away.name} maçını özel odamda birlikte izleyelim:`;
+    if (navigator.share) {
+      try {
+        return await navigator.share({ title: 'Safskor özel oda', text, url });
+      } catch (e) {
+        if (e?.name === 'AbortError') return;
+      }
+    }
+    try {
+      await navigator.clipboard.writeText(`${text} ${url}`);
+      toast('Oda bağlantısı kopyalandı');
+    } catch {
+      prompt('Oda bağlantısını kopyala:', url);
+    }
+  }
+  function joinRoom(code, announce = true) {
+    app.socket.timeout(8000).emit('room:join', { code }, (err, r) => {
+      if (err || !r?.ok) return announce && toast(r?.error || 'Özel odaya girilemedi', 'err');
+      s.room = r.room;
+      s.roomChat = r.chat ?? [];
+      if (announce) {
+        s.chatView = 'room';
+        if (isNarrow() && s.tab !== 'chat') ((s.tab = 'chat'), drawTabs(), drawBody());
+        toast(r.room.mine ? 'Özel odan hazır' : `${r.room.owner} kişisinin özel odasına girdin`);
+      }
+      drawChat();
+    });
+  }
+  async function createRoom() {
+    const r = await send('room:create', {});
+    if (!r?.ok) return;
+    joinRoom(r.code);
+  }
+  function setView(v) {
+    s.chatView = v;
+    setReply(null);
+    drawChat();
+  }
+  function drawChatHead() {
+    const seg = s.room
+      ? h(
+          'div.chat-seg',
+          {},
+          h('button', { type: 'button', class: s.chatView === 'main' ? 'active' : '', onclick: () => setView('main') }, '💬 Maç sohbeti'),
+          h('button', { type: 'button', class: s.chatView === 'room' ? 'active' : '', onclick: () => setView('room') }, `🚩 ${s.room.mine ? 'Özel odam' : `${s.room.owner} odası`}`),
+        )
+      : h('b', {}, '💬 Maç odası sohbeti');
+    const action = s.room
+      ? s.chatView === 'room' && h('button.btn.sm.room-share', { type: 'button', onclick: shareRoom }, 'Arkadaş çağır')
+      : myRankAtLeast('lider') && h('button.btn.sm.room-open', { type: 'button', onclick: createRoom, title: 'Tribün Lideri hakkı' }, '🚩 Özel oda aç');
+    mount(chatHead, seg, action || h('button.btn.ghost.sm', { onclick: editNick, title: 'Takma adını değiştir' }, app.me.nick));
+  }
+
   async function sendChat(text) {
     if (!text.trim()) return;
-    const r = await send('chat:send', replyTo ? { text, replyTo: replyTo.id } : { text });
+    const r = await send('chat:send', s.chatView === 'room' && s.room ? { text, room: s.room.code } : replyTo ? { text, replyTo: replyTo.id } : { text });
     if (!r?.ok) return;
     if (text === chatInput.value) chatInput.value = '';
     setReply(null);
@@ -1188,11 +1282,14 @@ export function renderMatch(root, matchId) {
     const like = likeable ? likeBtn(msg, mine) : null;
     if (like && !mine) bubble.addEventListener('dblclick', () => like.click()); // çift dokunuşla beğen
     const reply = likeable ? h('button.reply', { type: 'button', 'aria-label': 'Yanıtla', title: 'Yanıtla', onclick: () => setReply(msg) }, replyIcon()) : null;
+    // rütbe rozeti isim yanında; Efsane mesajı sabitleyebilir
+    const rk = msg.uid ? app.ranks[msg.uid] : null;
+    const pin = likeable && myRankAtLeast('efsane') ? h('button.reply', { type: 'button', 'aria-label': 'Sabitle', title: 'Herkese sabitle', onclick: () => send('chat:pin', { id: msg.id }) }, '📌') : null;
     return h(
       'div.msg',
       { class: mine ? 'me' : '', dataset: { id: msg.id } },
-      h('div.who', { '--nc': colorFor(msg.nick) }, teamBadge(msg.team), name, msgTime(msg)),
-      like ? h('div.brow', {}, bubble, h('div.acts', {}, like, reply)) : bubble,
+      h('div.who', { '--nc': colorFor(msg.nick) }, teamBadge(msg.team), name, rk ? rankBadge(rk) : null, msgTime(msg)),
+      like ? h('div.brow', {}, bubble, h('div.acts', {}, like, reply, pin)) : bubble,
     );
   }
   const likeEls = new Map(); // mesaj id -> beğeni düğmesini yeniden çizen fonksiyon
@@ -1256,7 +1353,7 @@ export function renderMatch(root, matchId) {
       ? window.innerHeight + window.scrollY >= el.scrollHeight - 160
       : chatList.scrollHeight - chatList.scrollTop - chatList.clientHeight < 80;
     if (chatList.firstChild?.tagName === 'P') chatList.replaceChildren();
-    chatList.append(chatMsg(msg, true));
+    chatList.append(chatMsg(msg, s.chatView === 'main'));
     while (chatList.childElementCount > 300) chatList.firstChild.remove();
     if (nearBottom || (msg.uid && msg.uid === app.me.uid)) scrollChat();
   }

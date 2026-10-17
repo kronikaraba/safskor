@@ -43,7 +43,8 @@ async function share(canvas, card) {
   if (!blob) return toast('Resim oluşturulamadı', 'err');
   const name = `safskor-${card.match.home.short}-${card.match.away.short}.png`.replace(/[^\w.-]+/g, '');
   const file = new File([blob], name, { type: 'image/png' });
-  const text = `${card.match.home.name} ${card.match.score.home}-${card.match.score.away} ${card.match.away.name} · Safskor`;
+  // paylaşılan her kart davet bağlantısını taşır: bu bağlantıyla gelip üye olan, paylaşana yazılır
+  const text = `${card.match.home.name} ${card.match.score.home}-${card.match.score.away} ${card.match.away.name} · Safskor${card.invite ? `\n${card.invite}` : ''}`;
   if (navigator.canShare?.({ files: [file] })) {
     try {
       await navigator.share({ files: [file], title: 'Safskor taraftar kartım', text });
@@ -335,7 +336,7 @@ async function drawCard(canvas, card, format) {
   x.textAlign = 'center';
   x.fillStyle = C.muted;
   x.font = `500 ${story ? 30 : 24}px ${FONT}`;
-  x.fillText(location.host || 'safskor', W / 2, footY + (story ? 60 : 40));
+  x.fillText(card.ref ? `safskor.com · davet kodu: ${card.ref}` : 'safskor.com', W / 2, footY + (story ? 60 : 40));
 }
 
 const scoreText = (s) => (Number.isInteger(s) ? String(s) : Number(s).toFixed(1));

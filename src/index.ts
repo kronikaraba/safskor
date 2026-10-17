@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { Server, type Socket } from 'socket.io';
 import { config } from './config.js';
 import { createProvider } from './providers/index.js';
-import { FanStore, FORMATIONS, STYLES, weekKey, normalizePhone, weakPin, type TeamBadge } from './services/fanStore.js';
+import { FanStore, FORMATIONS, STYLES, weekKey, normalizePhone, weakPin, rankOf, rankAtLeast, type TeamBadge } from './services/fanStore.js';
 import { MatchService } from './services/matchService.js';
 import type { Match, MatchEvent, Player, Side } from './types.js';
 import { PAGES, matchPage, matchPath, renderPage, robotsTxt, sitemapXml, standingsPage, unknownMatchPage, type Page } from './seo.js';
@@ -118,7 +118,8 @@ app.get(['/mac/:id', '/mac/:id/:slug'], (req, res) => {
   if (!m) return sendPage(res, unknownMatchPage(req.path));
   // takım adları adreste: /mac/123/galatasaray-fenerbahce (yanlış ya da eksikse doğrusuna yönlendir)
   const canonical = matchPath(m);
-  if (req.path !== canonical) return res.redirect(301, canonical);
+  // sorgu (ör. davet kodu ?ref=) yönlendirmede kaybolmasın
+  if (req.path !== canonical) return res.redirect(301, canonical + (req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : ''));
   sendPage(res, matchPage(m));
 });
 app.get('/robots.txt', (_req, res) => res.type('text/plain').send(robotsTxt()));
@@ -250,6 +251,8 @@ interface SocketData {
   nick: string;
   team: TeamBadge | null;
   matchId?: string;
+  /** girdiği özel oda kodu */
+  roomCode?: string;
   session?: string | null; // hesaba giriş yapılmış cihazın oturum anahtarı
 }
 
@@ -291,6 +294,11 @@ const newPinError = (pin: unknown, phone: string) =>
       ? 'Bu şifre kolay tahmin edilir (ör. 123456, 112233 ya da numarandaki rakamlar). Başka bir şifre seç.'
       : null;
 
+/** maç sohbetinde sabitlenen mesaj (maç başına bir tane, bellekte) */
+const pins = new Map<string, unknown>();
+/** özel odanın soket odası */
+const fanRoom = (matchId: string, code: string) => `fr:${matchId}#${code}`;
+
 io.on('connection', (socket: Socket) => {
   const auth = socket.handshake.auth ?? {};
   const sessionUserId: string | undefined = socket.data?.sessionUserId;
@@ -307,9 +315,16 @@ io.on('connection', (socket: Socket) => {
     store.touchUser(data.userId, data.nick, data.team?.id ?? null);
     socket.join(userRoom(data.userId)); // özel mesajlar kullanıcının açık tüm sekmelerine gider
   }
-  socket.emit('hello', { provider: matches.providerInfo, matches: withViewers(), clubs: clubsPayload(), tomorrow: matches.getTomorrow(), yesterday: matches.getYesterday() });
+  socket.emit('hello', { provider: matches.providerInfo, matches: withViewers(), clubs: clubsPayload(), tomorrow: matches.getTomorrow(), yesterday: matches.getYesterday(), ranks: store.rankMap() });
   // tarayıcıdaki favori takım sunucudakiyle eşleşsin (ör. listeden kaldırılmış eski bir takım); uid: herkese açık kimlik
-  socket.emit('profile', { team: data.team, uid: store.pubId(data.userId), account: canDm ? store.account(data.userId) : null });
+  socket.emit('profile', {
+    team: data.team,
+    uid: store.pubId(data.userId),
+    account: canDm ? store.account(data.userId) : null,
+    // davet bağlantısı kodu ve bu bağlantıyla üye olanların sayısı
+    ref: canDm ? store.refCode(data.userId) : null,
+    invites: canDm ? store.inviteCount(data.userId) : 0,
+  });
   if (canDm) socket.emit('dm:unread', { count: store.dmUnread(data.userId) });
 
   type Ack = (r: { ok: boolean; error?: string; [k: string]: unknown }) => void;
@@ -375,6 +390,13 @@ io.on('connection', (socket: Socket) => {
     data.nick = name;
     store.saveProfile(data.userId, name, data.team?.id ?? null);
     store.touchUser(data.userId, name, data.team?.id ?? null);
+    // davet bağlantısıyla geldiyse davet edene yazılır; rütbesi değişince herkesin sohbetinde yeni rütbesi görünür
+    const ref = clean(p?.ref, 12).toLowerCase();
+    const credit = /^[a-z0-9]{4,12}$/.test(ref) ? store.creditReferral(data.userId, ref) : null;
+    if (credit) {
+      io.to(userRoom(credit.referrerId)).emit('invites', { count: credit.count });
+      if (rankOf(credit.count) !== rankOf(credit.count - 1)) io.emit('ranks', store.rankMap());
+    }
     a({ ok: true, nick: name, session: data.session, account: store.account(data.userId) });
   });
 
@@ -495,15 +517,21 @@ io.on('connection', (socket: Socket) => {
       mine: store.mine(m.id, data.userId),
       chat: store.chatHistory(m.id),
       chatLiked: store.chatLiked(m.id, data.userId),
+      pinned: pins.get(m.id) ?? null,
       meta: { formations: FORMATIONS, styles: STYLES },
     });
     io.to(room(m.id)).emit('presence', { matchId: m.id, count: roomSize(m.id) });
     lobbyUpdate();
   });
 
+  function leaveRoom() {
+    if (data.roomCode && data.matchId) socket.leave(fanRoom(data.matchId, data.roomCode));
+    data.roomCode = undefined;
+  }
   function leaveMatch() {
     if (!data.matchId) return;
     const id = data.matchId;
+    leaveRoom();
     socket.leave(room(id));
     matches.unwatch(id);
     data.matchId = undefined;
@@ -513,12 +541,56 @@ io.on('connection', (socket: Socket) => {
   socket.on('match:leave', leaveMatch);
   socket.on('disconnect', leaveMatch);
 
+  // --- özel oda (Tribün Lideri açar, bağlantısı olan herkes girer)
+  socket.on('room:create', async (_p, ack) => {
+    const a = safeAck(ack);
+    const m = await context(a);
+    if (!m) return;
+    if (!rankAtLeast(store.rank(data.userId), 'lider')) return a({ ok: false, error: 'Özel oda açmak için Tribün Lideri olmalısın.' });
+    a({ ok: true, code: store.openRoom(m.id, data.userId) });
+  });
+  socket.on('room:join', (p, ack) => {
+    const a = safeAck(ack);
+    if (!data.matchId) return a({ ok: false, error: 'Önce maç odasına katıl.' });
+    const r = store.room(clean(p?.code, 12).toLowerCase());
+    if (!r || r.matchId !== data.matchId) return a({ ok: false, error: 'Özel oda bulunamadı.' });
+    leaveRoom();
+    data.roomCode = r.code;
+    socket.join(fanRoom(r.matchId, r.code));
+    a({ ok: true, room: { code: r.code, owner: r.owner, mine: r.ownerId === data.userId }, chat: store.chatHistory(`${r.matchId}#${r.code}`) });
+  });
+  socket.on('room:leave', () => leaveRoom());
+
+  // --- sabit mesaj (Efsane): maç sohbetinin üstünde herkese görünür
+  socket.on('chat:pin', async (p, ack) => {
+    const a = safeAck(ack);
+    const m = await context(a);
+    if (!m) return;
+    if (!rankAtLeast(store.rank(data.userId), 'efsane')) return a({ ok: false, error: 'Mesaj sabitlemek için Efsane olmalısın.' });
+    if (p?.id == null) pins.delete(m.id);
+    else {
+      const msg = store.chatReply(m.id, Number(p.id));
+      if (!msg) return a({ ok: false, error: 'Mesaj bulunamadı.' });
+      pins.set(m.id, { ...msg, by: data.nick });
+    }
+    io.to(room(m.id)).emit('chat:pinned', { matchId: m.id, pin: pins.get(m.id) ?? null });
+    a({ ok: true });
+  });
+
   // --- sohbet
   socket.on('chat:send', async (p, ack) => {
     const a = safeAck(ack);
     const text = clean(p?.text, 280);
     if (!text) return a({ ok: false, error: 'Boş mesaj gönderilemez.' });
     if (!data.matchId) return a({ ok: false, error: 'Önce bir maç odasına katıl.' });
+    // özel oda mesajı: yalnızca odadakilere gider, odanın kendi geçmişinde saklanır
+    if (p?.room != null) {
+      if (!data.roomCode || p.room !== data.roomCode) return a({ ok: false, error: 'Bu odada değilsin.' });
+      if (!chatLimit.ok(data.userId)) return a({ ok: false, error: 'Çok hızlı yazıyorsun, birkaç saniye bekle.' });
+      const key = `${data.matchId}#${data.roomCode}`;
+      io.to(fanRoom(data.matchId, data.roomCode)).emit('chat:message', store.addChat(key, data.userId, data.nick, text, 'user', data.team, matchMinute(data.matchId), null));
+      return a({ ok: true });
+    }
     const replyId = Number(p?.replyTo);
     const reply = Number.isInteger(replyId) && replyId > 0 ? store.chatReply(data.matchId, replyId) : null;
     if (p?.replyTo != null && !reply) return a({ ok: false, error: 'Yanıtladığın mesaj bulunamadı.' });
