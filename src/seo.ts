@@ -123,6 +123,18 @@ export function unknownMatchPage(path: string): Page {
   return { title: `Maç · ${SITE_NAME}`, description: PAGES['/'].description, path, noindex: true };
 }
 
+/** Olmayan adres (404) */
+export function notFoundPage(path: string): Page {
+  return { title: `Sayfa bulunamadı · ${SITE_NAME}`, description: PAGES['/'].description, path, noindex: true };
+}
+
+/** Gizlilik politikası ve KVKK aydınlatma metni */
+export const PRIVACY_PAGE: Page = {
+  title: `Gizlilik Politikası ve KVKK Aydınlatma Metni · ${SITE_NAME}`,
+  description: 'Safskor hangi verileri neden toplar, ne kadar saklar ve hesabını nasıl silersin: gizlilik politikası ve KVKK aydınlatma metni.',
+  path: '/gizlilik',
+};
+
 /** index.html'deki <!--seo--> ... <!--/seo--> bloğunun yerine konacak etiketler */
 export function seoHead(p: Page): string {
   const url = SITE + p.path;
@@ -165,6 +177,7 @@ export function sitemapXml(matches: MatchSummary[]) {
     { loc: '/yarin', freq: 'hourly', prio: '0.8', mod: now },
     { loc: '/dun', freq: 'daily', prio: '0.6', mod: now },
     { loc: '/puan-durumu', freq: 'daily', prio: '0.8', mod: now },
+    { loc: '/gizlilik', freq: 'monthly', prio: '0.2', mod: now },
   ];
   for (const m of matches) {
     if (seen.has(m.id)) continue;

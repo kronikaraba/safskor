@@ -195,7 +195,23 @@ for (let i = 0; i < 4; i++) await call(v, 'account:login', { phone: phoneNo, pin
 const locked = await call(v, 'account:login', { phone: phoneNo, pin: '000001' });
 ok(!locked.ok && locked.error.includes('15 dakika'), '5 hatalı şifrede hesap 15 dakika kilitlendi');
 ok(!(await call(v, 'account:login', { phone: phoneNo, pin: '640271' })).ok, 'kilitliyken doğru şifre de geçmiyor');
-for (const x of [u, v, dev1.s, dev2.s, dev3.s, raw.s, fake.s, again.s, out.s]) x.close();
+// hesabı silme (KVKK / Play Store): şifreyle onaylanır, numara ve oturumlar silinir, mesajlarda ad "Silinmiş üye" olur
+const phone2 = '05' + String(Date.now() + 7).slice(-9);
+const w = await connect('smoke-del-wwww', 'Deniz');
+await call(w, 'match:join', { matchId: live.id });
+const reg2 = await call(w, 'account:register', { phone: phone2, name: 'Deniz', pin: '583920' });
+const del1 = await connectWith({ session: reg2.session, nick: 'Deniz' });
+const del2 = await connectWith({ session: (await call(v, 'account:login', { phone: phone2, pin: '583920' })).session });
+await call(del1.s, 'match:join', { matchId: live.id });
+const sent = await call(del1.s, 'chat:send', { text: 'silinecek mesaj' });
+ok(!(await call(del1.s, 'account:delete', { pin: '000000' })).ok, 'yanlış şifreyle hesap silme reddedildi');
+const kickedDel = new Promise((res) => del2.s.on('disconnect', res));
+ok((await call(del1.s, 'account:delete', { pin: '583920' })).ok && (await kickedDel) === 'io server disconnect', 'hesap silindi, diğer cihaz anında düştü');
+ok(!(await call(v, 'account:login', { phone: phone2, pin: '583920' })).ok, 'silinen hesaba giriş yapılamıyor');
+const after = await (await fetch(`${BASE}/api/matches/${live.id}/fan`)).json();
+ok(sent.ok && after.chat.find((x) => x.text === 'silinecek mesaj')?.nick === 'Silinmiş üye', 'silinen üyenin mesajında ad "Silinmiş üye" oldu');
+ok((await fetch(`${BASE}/api/matches/abc`)).status === 404 && (await fetch(`${BASE}/olmayan-sayfa`)).status === 404, 'uydurma maç ve olmayan sayfa 404 döndü');
+for (const x of [u, v, w, dev1.s, dev2.s, dev3.s, raw.s, fake.s, again.s, out.s, del1.s, del2.s]) x.close();
 
 a.close();
 b.close();

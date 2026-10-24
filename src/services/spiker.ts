@@ -275,19 +275,21 @@ export function midGame(m: Match, mark: 30 | 70): BotSay[] {
   const { home: hs, away: as } = m.score;
   const takes: (Take | null)[] = [];
   const pos = stat(m, 'possession'), shots = stat(m, 'shots'), sot = stat(m, 'shotsOnTarget'), xg = stat(m, 'xg');
+  // not, maç odası geç açıldıysa 30./70. dakikadan sonra yazılabilir: metin gerçek dakikayı söyler
+  const min = Math.max(mark, m.minute ?? mark);
   for (const s of ['home', 'away'] as Side[]) {
     const mine = s === 'home' ? hs : as, theirs = s === 'home' ? as : hs;
-    if (pos && pos[s] >= 62 && mine <= theirs) takes.push([60, `${mark}. dakika, ${team(m, s)} %${pos[s]} topla oynuyor ama skor ${hs}-${as}. topa sahip olmak gol atmak değil, bu takım pas ustası ama vuruş çırağı`]);
+    if (pos && pos[s] >= 62 && mine <= theirs) takes.push([60, `${min}. dakika, ${team(m, s)} %${pos[s]} topla oynuyor ama skor ${hs}-${as}. topa sahip olmak gol atmak değil, bu takım pas ustası ama vuruş çırağı`]);
     if (shots && sot && shots[s] >= 8 && sot[s] <= 1) takes.push([58, `${team(m, s)} ${shots[s]} şut çekti, kaleyi bulan sadece ${sot[s]}. bu bitiricilikle sabaha kadar oynasalar gol çıkmaz`]);
     if (xg && xg[s] - xg[other(s)] >= 1 && mine <= theirs) takes.push([62, `gol beklentisi ${team(m, s)} ${fmt1(xg[s])}, rakip ${fmt1(xg[other(s)])}. skor ise ${hs}-${as}. futbolda adalet yok`]);
   }
   if (mark === 70) {
-    if (hs === as) takes.push([30, `son 20 dakika, skor ${hs}-${as}. şimdi hocaların maçı başlıyor, kenardan ilk doğru hamleyi yapan 3 puanı alır`]);
+    if (hs === as) takes.push([30, `son ${Math.max(5, 90 - min)} dakika, skor ${hs}-${as}. şimdi hocaların maçı başlıyor, kenardan ilk doğru hamleyi yapan 3 puanı alır`]);
     else {
       const lead: Side = hs > as ? 'home' : 'away';
-      takes.push([30, `70. dakika, ${team(m, lead)} önde. ${team(m, other(lead))} şimdi her şeyini ortaya koymazsa bu maç bitti`]);
+      takes.push([30, `${min}. dakika, ${team(m, lead)} önde. ${team(m, other(lead))} şimdi her şeyini ortaya koymazsa bu maç bitti`]);
     }
-  } else if (hs === 0 && as === 0) takes.push([25, '30 dakika geçti, iki takım da birbirini kokluyor. bu tempoyla gol ancak bir hatadan gelir']);
+  } else if (hs === 0 && as === 0) takes.push([25, `${min} dakika geçti, iki takım da birbirini kokluyor. bu tempoyla gol ancak bir hatadan gelir`]);
   return top(takes, 1);
 }
 

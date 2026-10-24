@@ -377,9 +377,9 @@ export function renderMatch(root, matchId) {
     const mine = poll ? s.mine?.polls?.[poll.id] : undefined;
     const pct = (i) => (poll?.total ? Math.round((poll.options[i].votes / poll.total) * 100) : 0);
     const opts = [
-      [0, crest(m.home, 'md'), m.home.short],
+      [0, crest(m.home, 'md'), m.home.name],
       [1, h('span.wx', {}, 'X'), 'Beraberlik'],
-      [2, crest(m.away, 'md'), m.away.short],
+      [2, crest(m.away, 'md'), m.away.name],
     ];
     const c = p?.chances;
     return h(
@@ -1531,7 +1531,8 @@ export function renderMatch(root, matchId) {
     const list = s.chatView === 'room' ? s.roomChat : s.chat;
     const main = s.chatView === 'main';
     mount(chatList, list.length ? list.map((m) => chatMsg(m, main)) : h('p.muted.small', { style: { textAlign: 'center' } }, main ? 'Sohbeti ilk sen başlat!' : 'Özel oda hazır. Bağlantıyı arkadaşlarına gönder, ilk mesajı sen yaz!'));
-    scrollChat(true);
+    // telefonda sayfa ilk açılışta en üstte kalsın (skor tabelası görünsün); kullanıcı aşağı indiyse en yeni mesaja git
+    if (!pageScroll() || window.scrollY > 0) scrollChat();
     if (typing) chatInput.focus({ preventScroll: true }); // yeniden çizim yazmayı kesmesin
   }
   // ---- özel oda (Tribün Lideri) ve sabit mesaj (Efsane)

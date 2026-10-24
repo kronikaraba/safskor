@@ -37,6 +37,9 @@ export class MatchService extends EventEmitter {
   private profileJobs = new Map<string, Promise<TeamProfile | null>>();
   /** fullAt: son tam detay (kadro/istatistik) çekimi; canlı akış güncellemeleri bunu değiştirmez */
   private details = new Map<string, { match: Match; json: string; fullAt: number }>();
+  private detailJobs = new Map<string, Promise<Match | null>>();
+  private notFound = new Map<string, number>();
+  private unknownFetches: number[] = [];
   private watched = new Map<string, number>();
   private listTimer?: NodeJS.Timeout;
   private detailTimer?: NodeJS.Timeout;
@@ -292,7 +295,41 @@ export class MatchService extends EventEmitter {
   async getMatch(id: string): Promise<Match | null> {
     const cached = this.details.get(id);
     if (cached && Date.now() - cached.fullAt < this.maxAge(cached.match)) return cached.match;
-    return this.fetchDetail(id);
+    if (!cached && !this.peek(id) && !this.mayFetchUnknown(id)) return null;
+    // aynı maçı aynı anda açan herkes tek isteği bekler
+    let job = this.detailJobs.get(id);
+    if (!job) {
+      job = this.fetchDetail(id);
+      this.detailJobs.set(id, job);
+      job.finally(() => this.detailJobs.delete(id)).catch(() => {});
+    }
+    const m = await job;
+    if (!m && !cached) this.notFound.set(id, Date.now());
+    return m;
+  }
+
+  /** Sağlayıcının "böyle bir maç yok" dediği kimlik (son 6 saatte) */
+  isMissing(id: string) {
+    const at = this.notFound.get(id);
+    return at != null && Date.now() - at < 6 * 60 * MIN;
+  }
+
+  /**
+   * Listede olmayan (eski ya da uydurma) maç kimliği için API'ye gidilsin mi?
+   * Biri adrese rastgele numaralar yazarak günlük kotayı bitiremesin: yalnızca sayı biçimindeki kimlikler,
+   * "yok" denen kimlik 6 saat tekrar sorulmaz, saatte en çok 30 yeni maç, kota sıkışıkken hiç.
+   */
+  private mayFetchUnknown(id: string) {
+    if (!/^(\d{1,10}|demo-\d{1,4})$/.test(id)) return false;
+    if (this.isMissing(id)) return false;
+    if (this.provider.isDemo || id.startsWith('demo-')) return true;
+    if (this.pressure() !== 'ok') return false;
+    const now = Date.now();
+    this.unknownFetches = this.unknownFetches.filter((t) => now - t < 60 * MIN);
+    if (this.unknownFetches.length >= 30) return false;
+    this.unknownFetches.push(now);
+    if (this.notFound.size > 5000) this.notFound.clear();
+    return true;
   }
 
   /** Tam detayın geçerlilik süresi: canlı akış skor/olayları taşıdığı için canlı maçta saatte bir yeter */
@@ -606,6 +643,16 @@ export class MatchService extends EventEmitter {
     this.emit('list', this.list);
   }
 
+  /** Eski maçların detayları bellekte birikmesin: izlenmeyen ve listede olmayan en eskileri bırak */
+  private pruneDetails() {
+    const keep = new Set([...this.list, ...this.tomorrow, ...this.yesterday].map((m) => m.id));
+    const old = [...this.details.entries()]
+      .filter(([id]) => !keep.has(id) && !this.watched.has(id))
+      .sort((a, b) => a[1].fullAt - b[1].fullAt)
+      .slice(0, 300);
+    for (const [id] of old) this.details.delete(id);
+  }
+
   private async fetchDetail(id: string): Promise<Match | null> {
     const match = await this.provider.getMatch(id);
     if (!match) {
@@ -623,6 +670,7 @@ export class MatchService extends EventEmitter {
     const json = JSON.stringify(match);
     const prev = this.details.get(match.id);
     this.details.set(match.id, { match, json, fullAt });
+    if (this.details.size > 1500) this.pruneDetails();
     this.patchList(match);
     if (prev && prev.json !== json) {
       const seen = new Set(prev.match.events.map((e) => e.id));

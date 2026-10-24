@@ -48,7 +48,7 @@ button { cursor: pointer; }
 .topbar-in { display: flex; align-items: center; gap: 10px; width: 100%; }
 .brand { display: flex; align-items: center; gap: 8px; font-size: 19px; letter-spacing: -0.02em; margin-right: auto; }
 .topnav { display: flex; align-items: center; gap: 10px; }
-.home-link { display: none; }
+.home-link, .table-link { display: none; }
 .brand-logo { display: block; height: 30px; width: auto; }
 .topbar-right { display: flex; align-items: center; gap: 10px; }
 .conn { width: 9px; height: 9px; border-radius: 50%; background: var(--faint); }
@@ -57,7 +57,9 @@ button { cursor: pointer; }
 .nick-btn {
   border: 1px solid var(--border); background: var(--surface-2); border-radius: 999px;
   padding: 6px 12px; font-size: 13px; max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  display: inline-flex; align-items: center; gap: 6px;
 }
+.nick-btn > span:last-child { overflow: hidden; text-overflow: ellipsis; }
 .nick-btn::before { content: "👤 "; }
 
 .banner {
@@ -898,7 +900,7 @@ a.tp-row:hover { background: var(--surface-3); }
 .ww-opt:hover:not(:disabled) { border-color: color-mix(in srgb, var(--accent) 60%, var(--border)); }
 .ww-opt.mine { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 16%, transparent); }
 .ww-opt .wx { display: grid; place-items: center; width: 44px; height: 44px; font-size: 24px; font-weight: 900; color: var(--muted); }
-.ww-opt .ww-l { font-size: 13px; color: var(--muted); max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ww-opt .ww-l { font-size: 13px; color: var(--muted); max-width: 100%; text-align: center; line-height: 1.25; overflow-wrap: anywhere; }
 .ww-opt.mine .ww-l { color: var(--text); }
 .ww-opt .ww-p { font-size: 15px; }
 .ww-model { margin-top: 12px; }
@@ -1002,3 +1004,26 @@ button.abs-row:hover b { text-decoration: underline; }
 .pf-cn b { font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pf-cn small { color: var(--muted); font-size: 12px; }
 .pf-h.pf-top { margin-top: 18px; padding-top: 12px; border-top: 1px solid var(--border); }
+
+/* ---------------------------------------------------------------- alt bilgi, gizlilik ve 404 sayfaları */
+.site-footer {
+  max-width: 1180px; margin: 8px auto 0; padding: 18px 16px max(22px, env(safe-area-inset-bottom));
+  display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: center;
+  border-top: 1px solid var(--border); color: var(--faint); font-size: 13px;
+}
+.site-footer a { color: var(--muted); font-weight: 600; }
+.site-footer a:hover { color: var(--text); }
+.site-footer span { flex-basis: 100%; }
+.doc { max-width: 760px; margin: 0 auto; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 22px 20px; }
+.doc h1 { margin: 0 0 6px; font-size: 22px; letter-spacing: -0.01em; }
+.doc h2 { margin: 22px 0 6px; font-size: 16px; }
+.doc p, .doc li { color: #c9d3df; font-size: 14.5px; line-height: 1.6; }
+.doc ul { padding-left: 20px; margin: 6px 0; }
+.doc .muted { color: var(--muted); }
+.notfound { max-width: 520px; margin: 40px auto; text-align: center; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 36px 20px; }
+.notfound .big { font-size: 56px; font-weight: 900; color: var(--accent); line-height: 1; }
+.notfound h1 { font-size: 20px; margin: 12px 0 6px; }
+.notfound p { color: var(--muted); margin: 0 0 18px; }
+.notfound .btn { display: inline-block; padding: 12px 22px; font-size: 15px; }
+.btn.danger { background: var(--live); color: #fff; }
+.acct-del { color: var(--live); margin-top: 6px; font-size: 13px; }

@@ -3,6 +3,7 @@ import { h, mount, storage, openSheet, closeSheet, toast, teamBadge } from './ut
 import { renderLobby } from './lobby.js';
 import { renderMatch } from './match.js';
 import { initDm } from './dm.js';
+import { renderPrivacy, renderNotFound } from './pages.js';
 
 // ------------------------------------------------------------------ kimlik
 // Herkes tarayıcıya özel anonim bir kimlikle başlar. Telefonla üye olan ya da giriş yapan cihaz bunun yerine
@@ -201,6 +202,25 @@ function accountBox(nickInput) {
       drawAccount();
       toast('Diğer cihazlardaki oturumlar kapatıldı');
     };
+    const pinDel = field('Şifren', { ...pinAttrs, autocomplete: 'current-password' });
+    const deleteAccount = async (e) => {
+      e.preventDefault();
+      if (!confirm('Hesabın kalıcı olarak silinsin mi? Telefon numaran, şifren, özel mesajların ve tüm cihazlardaki oturumların silinir. Bu geri alınamaz.')) return;
+      const r = await send('account:delete', { pin: val(pinDel) });
+      if (!r?.ok) return toast(r?.error || 'Hesap silinemedi', 'err');
+      resetIdentity();
+      toast('Hesabın silindi');
+      setTimeout(() => location.reload(), 1200);
+    };
+    if (changing === 'delete') {
+      mount(
+        box,
+        h('h3', {}, 'Hesabı sil'),
+        h('p.muted.small', {}, 'Telefon numaran, şifren, özel mesajların, davet kodun ve tüm cihazlardaki oturumların kalıcı olarak silinir. Sohbet mesajların ve oyların maçın kaydında kalır ama adın "Silinmiş üye" olur.'),
+        h('form.form', { onsubmit: deleteAccount }, pinDel, h('div.acct-row', {}, h('button.btn.danger', { type: 'submit' }, 'Hesabımı kalıcı olarak sil'), h('button.btn.ghost', { type: 'button', onclick: () => drawAccount() }, 'Vazgeç'))),
+      );
+      return;
+    }
     mount(
       box,
       h('h3', {}, 'Hesabın'),
@@ -215,6 +235,7 @@ function accountBox(nickInput) {
             n > 1 && h('button.btn.ghost', { type: 'button', onclick: logoutOthers }, 'Diğer cihazlardan çıkış yap'),
             h('button.btn.ghost', { type: 'button', onclick: logout }, 'Çıkış yap'),
           ),
+      !changing && h('button.link-btn.acct-del', { type: 'button', onclick: () => drawAccount('delete') }, 'Hesabımı sil'),
     );
   };
 
@@ -391,8 +412,9 @@ const TITLES = {
   '/yarin': 'Yarının Maçları ve Başlama Saatleri · Safskor',
   '/dun': 'Dünün Maç Sonuçları · Safskor',
   '/puan-durumu': 'Süper Lig Puan Durumu · Safskor',
+  '/gizlilik': 'Gizlilik Politikası ve KVKK Aydınlatma Metni · Safskor',
 };
-const APP_PATH = /^\/($|yarin$|dun$|puan-durumu$|mac\/)/;
+const APP_PATH = /^\/($|yarin$|dun$|puan-durumu$|gizlilik$|mac\/)/;
 
 function fromHash(hash) {
   const m = hash.match(/^#\/m\/([\w-]+)/);
@@ -409,7 +431,8 @@ export function navigate(path) {
 }
 
 function route() {
-  const path = APP_PATH.test(location.pathname) ? location.pathname : '/';
+  // bilinmeyen adres: sunucu 404 döner, burada "sayfa bulunamadı" gösterilir
+  const path = APP_PATH.test(location.pathname) ? location.pathname : '/404';
   if (path === current && app.socket.connected && app.view?.rejoin) return app.view.rejoin();
   current = path;
   app.view?.destroy?.();
@@ -419,9 +442,14 @@ function route() {
   window.scrollTo(0, 0);
   const m = path.match(/^\/mac\/([\w-]+)/);
   const tab = path === '/yarin' ? 'tomorrow' : path === '/dun' ? 'yesterday' : path === '/puan-durumu' ? 'table' : 'today';
-  app.view = m ? renderMatch(root, decodeURIComponent(m[1])) : renderLobby(root, tab);
-  if (!m) document.title = TITLES[path] ?? TITLES['/'];
-  document.querySelector('.home-link')?.classList.add('active');
+  if (path === '/gizlilik') app.view = renderPrivacy(root);
+  else if (path === '/404') app.view = renderNotFound(root);
+  else app.view = m ? renderMatch(root, decodeURIComponent(m[1])) : renderLobby(root, tab);
+  if (!m && path !== '/404') document.title = TITLES[path] ?? TITLES['/'];
+  // masaüstü üst menü: Puan durumu kendi düğmesinde, diğer maç sayfaları Maçlar'da
+  const table = path === '/puan-durumu';
+  document.querySelector('.home-link')?.classList.toggle('active', !table && path !== '/gizlilik' && path !== '/404');
+  document.querySelector('.table-link')?.classList.toggle('active', table);
 }
 
 // site içi bağlantılar sayfayı yeniden yüklemeden açılır (yeni sekmede açma vb. tarayıcıya bırakılır)

@@ -10,7 +10,7 @@ import { FanStore, FORMATIONS, STYLES, weekKey, normalizePhone, weakPin, rankOf,
 import { MatchService } from './services/matchService.js';
 import { preMatch, lineupsOut, halfTime, fullTime, manOfTheMatch, kickoff, secondHalf, liveEvent, midGame, type BotSay, type SpikerFan } from './services/spiker.js';
 import type { Match, MatchEvent, Player, Side } from './types.js';
-import { PAGES, matchPage, matchPath, renderPage, robotsTxt, sitemapXml, standingsPage, unknownMatchPage, type Page } from './seo.js';
+import { PAGES, PRIVACY_PAGE, matchPage, notFoundPage, matchPath, renderPage, robotsTxt, sitemapXml, standingsPage, unknownMatchPage, type Page } from './seo.js';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const provider = createProvider();
@@ -120,11 +120,17 @@ app.get('/yarin', (_req, res) => sendPage(res, PAGES['/yarin']));
 app.get('/dun', (_req, res) => sendPage(res, PAGES['/dun']));
 // haftalık sıralama sayfası kaldırıldı: eski bağlantılar ana sayfaya gider
 app.get('/siralama', (_req, res) => res.redirect(301, '/'));
+app.get('/gizlilik', (_req, res) => sendPage(res, PRIVACY_PAGE));
 app.get('/puan-durumu', (_req, res) => sendPage(res, standingsPage(matches.getStandings())));
-app.get(['/mac/:id', '/mac/:id/:slug'], (req, res) => {
+app.get(['/mac/:id', '/mac/:id/:slug'], async (req, res) => {
   const id = String(req.params.id).slice(0, 40);
-  const m = matches.peek(id);
-  if (!m) return sendPage(res, unknownMatchPage(req.path));
+  // listede olmayan eski maç da kendi başlığıyla açılsın (Google'da kalsın); API'ye gidiş getMatch'te sınırlı
+  const m = matches.peek(id) ?? (await matches.getMatch(id).catch(() => null));
+  if (!m) {
+    // sağlayıcı "böyle maç yok" dediyse gerçek 404; kota yüzünden bakılamadıysa sayfa açılır ama indekslenmez
+    if (matches.isMissing(id) || !/^(\d{1,10}|demo-\d{1,4})$/.test(id)) res.status(404);
+    return sendPage(res, unknownMatchPage(req.path));
+  }
   // takım adları adreste: /mac/123/galatasaray-fenerbahce (yanlış ya da eksikse doğrusuna yönlendir)
   const canonical = matchPath(m);
   // sorgu (ör. davet kodu ?ref=) yönlendirmede kaybolmasın
@@ -147,6 +153,13 @@ app.get('/sitemap.xml', (_req, res) => {
 });
 
 app.use(express.static(path.join(root, 'public'), { extensions: ['html'] }));
+// bilinmeyen adres: düz "Cannot GET" yerine sitenin kendi 404 sayfası (uygulama açılır, "sayfa bulunamadı" yazar)
+app.use((req, res) => {
+  if (req.method !== 'GET' && req.method !== 'HEAD') return res.status(404).end();
+  if (req.path.startsWith('/api/')) return res.status(404).json({ error: 'Bulunamadı' });
+  res.status(404);
+  sendPage(res, notFoundPage(req.path));
+});
 
 const server = http.createServer(app);
 const io = new Server(server, { serveClient: false, maxHttpBufferSize: 16_000 });
@@ -470,6 +483,23 @@ io.on('connection', (socket: Socket) => {
     store.deleteOtherSessions(data.userId, data.session ?? null);
     await kickOtherSessions(data.userId, data.session ?? null);
     a({ ok: true, account: store.account(data.userId) });
+  });
+
+  // hesabı silme: şifreyle onaylanır, tüm cihazlardaki oturumlar kapanır
+  socket.on('account:delete', async (p, ack) => {
+    const a = safeAck(ack);
+    if (!data.session || !store.hasAccount(data.userId)) return a({ ok: false, error: 'Bunun için giriş yapmış olmalısın.' });
+    if (tooManyFails()) return a({ ok: false, error: TOO_MANY });
+    if (!pinFormat(p?.pin)) return a({ ok: false, error: 'Şifren hatalı.' });
+    const r = store.deleteAccount(data.userId, p.pin);
+    if (r === 'no_account') return a({ ok: false, error: 'Bunun için giriş yapmış olmalısın.' });
+    if (r === 'wrong' || typeof r === 'object') {
+      countFail();
+      return a({ ok: false, error: r === 'wrong' ? 'Şifren hatalı.' : lockedText(r.lockedMs) });
+    }
+    await kickOtherSessions(data.userId, data.session);
+    data.session = null;
+    a({ ok: true });
   });
 
   socket.on('teams:list', (_p, ack) => safeAck(ack)({ ok: true, teams: PICKABLE_TEAMS }));
@@ -1011,9 +1041,10 @@ matches.on('status', (m: Match, prev?: string) => {
   io.to(room(m.id)).emit('presence', { matchId: m.id, count: roomSize(m.id) });
   if (m.status === 'FT') scoreMatch(m).catch((e) => console.error('[tahmin] puanlama hatası', e));
   const text =
-    m.status === 'LIVE' && m.minute != null && m.minute <= 1 ? '🟢 Maç başladı! İyi seyirler.'
+    // sunucu maçı ilk kez birkaç dakika geçmişken görse de (yoklama aralığı, yeniden başlatma) başlangıç mesajı doğru olsun
+    m.status === 'LIVE' && prev !== 'HT' ? '🟢 Maç başladı! İyi seyirler.'
     : m.status === 'HT' ? `⏸️ İlk yarı sona erdi: ${m.home.short} ${m.score.home}-${m.score.away} ${m.away.short}`
-    : m.status === 'LIVE' ? '▶️ İkinci yarı başladı.'
+    : m.status === 'LIVE' ? (m.minute != null && m.minute > 90 ? '▶️ Uzatma devresi başladı.' : '▶️ İkinci yarı başladı.')
     : m.status === 'FT' ? `🏁 Maç sona erdi: ${m.home.name} ${m.score.home}-${m.score.away} ${m.away.name}. Oyuncuları puanlamayı unutma!`
     : null;
   if (text) io.to(room(m.id)).emit('chat:message', store.addChat(m.id, null, 'Safskor', text, 'system'));

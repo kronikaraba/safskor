@@ -538,6 +538,32 @@ export class FanStore {
     return { lockedMs: ms };
   }
 
+  /**
+   * Hesabı ve kişisel verileri siler (KVKK / Play Store şartı): telefon, şifre, oturumlar, profil, özel mesajlar, davet kodu.
+   * Sohbet, yorum, anket, taktik ve tahminler maçın kaydı olarak kalır ama adı "Silinmiş üye" olur.
+   */
+  deleteAccount(userId: string, pin: string): 'ok' | 'wrong' | 'no_account' | { lockedMs: number } {
+    const r = this.db.prepare('SELECT * FROM accounts WHERE user_id = ?').get(userId) as any;
+    if (!r) return 'no_account';
+    const res = this.checkAccountPin(r, pin);
+    if (res !== 'ok') return res;
+    const gone = 'Silinmiş üye';
+    this.db.transaction(() => {
+      for (const sql of [
+        'DELETE FROM accounts WHERE user_id = ?',
+        'DELETE FROM sessions WHERE user_id = ?',
+        'DELETE FROM profiles WHERE user_id = ?',
+        'DELETE FROM dms WHERE from_id = ? OR to_id = ?',
+        'DELETE FROM dm_blocks WHERE user_id = ? OR blocked_id = ?',
+        'DELETE FROM ref_codes WHERE user_id = ?',
+      ]) this.db.prepare(sql).run(...Array(sql.split('?').length - 1).fill(userId));
+      for (const [table, col] of [['chat', 'user_id'], ['comments', 'user_id'], ['tactics', 'user_id'], ['predictions', 'user_id'], ['polls', 'created_by'], ['sub_requests', 'created_by'], ['users', 'user_id']]) {
+        this.db.prepare(`UPDATE ${table} SET nick = ? WHERE ${col} = ?`).run(gone, userId);
+      }
+    })();
+    return 'ok';
+  }
+
   renameAccount(userId: string, name: string) {
     this.db.prepare('UPDATE accounts SET name = ? WHERE user_id = ?').run(name, userId);
   }
