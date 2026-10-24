@@ -706,7 +706,7 @@ export function renderMatch(root, matchId) {
           : h('p.muted.small', {}, 'Kadrolar açıklanınca (genelde maçtan ~1 saat önce) ilk 11 tahmini de yapabileceksin.'),
         h('button.btn', { style: { width: '100%' }, onclick: submit }, p ? 'Tahminimi güncelle' : 'Tahmini kaydet'),
         p ? h('p.muted.small', { style: { margin: '8px 0 0', textAlign: 'center' } }, `Kayıtlı tahminin: ${p.home}-${p.away}${p.xi?.length ? ' · ilk 11 seçili' : ''}`) : null,
-        h('p.muted.small', { style: { margin: '6px 0 0', textAlign: 'center' } }, 'Tam skor 3 puan · doğru sonuç 1 puan · ', h('a', { href: '/siralama', style: { color: 'var(--accent)' } }, 'haftalık sıralama')),
+        h('p.muted.small', { style: { margin: '6px 0 0', textAlign: 'center' } }, 'Tam skor 3 puan · doğru sonuç 1 puan'),
       );
     };
     const drawLocked = () => {
@@ -732,7 +732,7 @@ export function renderMatch(root, matchId) {
                   ]
                 : h('p.muted.small', {}, ft ? 'Puanın hesaplanıyor…' : 'Maç bitince puanın burada görünecek.'),
             ),
-        ft ? h('div.pick', { style: { marginTop: '12px' } }, h('button.btn.sm', { onclick: openCard }, '📤 Kartımı paylaş'), h('a.btn.ghost.sm', { href: '/siralama' }, icon('haftalik-siralama-kupa'), 'Sıralama')) : null,
+        ft ? h('div.pick', { style: { marginTop: '12px' } }, h('button.btn.sm', { onclick: openCard }, '📤 Kartımı paylaş')) : null,
       );
     };
     const drawExtra = () => {

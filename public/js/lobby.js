@@ -1,6 +1,5 @@
 import { app } from './app.js';
 import { h, mount, crest, storage, roundText, minuteText, dayText, icon, matchHref } from './util.js';
-import { lbRow } from './leaderboard.js';
 import { openTeam } from './team.js';
 
 const FILTERS = [
@@ -29,16 +28,14 @@ const dateLabel = (offset) => {
 export function renderLobby(root, tab = 'today') {
   let filter = storage.get('safskor.filter', 'all');
   let featuredId = null; // sağ sütunda gösterilen maç
-  let board = null; // haftalık sıralama özeti
   app.socket.emit('lobby:join');
 
   const chips = h('div.chips', { role: 'tablist' });
   const list = h('div.lobby-list');
   const clubs = h('section.panel.big4', { 'aria-label': 'Büyük 4' });
   const featured = h('div');
-  const ranks = h('div');
   const dateEl = h('span.lobby-date');
-  const side = h('aside.lobby-side', {}, featured, ranks);
+  const side = h('aside.lobby-side', {}, featured);
   const lobby = h(
     'div.lobby',
     {},
@@ -59,7 +56,7 @@ export function renderLobby(root, tab = 'today') {
   );
   mount(root, lobby);
 
-  // Masaüstünde (Sofascore düzeni) solda maç listesi, sağda öne çıkan maç ve haftalık sıralama
+  // Masaüstünde (Sofascore düzeni) solda maç listesi, sağda öne çıkan maç
   const wide = window.matchMedia('(min-width: 921px)');
   const onResize = () => (drawClubs(), drawSide());
   wide.addEventListener('change', onResize);
@@ -284,8 +281,6 @@ export function renderLobby(root, tab = 'today') {
   function drawSide() {
     if (!wide.matches) return;
     drawFeatured();
-    drawRanks();
-    if (!board) loadRanks();
   }
 
   /** Öne çıkan maçlar: odadaki taraftar sayısı çoktan aza; eşitse canlılar, yaklaşanlar, bitenler */
@@ -352,34 +347,6 @@ export function renderLobby(root, tab = 'today') {
     );
   }
 
-  function loadRanks() {
-    app.socket.timeout(8000).emit('leaderboard:get', {}, (err, r) => {
-      if (err || !r?.ok) return;
-      board = r;
-      drawRanks();
-    });
-  }
-
-  function drawRanks() {
-    if (!wide.matches) return;
-    const head = h('div.panel-head', {}, h('h2.h-ic', {}, icon('haftalik-siralama-kupa'), 'Haftalık sıralama'), h('a.panel-link', { href: '/siralama' }, 'Tümü ›'));
-    if (!board) return mount(ranks, h('section.panel.side-rank', {}, head, h('p.muted.small', {}, 'Sıralama yükleniyor…')));
-    const top = board.rows.slice(0, 5);
-    const mine = board.me ?? board.rows.find((x) => x.me);
-    mount(
-      ranks,
-      h(
-        'section.panel.side-rank',
-        {},
-        head,
-        top.length
-          ? h('ol.lb-list', {}, top.map(lbRow), mine && !top.includes(mine) ? [h('li.lb-gap', {}, '⋯'), lbRow(mine)] : null)
-          : h('p.muted.small', {}, 'Bu hafta henüz tahmin yok. Başlamamış bir maçta Taraftar > Anketler bölümünden ilk tahmini sen yap!'),
-        h('p.muted.small.side-rules', {}, "Tam skor 3 puan · doğru sonuç 1 puan · ilk 11'de doğru bilinen her oyuncu +1 puan."),
-      ),
-    );
-  }
-
   drawClubs();
   drawList();
   drawSide();
@@ -392,7 +359,6 @@ export function renderLobby(root, tab = 'today') {
     },
     rejoin() {
       app.socket.emit('lobby:join');
-      if (wide.matches) loadRanks();
     },
   };
 }

@@ -118,7 +118,8 @@ function sendPage(res: express.Response, page: Page) {
 app.get('/', (_req, res) => sendPage(res, PAGES['/']));
 app.get('/yarin', (_req, res) => sendPage(res, PAGES['/yarin']));
 app.get('/dun', (_req, res) => sendPage(res, PAGES['/dun']));
-app.get('/siralama', (_req, res) => sendPage(res, PAGES['/siralama']));
+// haftalık sıralama sayfası kaldırıldı: eski bağlantılar ana sayfaya gider
+app.get('/siralama', (_req, res) => res.redirect(301, '/'));
 app.get('/puan-durumu', (_req, res) => sendPage(res, standingsPage(matches.getStandings())));
 app.get(['/mac/:id', '/mac/:id/:slug'], (req, res) => {
   const id = String(req.params.id).slice(0, 40);

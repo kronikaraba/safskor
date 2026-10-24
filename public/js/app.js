@@ -2,7 +2,6 @@ import { io } from '/vendor/socket.io.esm.min.js';
 import { h, mount, storage, openSheet, closeSheet, toast, teamBadge } from './util.js';
 import { renderLobby } from './lobby.js';
 import { renderMatch } from './match.js';
-import { renderLeaderboard } from './leaderboard.js';
 import { initDm } from './dm.js';
 
 // ------------------------------------------------------------------ kimlik
@@ -121,7 +120,7 @@ export function editNick() {
         'form.form',
         { onsubmit: save },
         h('label', {}, 'Takma ad', input),
-        h('p.muted.small', { style: { margin: '-4px 0 0' } }, 'Sohbette, önerilerde ve sıralamada bu adla görüneceksin.'),
+        h('p.muted.small', { style: { margin: '-4px 0 0' } }, 'Sohbette ve önerilerde bu adla görüneceksin.'),
         h('div.field', { role: 'group', 'aria-label': 'Favori takımın' }, h('span', {}, 'Favori takımın (dokunarak seç, tekrar dokunursan kaldırılır)'), list),
         h('button.btn', { type: 'submit' }, 'Kaydet'),
       ),
@@ -383,7 +382,7 @@ function setProvider(p) {
 }
 
 // ------------------------------------------------------------------ yönlendirme
-// Adresler (Google her birini ayrı sayfa olarak görür): / bugün, /yarin, /dun, /puan-durumu, /siralama,
+// Adresler (Google her birini ayrı sayfa olarak görür): / bugün, /yarin, /dun, /puan-durumu,
 // /mac/<id>/<ev-deplasman>. Eski #/ bağlantıları (paylaşılmış linkler) yeni adreslere çevrilir.
 const root = document.getElementById('app');
 let current = '';
@@ -392,14 +391,12 @@ const TITLES = {
   '/yarin': 'Yarının Maçları ve Başlama Saatleri · Safskor',
   '/dun': 'Dünün Maç Sonuçları · Safskor',
   '/puan-durumu': 'Süper Lig Puan Durumu · Safskor',
-  '/siralama': 'Haftalık Skor Tahmini Sıralaması · Safskor',
 };
-const APP_PATH = /^\/($|yarin$|dun$|puan-durumu$|siralama$|mac\/)/;
+const APP_PATH = /^\/($|yarin$|dun$|puan-durumu$|mac\/)/;
 
 function fromHash(hash) {
   const m = hash.match(/^#\/m\/([\w-]+)/);
   if (m) return `/mac/${m[1]}`;
-  if (hash.startsWith('#/siralama')) return '/siralama';
   if (hash.startsWith('#/yarin')) return '/yarin';
   if (hash.startsWith('#/puan')) return '/puan-durumu';
   return '/';
@@ -421,12 +418,10 @@ function route() {
   closeSheet();
   window.scrollTo(0, 0);
   const m = path.match(/^\/mac\/([\w-]+)/);
-  const rank = path === '/siralama';
   const tab = path === '/yarin' ? 'tomorrow' : path === '/dun' ? 'yesterday' : path === '/puan-durumu' ? 'table' : 'today';
-  app.view = m ? renderMatch(root, decodeURIComponent(m[1])) : rank ? renderLeaderboard(root) : renderLobby(root, tab);
+  app.view = m ? renderMatch(root, decodeURIComponent(m[1])) : renderLobby(root, tab);
   if (!m) document.title = TITLES[path] ?? TITLES['/'];
-  document.querySelector('.rank-link')?.classList.toggle('active', rank);
-  document.querySelector('.home-link')?.classList.toggle('active', !rank);
+  document.querySelector('.home-link')?.classList.add('active');
 }
 
 // site içi bağlantılar sayfayı yeniden yüklemeden açılır (yeni sekmede açma vb. tarayıcıya bırakılır)

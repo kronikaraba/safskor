@@ -74,11 +74,6 @@ export const PAGES: Record<string, Page> = {
     description: 'Trendyol Süper Lig güncel puan durumu: sıralama, oynanan maç, galibiyet, beraberlik, mağlubiyet, averaj ve puanlar.',
     path: '/puan-durumu',
   },
-  '/siralama': {
-    title: 'Haftalık Skor Tahmini Sıralaması · Safskor',
-    description: 'Safskor haftalık skor tahmini yarışması. Tam skoru bil 3 puan, doğru sonuç 1 puan, ilk 11 tahmininde her doğru oyuncu +1 puan.',
-    path: '/siralama',
-  },
 };
 
 export function standingsPage(t: Standings | null): Page {
@@ -170,7 +165,6 @@ export function sitemapXml(matches: MatchSummary[]) {
     { loc: '/yarin', freq: 'hourly', prio: '0.8', mod: now },
     { loc: '/dun', freq: 'daily', prio: '0.6', mod: now },
     { loc: '/puan-durumu', freq: 'daily', prio: '0.8', mod: now },
-    { loc: '/siralama', freq: 'daily', prio: '0.5', mod: now },
   ];
   for (const m of matches) {
     if (seen.has(m.id)) continue;
