@@ -8,7 +8,7 @@ import { config } from './config.js';
 import { createProvider } from './providers/index.js';
 import { FanStore, FORMATIONS, STYLES, weekKey, normalizePhone, weakPin, rankOf, rankAtLeast, type TeamBadge } from './services/fanStore.js';
 import { MatchService } from './services/matchService.js';
-import { preMatch, lineupsOut, kickoffSoon, halfTime, fullTime, manOfTheMatch, type BotSay, type SpikerFan } from './services/spiker.js';
+import { preMatch, lineupsOut, halfTime, fullTime, manOfTheMatch, type BotSay, type SpikerFan } from './services/spiker.js';
 import type { Match, MatchEvent, Player, Side } from './types.js';
 import { PAGES, matchPage, matchPath, renderPage, robotsTxt, sitemapXml, standingsPage, unknownMatchPage, type Page } from './seo.js';
 
@@ -892,13 +892,6 @@ io.on('connection', (socket: Socket) => {
 // ------------------------------------------------------------------ canlı güncellemeler
 
 matches.on('list', lobbyUpdate);
-// başlamaya 15 dakikadan az kalan maçlara (odası açılmışsa) bir "az kaldı" yorumu
-matches.on('list', (list: { id: string; status: string; kickoff: string }[]) => {
-  for (const m of list as any[]) {
-    const left = Date.parse(m.kickoff) - Date.now();
-    if (m.status === 'SCHEDULED' && left > 0 && left < 15 * 60_000 && store.chatRefAt(m.id, 'spiker:pre') != null) spikerSay(m, 'spiker:soon', kickoffSoon(m));
-  }
-});
 matches.on('clubs', lobbyUpdate);
 // yarının/dünün listesi ve puan durumu seyrek değişir: herkese (maç odasındakiler dahil) gönder ki lobiye dönünce güncel olsun
 matches.on('tomorrow', (list) => io.emit('tomorrow', list));
@@ -941,10 +934,9 @@ matches.on('match', (m: Match) => {
   if (m.status === 'SCHEDULED' && store.chatRefAt(m.id, 'spiker:pre') != null) spikerSay(m, 'spiker:xi', lineupsOut(m));
 });
 
-// --- Safskor botları: maç öncesi/sonrası taraftar havasında otomatik yorumlar (sohbette "bot" rozetiyle). Ek API isteği yok.
+// --- YorumcuBot: maç öncesi/sonrası maç, futbolcu ve hocalar hakkında keskin yorumlar (sohbette "bot" rozetiyle). Ek API isteği yok.
 function spikerFan(m: Match): SpikerFan {
-  const st = store.state(m.id);
-  return { ratings: st.ratings, polls: st.polls, predictions: { total: st.predictions.total, top: st.predictions.top, exact: store.exactPredictions(m.id, m.score.home, m.score.away) } };
+  return { ratings: store.state(m.id).ratings };
 }
 /** ref başına bir kez yazar (veritabanında tutulur, yeniden başlatmada tekrar yazmaz) */
 function spikerSay(m: { id: string }, ref: string, says: BotSay[]) {

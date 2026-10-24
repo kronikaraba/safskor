@@ -359,11 +359,6 @@ export class FanStore {
     return { total, top: rows.slice(0, 3).map((r) => ({ home: r.home, away: r.away, count: r.c })), result };
   }
 
-  /** Tam skoru bilen tahmin sayısı */
-  exactPredictions(matchId: string, home: number, away: number): number {
-    return (this.db.prepare('SELECT COUNT(*) c FROM predictions WHERE match_id = ? AND home = ? AND away = ?').get(matchId, home, away) as any).c;
-  }
-
   /** Haftalık sıralama (puan, sonra tam isabet sayısı). viewer: kendi satırını işaretlemek için */
   leaderboard(week: string, viewer: string, limit = 50) {
     const rows = (
