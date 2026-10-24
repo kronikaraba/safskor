@@ -195,6 +195,15 @@ export class FanStore {
     // yalnızca "Maçı kim kazanır?" ve "Hakem yönetimi" anketleri kalır: kaldırılan gol anketi ve kullanıcı anketlerini sil
     const dropped = "SELECT id FROM polls WHERE kind = 'user' OR auto_key NOT IN ('winner', 'referee')";
     this.db.exec(`DELETE FROM poll_votes WHERE poll_id IN (${dropped}); DELETE FROM polls WHERE id IN (${dropped});`);
+    // yorumcunun dili değişti (fanatik taraftar ağzı): eski sürümün maç öncesi yorumları bir kez silinir,
+    // başlamamış maçlarda oda açılınca yenileri yazılır (aynı ref olduğu için eskiler yenisini engelliyordu)
+    const SPIKER_V = '3';
+    const v = (this.db.prepare("SELECT value FROM meta WHERE key = 'spiker_v'").get() as any)?.value;
+    if (v !== SPIKER_V) {
+      const old = "SELECT id FROM chat WHERE kind = 'bot' AND ref IN ('spiker:pre', 'spiker:xi', 'spiker:soon')";
+      this.db.exec(`DELETE FROM chat_likes WHERE chat_id IN (${old}); DELETE FROM chat WHERE id IN (${old});`);
+      this.db.prepare("INSERT INTO meta (key, value) VALUES ('spiker_v', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(SPIKER_V);
+    }
   }
 
   // ------------------------------------------------------------------ herkese açık kimlik
