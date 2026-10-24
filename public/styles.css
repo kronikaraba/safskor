@@ -857,3 +857,30 @@ a.tp-row:hover { background: var(--surface-3); }
 .pin-txt { flex: 1; min-width: 0; font-size: 13px; }
 .pin-txt small { display: block; color: var(--gold); font-size: 11px; font-weight: 700; }
 .pin-txt span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ---------------------------------------------------------------- Android uygulamasının küçük penceresi */
+/* Uygulama maç sayfasındayken arka plana geçince köşede küçük pencere açılır (html.pip): yalnızca skor ve akan sohbet */
+.pip .topbar, .pip .banner, .pip .back, .pip .share-bar, .pip .tabs, .pip .toasts, .pip .sheet-backdrop,
+.pip .sb-comp, .pip .sb-scorers, .pip .sb-foot, .pip .chat-head, .pip .chat-foot, .pip .chat-seg { display: none !important; }
+.pip .app { padding: 0 6px 6px; }
+.pip .match-layout { gap: 0; }
+.pip .match-layout > div:first-child { position: sticky; top: 0; z-index: 5; background: var(--bg); padding-top: 6px; }
+.pip .match-layout > div:first-child > :not(:first-child) { display: none; }
+.pip .scoreboard { padding: 6px 8px; margin: 0 0 6px; border-radius: 10px; }
+.pip .sb-main { gap: 4px; align-items: center; }
+.pip .sb-team, .pip .sb-teambtn { gap: 3px; }
+.pip .sb-team .name { display: none; }
+.pip .crest.lg { width: 28px; height: 28px; font-size: 10px; }
+.pip .sb-center { padding-top: 0; display: flex; flex-direction: column; align-items: center; gap: 2px; }
+.pip .sb-score { font-size: 22px; }
+.pip .sb-center .status { font-size: 10px; padding: 1px 6px; position: static; }
+.pip .chat-col { display: block !important; }
+.pip .chat { border: 0; background: none; }
+.pip .chat-list { min-height: 0; padding: 0 2px; gap: 4px; }
+.pip .msg { max-width: 100%; }
+.pip .msg .who { font-size: 10px; margin-bottom: 1px; }
+.pip .msg .bubble { font-size: 12px; padding: 3px 8px; }
+.pip .msg .time, .pip .msg .reply, .pip .msg .like { display: none; }
+
+/* ---------------------------------------------------------------- botlar (otomatik yorumlar): üye mesajı gibi, "bot" rozetiyle */
+.bot-badge { display: inline-block; margin-left: 4px; font-size: 10px; font-weight: 700; padding: 0 6px; border-radius: 999px; background: var(--surface-3); color: var(--muted, #93a1b3); vertical-align: 1px; }

@@ -37,7 +37,8 @@ export interface ChatMessage {
   uid: string | null;
   nick: string;
   text: string;
-  kind: 'user' | 'system';
+  /** bot: Safskor Spiker'in otomatik mesajı */
+  kind: 'user' | 'system' | 'bot';
   createdAt: number;
   likes: number;
   team?: TeamBadge | null;
@@ -358,6 +359,11 @@ export class FanStore {
     return { total, top: rows.slice(0, 3).map((r) => ({ home: r.home, away: r.away, count: r.c })), result };
   }
 
+  /** Tam skoru bilen tahmin sayısı */
+  exactPredictions(matchId: string, home: number, away: number): number {
+    return (this.db.prepare('SELECT COUNT(*) c FROM predictions WHERE match_id = ? AND home = ? AND away = ?').get(matchId, home, away) as any).c;
+  }
+
   /** Haftalık sıralama (puan, sonra tam isabet sayısı). viewer: kendi satırını işaretlemek için */
   leaderboard(week: string, viewer: string, limit = 50) {
     const rows = (
@@ -382,7 +388,7 @@ export class FanStore {
   // ------------------------------------------------------------------ sohbet
 
   addChat(
-    matchId: string, userId: string | null, nick: string, text: string, kind: 'user' | 'system' = 'user', team: TeamBadge | null = null, minute: string | null = null,
+    matchId: string, userId: string | null, nick: string, text: string, kind: ChatMessage['kind'] = 'user', team: TeamBadge | null = null, minute: string | null = null,
     reply: ChatReply | null = null,
     ref: string | null = null,
   ): ChatMessage {
@@ -391,6 +397,12 @@ export class FanStore {
       .prepare('INSERT INTO chat (match_id, user_id, nick, text, kind, created_at, team, minute, reply_to, ref) VALUES (?,?,?,?,?,?,?,?,?,?)')
       .run(matchId, userId, nick, text, kind, createdAt, team ? JSON.stringify(team) : null, minute, reply?.id ?? null, ref);
     return { id: Number(info.lastInsertRowid), matchId, uid: userId ? this.pubId(userId) : null, nick, text, kind, createdAt, likes: 0, team, minute, reply };
+  }
+
+  /** Spiker mesajı daha önce yazıldıysa yazılma zamanı (yoksa null); ref: 'spiker:pre' gibi */
+  chatRefAt(matchId: string, ref: string): number | null {
+    const r = this.db.prepare('SELECT MIN(created_at) t FROM chat WHERE match_id = ? AND ref = ?').get(matchId, ref) as any;
+    return r?.t ?? null;
   }
 
   /** Maç olayı mesajının bağlı olduğu olay kimliği (yoksa null) */

@@ -1270,6 +1270,19 @@ export function renderMatch(root, matchId) {
         { class: /GOL|gol/.test(msg.text) ? 'goal' : '', dataset: { id: msg.id } },
         h('div.brow', {}, h('div.bubble', {}, msg.text), likeable ? h('button.reply', { type: 'button', 'aria-label': 'Yanıtla', title: 'Yanıtla', onclick: () => setReply({ ...msg, nick: 'Maç olayı' }) }, replyIcon()) : null),
       );
+    // botlar (TribünBot, İstatistikBot...): üye gibi görünür ama her mesajda "bot" rozeti var; beğenilir, yanıtlanır
+    if (msg.kind === 'bot') {
+      const like = likeable ? likeBtn(msg, false) : null;
+      const reply = likeable ? h('button.reply', { type: 'button', 'aria-label': 'Yanıtla', title: 'Yanıtla', onclick: () => setReply(msg) }, replyIcon()) : null;
+      const bubble = h('div.bubble', {}, msg.text);
+      if (like) bubble.addEventListener('dblclick', () => like.click());
+      return h(
+        'div.msg.bot',
+        { dataset: { id: msg.id } },
+        h('div.who', { '--nc': colorFor(msg.nick) }, msg.nick, h('span.bot-badge', { title: 'Bu hesap bir bot, mesajları otomatik yazılıyor' }, '🤖 bot'), msgTime(msg)),
+        like ? h('div.brow', {}, bubble, h('div.acts', {}, like, reply)) : bubble,
+      );
+    }
     const mine = !!msg.uid && msg.uid === app.me.uid;
     // başkasının adına dokununca ona özel mesaj penceresi açılır
     const name = mine || !msg.uid
@@ -1369,6 +1382,19 @@ export function renderMatch(root, matchId) {
     if (!isNarrow() && s.tab === 'chat') setTab('fan');
   };
   window.addEventListener('resize', onResize);
+  // Android uygulamasının küçük penceresi (html.pip): sohbet sekmesi açılır ki yeni mesajlar akıp alta kaysın;
+  // pencere büyüyünce önceki sekmeye dönülür
+  let tabBeforePip = null;
+  const onPip = () => {
+    if (document.documentElement.classList.contains('pip')) {
+      if (s.tab !== 'chat') (tabBeforePip = s.tab === 'fan' ? s.fanTab : s.tab), setTab('chat');
+      else scrollChat();
+    } else if (tabBeforePip) {
+      setTab(tabBeforePip);
+      tabBeforePip = null;
+    }
+  };
+  document.addEventListener('safskor:pip', onPip);
 
   join();
   app.onProfile = () => s.match && drawChat();
@@ -1379,6 +1405,7 @@ export function renderMatch(root, matchId) {
       app.socket.emit('match:leave');
       for (const [ev, fn] of Object.entries(handlers)) app.socket.off(ev, fn);
       window.removeEventListener('resize', onResize);
+      document.removeEventListener('safskor:pip', onPip);
       document.title = 'Safskor · Canlı Skor ve Taraftar Platformu';
     },
     rejoin: join,
