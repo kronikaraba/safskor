@@ -2,7 +2,7 @@ import { h, mount } from './util.js';
 
 // Gizlilik politikası / KVKK aydınlatma metni ve "sayfa bulunamadı" ekranı.
 // İletişim adresi yazılınca metinde görünür (Play Store ve KVKK başvuruları için gerekli).
-const CONTACT = '';
+const CONTACT = 'info@safskor.com';
 
 export function renderPrivacy(root) {
   const p = (...c) => h('p', {}, ...c);
