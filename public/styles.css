@@ -883,7 +883,11 @@ a.tp-row:hover { background: var(--surface-3); }
 .pip .msg .time, .pip .msg .reply, .pip .msg .like { display: none; }
 
 /* ---------------------------------------------------------------- botlar (otomatik yorumlar): üye mesajı gibi, "bot" rozetiyle */
-.bot-badge { display: inline-block; margin-left: 4px; font-size: 10px; font-weight: 700; padding: 0 6px; border-radius: 999px; background: var(--surface-3); color: var(--muted, #93a1b3); vertical-align: 1px; }
+.bot-badge { display: inline-block; margin-left: 4px; font-size: 10px; font-weight: 600; padding: 0 6px; border-radius: 999px; background: var(--surface-3); color: var(--muted, #93a1b3); vertical-align: 1px; }
+.bot-who { display: flex; align-items: center; gap: 5px; }
+.bot-who b { color: var(--accent); }
+.bot-logo { width: 16px; height: 16px; border-radius: 4px; flex: none; }
+.bot-who .bot-badge { margin-left: 0; }
 
 /* ---------------------------------------------------------------- maç öncesi (başlamamış maç sayfası) */
 .pre .card h3 .muted { text-align: right; }

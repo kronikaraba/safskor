@@ -20,6 +20,8 @@ const FAN_TABS = [
 
 const EV_NAME = { goal: 'Gol', penalty: 'Penaltı golü', own_goal: 'Kendi kalesine gol', missed_penalty: 'Kaçan penaltı', yellow: 'Sarı kart', red: 'Kırmızı kart', sub: 'Oyuncu değişikliği', var: 'VAR' };
 const EV_ICON = { goal: '⚽', penalty: '⚽', own_goal: '⚽', missed_penalty: '❌', yellow: '🟨', red: '🟥', sub: '🔁', var: '📺' };
+/** Sitenin otomatik yorumcusunun sohbetteki adı */
+const BOT_NAME = 'Safskor Yorum';
 const QUICK = ['⚽ Goool!', '🔥 Bastır!', '👏 Helal olsun', '😤 Hakem!', '🧤 Kaleci döktürdü', '🔁 Değişiklik şart'];
 
 export function renderMatch(root, matchId) {
@@ -1616,8 +1618,9 @@ export function renderMatch(root, matchId) {
         { class: /GOL|gol/.test(msg.text) ? 'goal' : '', dataset: { id: msg.id } },
         h('div.brow', {}, h('div.bubble', {}, msg.text), likeable ? h('button.reply', { type: 'button', 'aria-label': 'Yanıtla', title: 'Yanıtla', onclick: () => setReply({ ...msg, nick: 'Maç olayı' }) }, replyIcon()) : null),
       );
-    // botlar (TribünBot, İstatistikBot...): üye gibi görünür ama her mesajda "bot" rozeti var; beğenilir, yanıtlanır
+    // sitenin otomatik yorumcusu: Safskor logosu ve "otomatik" etiketiyle (eski bot adlarıyla yazılmış mesajlar da böyle görünür)
     if (msg.kind === 'bot') {
+      msg = { ...msg, nick: BOT_NAME };
       const like = likeable ? likeBtn(msg, false) : null;
       const reply = likeable ? h('button.reply', { type: 'button', 'aria-label': 'Yanıtla', title: 'Yanıtla', onclick: () => setReply(msg) }, replyIcon()) : null;
       const bubble = h('div.bubble', {}, msg.text);
@@ -1625,7 +1628,7 @@ export function renderMatch(root, matchId) {
       return h(
         'div.msg.bot',
         { dataset: { id: msg.id } },
-        h('div.who', { '--nc': colorFor(msg.nick) }, msg.nick, h('span.bot-badge', { title: 'Bu hesap bir bot, mesajları otomatik yazılıyor' }, '🤖 bot'), msgTime(msg)),
+        h('div.who.bot-who', {}, h('img.bot-logo', { src: '/img/favicon-32.png', alt: '' }), h('b', {}, BOT_NAME), h('span.bot-badge', { title: 'Safskor bu yorumları maç verisine göre otomatik yazar' }, 'otomatik'), msgTime(msg)),
         like ? h('div.brow', {}, bubble, h('div.acts', {}, like, reply)) : bubble,
       );
     }

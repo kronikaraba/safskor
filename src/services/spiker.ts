@@ -1,10 +1,10 @@
-// YorumcuBot: maç sohbetine maç öncesi, maç içi (gol, kırmızı kart, kaçan penaltı, değişiklik, dakika notları) ve
+// Safskor Yorum (sitenin otomatik yorumcusu): maç sohbetine maç öncesi, maç içi (gol, kırmızı kart, kaçan penaltı, değişiklik, dakika notları) ve
 // sonrası, maç, futbolcular ve hocalar hakkında net ve keskin yorumlar yazar.
-// Sohbette "bot" rozetiyle görünür; adı da bot olduğunu söyler. Yorumlar gerçek veriye dayanır (kadro, olaylar,
+// Sohbette Safskor logosu ve "otomatik" etiketiyle görünür; üye gibi gösterilmez. Yorumlar gerçek veriye dayanır (kadro, olaylar,
 // istatistik, puan durumu, taraftar oyları); olmayan bir şeyi uydurmaz. API'ye ek istek atmaz.
 import type { Match, MatchEvent, MatchPreview, MatchSummary, Player, Side, Standings } from '../types.js';
 
-export const BOT_NICK = 'YorumcuBot';
+export const BOT_NICK = 'Safskor Yorum';
 export type BotSay = { nick: string; text: string };
 
 /** Fan verisinden botun kullandığı özet (hepsi gerçek sayılar) */

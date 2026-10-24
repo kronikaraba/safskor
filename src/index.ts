@@ -322,7 +322,7 @@ io.on('connection', (socket: Socket) => {
   const sessionUserId: string | undefined = socket.data?.sessionUserId;
   const data: SocketData = {
     userId: sessionUserId ?? (isUserId(auth.userId) ? auth.userId : `anon-${socket.id}`),
-    nick: clean(auth.nick, 20) || 'Taraftar',
+    nick: (/safskor/i.test(clean(auth.nick, 20).replace(/\s+/g, '')) ? '' : clean(auth.nick, 20)) || 'Taraftar',
     team: null,
     session: sessionUserId ? auth.session : null,
   };
@@ -363,6 +363,8 @@ io.on('connection', (socket: Socket) => {
     if (!actionLimit.ok(data.userId)) return a({ ok: false, error: 'Çok hızlı! Biraz yavaşla.' });
     const nick = clean(p?.nick, 20);
     if (nick.length < 2) return a({ ok: false, error: 'Takma ad en az 2 karakter olmalı.' });
+    // sitenin kendi adı (sistem mesajları ve otomatik yorumcu) üyelere verilmez
+    if (/safskor/i.test(nick.replace(/\s+/g, ''))) return a({ ok: false, error: 'Bu takma ad kullanılamaz.' });
     let team = data.team;
     if (p?.teamId === null || p?.teamId === '') team = null;
     else if (p?.teamId !== undefined) {
@@ -940,7 +942,7 @@ matches.on('match', (m: Match) => {
   }
 });
 
-// --- YorumcuBot: maç öncesi, maç içi ve sonrası maç, futbolcu ve hocalar hakkında keskin yorumlar (sohbette "bot" rozetiyle).
+// --- Safskor Yorum (otomatik yorumcu): maç öncesi, maç içi ve sonrası maç, futbolcu ve hocalar hakkında keskin yorumlar (sohbette logo ve "otomatik" etiketiyle).
 // Ek API isteği yok: maç öncesi bilgileri sayfayla aynı önbellekten gelir.
 function spikerFan(m: Match): SpikerFan {
   return { ratings: store.state(m.id).ratings };
@@ -1001,7 +1003,7 @@ matches.on('events', (matchId: string, fresh: MatchEvent[], m: Match) => {
     const msg = store.addChat(matchId, null, 'Safskor', fmt(e, e.side === 'home' ? m.home.name : m.away.name), 'system', null, null, null, e.id);
     io.to(room(matchId)).emit('chat:message', msg);
   }
-  // YorumcuBot anlık yorumu: aynı anda çok olay geldiyse (ör. gecikmeli güncelleme) yalnızca son ikisi
+  // otomatik yorumcunun anlık yorumu: aynı anda çok olay geldiyse (ör. gecikmeli güncelleme) yalnızca son ikisi
   if (m.status !== 'FT') for (const e of fresh.slice(-2)) spikerLater(m, `spiker:e:${e.id}`, liveEvent(m, e));
 });
 
