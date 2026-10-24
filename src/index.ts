@@ -8,7 +8,7 @@ import { config } from './config.js';
 import { createProvider } from './providers/index.js';
 import { FanStore, FORMATIONS, STYLES, weekKey, normalizePhone, weakPin, rankOf, rankAtLeast, type TeamBadge } from './services/fanStore.js';
 import { MatchService } from './services/matchService.js';
-import { preMatch, lineupsOut, halfTime, fullTime, manOfTheMatch, type BotSay, type SpikerFan } from './services/spiker.js';
+import { preMatch, lineupsOut, halfTime, fullTime, manOfTheMatch, kickoff, secondHalf, liveEvent, midGame, type BotSay, type SpikerFan } from './services/spiker.js';
 import type { Match, MatchEvent, Player, Side } from './types.js';
 import { PAGES, matchPage, matchPath, renderPage, robotsTxt, sitemapXml, standingsPage, unknownMatchPage, type Page } from './seo.js';
 
@@ -933,9 +933,15 @@ matches.on('match', (m: Match) => {
   io.to(room(m.id)).emit('match', m);
   // kadrolar açıklanınca; karşılama henüz yazılmadıysa odaya ilk girişte sırasıyla yazılır
   if (m.status === 'SCHEDULED' && store.chatRefAt(m.id, 'spiker:pre') != null) spikerSay(m, 'spiker:xi', lineupsOut(m));
+  // dakika notları: 30. ve 70. dakikada bir kez, eldeki istatistik ve skora göre
+  if (m.status === 'LIVE' && m.minute != null) {
+    if (m.minute >= 30 && m.minute < 45) spikerSay(m, 'spiker:m30', midGame(m, 30));
+    if (m.minute >= 70 && m.minute < 85) spikerSay(m, 'spiker:m70', midGame(m, 70));
+  }
 });
 
-// --- YorumcuBot: maç öncesi/sonrası maç, futbolcu ve hocalar hakkında keskin yorumlar (sohbette "bot" rozetiyle). Ek API isteği yok.
+// --- YorumcuBot: maç öncesi, maç içi ve sonrası maç, futbolcu ve hocalar hakkında keskin yorumlar (sohbette "bot" rozetiyle).
+// Ek API isteği yok: maç öncesi bilgileri sayfayla aynı önbellekten gelir.
 function spikerFan(m: Match): SpikerFan {
   return { ratings: store.state(m.id).ratings };
 }
@@ -947,9 +953,25 @@ function spikerSay(m: { id: string }, ref: string, says: BotSay[]) {
 /** Maç odası açılırken: maç öncesi karşılama ve kadrolar; bitmiş maçta kaçan özet ve maçın adamı */
 function spikerOnJoin(m: Match) {
   if (m.status === 'SCHEDULED') {
-    spikerSay(m, 'spiker:pre', preMatch(m, matches.getStandings(), spikerFan(m)));
-    spikerSay(m, 'spiker:xi', lineupsOut(m));
+    if (store.chatRefAt(m.id, 'spiker:pre') != null) return spikerSay(m, 'spiker:xi', lineupsOut(m));
+    // maç öncesi bilgileri (eksikler, form, aralarındaki maçlar) sayfa için zaten çekiliyor; aynı önbellek kullanılır
+    if (spikerPending.has(m.id)) return;
+    spikerPending.add(m.id);
+    matches
+      .preview(m)
+      .catch(() => null)
+      .then((pv) => {
+        spikerSay(m, 'spiker:pre', preMatch(m, matches.getStandings(), spikerFan(m), pv));
+        spikerSay(m, 'spiker:xi', lineupsOut(m));
+      })
+      .finally(() => spikerPending.delete(m.id));
   } else if (m.status === 'FT') spikerAfter(m);
+}
+const spikerPending = new Set<string>();
+/** Olaydan birkaç saniye sonra yazar: önce sistem mesajı (GOL!), ardından yorum */
+function spikerLater(m: { id: string }, ref: string, says: BotSay[], ms = 6_000) {
+  if (!says.length) return;
+  setTimeout(() => spikerSay(m, ref, says), ms).unref?.();
 }
 const SPIKER_FT_WINDOW = 3 * 86_400_000;
 function spikerAfter(m: Match) {
@@ -979,9 +1001,11 @@ matches.on('events', (matchId: string, fresh: MatchEvent[], m: Match) => {
     const msg = store.addChat(matchId, null, 'Safskor', fmt(e, e.side === 'home' ? m.home.name : m.away.name), 'system', null, null, null, e.id);
     io.to(room(matchId)).emit('chat:message', msg);
   }
+  // YorumcuBot anlık yorumu: aynı anda çok olay geldiyse (ör. gecikmeli güncelleme) yalnızca son ikisi
+  if (m.status !== 'FT') for (const e of fresh.slice(-2)) spikerLater(m, `spiker:e:${e.id}`, liveEvent(m, e));
 });
 
-matches.on('status', (m: Match) => {
+matches.on('status', (m: Match, prev?: string) => {
   io.to(room(m.id)).emit('presence', { matchId: m.id, count: roomSize(m.id) });
   if (m.status === 'FT') scoreMatch(m).catch((e) => console.error('[tahmin] puanlama hatası', e));
   const text =
@@ -991,6 +1015,8 @@ matches.on('status', (m: Match) => {
     : m.status === 'FT' ? `🏁 Maç sona erdi: ${m.home.name} ${m.score.home}-${m.score.away} ${m.away.name}. Oyuncuları puanlamayı unutma!`
     : null;
   if (text) io.to(room(m.id)).emit('chat:message', store.addChat(m.id, null, 'Safskor', text, 'system'));
+  if (m.status === 'LIVE' && prev === 'SCHEDULED') spikerLater(m, 'spiker:ko', kickoff(m), 4_000);
+  if (m.status === 'LIVE' && prev === 'HT') spikerLater(m, 'spiker:2h', secondHalf(m), 4_000);
   if (m.status === 'HT') spikerSay(m, 'spiker:ht', halfTime(m));
   if (m.status === 'FT') spikerSay(m, 'spiker:ft', fullTime(m, spikerFan(m)));
 });
