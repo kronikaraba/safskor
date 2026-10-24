@@ -122,6 +122,25 @@ export interface MatchPreview {
   updatedAt: string;
 }
 
+/** Oyuncu profili: künye ve bu sezonki istatistikleri (tüm turnuvalar) */
+export interface PlayerProfile {
+  id: string;
+  name: string;
+  photo?: string;
+  age?: number;
+  birthDate?: string;
+  nationality?: string;
+  height?: string;
+  weight?: string;
+  position?: string;
+  number?: number;
+  team?: { id: string; name: string; logo?: string };
+  injured?: boolean;
+  season: number;
+  /** Turnuva bazında bu sezon */
+  comps: { league: string; logo?: string; apps: number; starts: number; minutes: number; goals: number; assists: number; rating?: number; yellow: number; red: number }[];
+}
+
 /** Modüler futbol veri sağlayıcısı arayüzü. Yeni bir API eklemek için bunu uygulayın. */
 export interface StandingRow {
   rank: number;
@@ -182,6 +201,8 @@ export interface FootballProvider {
   standings?(leagueId: string): Promise<Standings | null>;
   /** İsteğe bağlı: maç öncesi bilgileri (muhtemel 11, sakat/cezalı, form, H2H, hakem). null: şu an kullanılamıyor */
   matchPreview?(m: MatchSummary): Promise<Omit<MatchPreview, 'table'> | null>;
+  /** İsteğe bağlı: oyuncu profili (künye + sezon istatistikleri). null: şu an kullanılamıyor */
+  playerProfile?(playerId: string): Promise<PlayerProfile | null>;
   /** Önerilen yoklama aralığı (ms); demo için kısa, gerçek API için kota dostu */
   readonly pollMs: { list: number; detail: number; live?: number };
 }

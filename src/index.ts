@@ -482,6 +482,17 @@ io.on('connection', (socket: Socket) => {
     reply(profile ? { ok: true, profile } : { ok: false, error: 'Takım bilgisi şu an alınamıyor' });
   });
 
+  // --- oyuncu profili: yalnızca katılınan maçın kadrosundaki / muhtemel 11'indeki oyuncular
+  socket.on('player:get', async (p, ack) => {
+    const reply = safeAck(ack);
+    const id = typeof p?.playerId === 'string' ? p.playerId.slice(0, 40) : '';
+    const m = await context(reply);
+    if (!m) return;
+    if (!id || !matches.knowsPlayer(m, id)) return reply({ ok: false, error: 'Oyuncu bulunamadı' });
+    const profile = await matches.playerProfile(id).catch(() => null);
+    reply(profile ? { ok: true, profile } : { ok: false, error: 'Oyuncu bilgisi şu an alınamıyor' });
+  });
+
   socket.on('leaderboard:get', (p, ack) => {
     const week = typeof p?.week === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(p.week) ? p.week : weekKey(Date.now());
     safeAck(ack)({ ok: true, ...store.leaderboard(week, data.userId) });

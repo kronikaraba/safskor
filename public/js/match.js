@@ -479,8 +479,8 @@ export function renderMatch(root, matchId) {
         const rating = pl.stats?.rating;
         nodes.push(
           h(
-            'div.pp.xi',
-            { style: { left: `${x}%`, top: `${y}%` }, class: out.has(pl.id) ? 'absent' : '', title: pl.name },
+            'button.pp.xi',
+            { type: 'button', style: { left: `${x}%`, top: `${y}%` }, class: out.has(pl.id) ? 'absent' : '', 'aria-label': `${pl.name} profili`, onclick: () => openPlayer(pl, side) },
             h('span.shirt', { '--c': color, class: playerPhoto(pl) ? 'has-face' : '' }, face(pl), h('span.no', {}, pl.number ?? ''), out.has(pl.id) ? h('span.xi-out', {}, '✚') : null),
             h('span.pname', {}, shortName(pl.name)),
             rating != null ? h('span.xi-rt', { class: ratingClass(rating) }, Number(rating).toFixed(1)) : null,
@@ -561,8 +561,8 @@ export function renderMatch(root, matchId) {
           ? list.map((a) => {
               const [label, cls] = KIND[a.kind] ?? KIND.injury;
               return h(
-                'div.abs-row',
-                {},
+                'button.abs-row',
+                { type: 'button', onclick: () => openPlayer(a, side) },
                 h('span.pface', { class: playerPhoto(a) ? 'has-face' : '' }, face(a)),
                 h('div', {}, h('b', {}, a.name), h('div.abs-why', { class: cls }, h('span', {}, a.kind === 'suspension' ? '🟥' : a.kind === 'doubt' ? '?' : '✚'), ` ${label}`, a.reason && a.reason !== label ? h('span.muted', {}, ` · ${a.reason}`) : null)),
               );
@@ -1289,7 +1289,61 @@ export function renderMatch(root, matchId) {
 
   // ---------------------------------------------------------------- oyuncu kartı
   let playerSheet = null;
+  // oyuncu profili (künye + sezon istatistikleri): sayfa açıkken bir kez alınır
+  const profiles = new Map();
+  const profileErr = new Map();
+  function loadProfile(p) {
+    if (p.pos === 'C' || profiles.has(p.id)) return;
+    app.socket.timeout(12000).emit('player:get', { playerId: p.id }, (err, r) => {
+      if (!err && r?.ok) profiles.set(p.id, r.profile), profileErr.delete(p.id);
+      else profileErr.set(p.id, r?.error || 'Oyuncu bilgisi şu an alınamıyor.');
+      playerSheet?.redraw();
+    });
+  }
+
+  function playerProfileView(pr, err) {
+    if (!pr) return h('div.pf', {}, h('p.muted.small', {}, err || 'Oyuncu bilgileri yükleniyor…'));
+    const birth = pr.birthDate ? new Date(pr.birthDate).toLocaleDateString('tr-TR', { day: 'numeric', month: 'long', year: 'numeric' }) : null;
+    const facts = [
+      ['Yaş', pr.age != null ? `${pr.age}` : null, birth],
+      ['Uyruk', pr.nationality],
+      ['Boy', pr.height],
+      ['Kilo', pr.weight],
+      ['Mevki', pr.position],
+      ['Forma', pr.number != null ? `#${pr.number}` : null],
+    ].filter((x) => x[1]);
+    const tot = pr.comps.reduce((a, c) => ({ apps: a.apps + c.apps, goals: a.goals + c.goals, assists: a.assists + c.assists, minutes: a.minutes + c.minutes, rs: a.rs + (c.rating ?? 0) * c.minutes, rm: a.rm + (c.rating != null ? c.minutes : 0) }), { apps: 0, goals: 0, assists: 0, minutes: 0, rs: 0, rm: 0 });
+    const avg = tot.rm ? tot.rs / tot.rm : null;
+    const season = `${pr.season}/${String(pr.season + 1).slice(2)}`;
+    return h(
+      'div.pf',
+      {},
+      pr.injured ? h('div.pf-inj', {}, '✚ Sakat') : null,
+      facts.length ? h('div.pf-facts', {}, facts.map(([k, v, sub]) => h('div', {}, h('span', {}, k), h('b', {}, v), sub ? h('small', {}, sub) : null))) : null,
+      h('div.pf-h', {}, h('b', {}, `${season} sezonu`), pr.team ? h('span.muted.small', {}, pr.team.name) : null),
+      pr.comps.length
+        ? [
+            h('div.kv.pf-kv', {}, kv(tot.apps, 'Maç'), kv(tot.goals, 'Gol'), kv(tot.assists, 'Asist'), kv(avg != null ? avg.toFixed(2) : '–', 'Ort. puan')),
+            h(
+              'div.pf-comps',
+              {},
+              pr.comps.map((c) =>
+                h(
+                  'div.pf-comp',
+                  {},
+                  c.logo ? h('img.pf-lg', { src: c.logo, alt: '', loading: 'lazy' }) : h('span.pf-lg'),
+                  h('div.pf-cn', {}, h('b', {}, c.league), h('small', {}, `${c.apps} maç · ${c.minutes}' · ${c.goals} gol · ${c.assists} asist${c.yellow ? ` · ${c.yellow} sarı` : ''}${c.red ? ` · ${c.red} kırmızı` : ''}`)),
+                  c.rating != null ? ratingPill(c.rating) : null,
+                ),
+              ),
+            ),
+          ]
+        : h('p.muted.small', {}, 'Bu sezon henüz maça çıkmadı.'),
+    );
+  }
+
   function openPlayer(p, side) {
+    loadProfile(p);
     const target = `p:${p.id}`;
     const cbox = commentBox(target);
     playerSheet = openSheet((close) => {
@@ -1307,15 +1361,18 @@ export function renderMatch(root, matchId) {
       const locked = m.status === 'SCHEDULED' || m.status === 'POSTPONED';
       // oyuna girmemiş yedek puanlanamaz (teknik direktör her zaman puanlanır)
       const benched = !locked && fresh.pos !== 'C' && !played(m, side).some((x) => x.id === p.id);
+      const prof = profiles.get(p.id);
       return [
         h(
           'div.sheet-head',
           {},
-          h('span.crest.pcrest', { '--c': m[side].color || colorFor(m[side].name), class: playerPhoto(fresh) ? 'has-face' : '' }, face(fresh), h('span.no', {}, fresh.number ?? '')),
-          h('div', {}, h('h2', {}, fresh.name), h('div.muted.small', {}, `${m[side].name} · ${POS_TR[fresh.pos] ?? ''}`)),
+          h('span.crest.pcrest', { '--c': m[side].color || colorFor(m[side].name), class: playerPhoto(fresh) ? 'has-face' : '' }, face(fresh), h('span.no', {}, fresh.number ?? prof?.number ?? '')),
+          h('div', {}, h('h2', {}, fresh.name), h('div.muted.small', {}, [m[side].name, POS_TR[fresh.pos] ?? prof?.position].filter(Boolean).join(' · '))),
           h('button.x', { onclick: close, 'aria-label': 'Kapat' }, '✕'),
         ),
-        fresh.pos === 'C' ? h('div.kv', {}, kv(fan ? fan.avg.toFixed(1) : '–', `Taraftar (${fan?.count ?? 0} oy)`)) : h(
+        // maç öncesi profil en üstte; maç başlayınca önce bu maçtaki istatistik ve puanlama, profil altta
+        fresh.pos === 'C' || !locked ? null : playerProfileView(prof, profileErr.get(p.id)),
+        fresh.pos === 'C' ? h('div.kv', {}, kv(fan ? fan.avg.toFixed(1) : '–', `Taraftar (${fan?.count ?? 0} oy)`)) : locked ? null : h(
           'div.kv',
           {},
           kv(st.rating != null ? st.rating.toFixed(1) : '–', 'API puanı'),
@@ -1341,6 +1398,7 @@ export function renderMatch(root, matchId) {
                   } }, i),
               ),
             ),
+        fresh.pos === 'C' || locked ? null : [h('div.pf-h.pf-top', {}, h('b', {}, 'Oyuncu profili')), playerProfileView(prof, profileErr.get(p.id))],
         h('div.cm-head', {}, h('b', {}, 'Yorumlar'), h('span.muted.small', {}, ` · ${commentCount(target)}`)),
         cbox.el,
       ];

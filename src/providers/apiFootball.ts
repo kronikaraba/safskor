@@ -1,4 +1,4 @@
-import type { AbsentPlayer, FootballProvider, MatchPreview, ProbableXI, TeamFixtures, TeamProfile, Standings, Lineup, Match, MatchEvent, MatchStatus, MatchSummary, Player, StatLine, Side } from '../types.js';
+import type { AbsentPlayer, FootballProvider, MatchPreview, PlayerProfile, ProbableXI, TeamFixtures, TeamProfile, Standings, Lineup, Match, MatchEvent, MatchStatus, MatchSummary, Player, StatLine, Side } from '../types.js';
 
 /** Günlük istek hakkı bitti; gün dönümüne (00:00 UTC) kadar istek atılmaz. */
 export class QuotaError extends Error {
@@ -312,6 +312,55 @@ export class ApiFootballProvider implements FootballProvider {
     };
   }
 
+  /** Oyuncu profili: güncel sezon (1 istek); o sezonda kaydı yoksa bir önceki sezon (1 istek daha) */
+  async playerProfile(playerId: string): Promise<PlayerProfile | null> {
+    const now = new Date();
+    const season = now.getUTCMonth() >= 6 ? now.getUTCFullYear() : now.getUTCFullYear() - 1;
+    let r = (await this.get('/players', { id: playerId, season: String(season) }))[0];
+    let used = season;
+    if (!r?.statistics?.some((x: any) => x.games?.appearences)) {
+      const prev = (await this.get('/players', { id: playerId, season: String(season - 1) }))[0];
+      if (prev && !r) r = prev;
+      if (prev?.statistics?.some((x: any) => x.games?.appearences)) (r = prev), (used = season - 1);
+    }
+    if (!r?.player) return null;
+    const pl = r.player;
+    const stats: any[] = r.statistics ?? [];
+    // en çok oynadığı takım: kulübü (milli takım değil)
+    const main = [...stats].sort((a, b) => (b.games?.minutes ?? 0) - (a.games?.minutes ?? 0)).find((x) => x.team?.id) ?? stats[0];
+    const comps = stats
+      .filter((x) => x.games?.appearences)
+      .map((x) => ({
+        league: x.league?.name ?? '',
+        logo: x.league?.logo ?? undefined,
+        apps: x.games?.appearences ?? 0,
+        starts: x.games?.lineups ?? 0,
+        minutes: x.games?.minutes ?? 0,
+        goals: x.goals?.total ?? 0,
+        assists: x.goals?.assists ?? 0,
+        rating: x.games?.rating ? Math.round(Number(x.games.rating) * 10) / 10 : undefined,
+        yellow: x.cards?.yellow ?? 0,
+        red: (x.cards?.red ?? 0) + (x.cards?.yellowred ?? 0),
+      }))
+      .sort((a, b) => b.minutes - a.minutes);
+    return {
+      id: String(pl.id),
+      name: pl.name,
+      photo: pl.photo ?? undefined,
+      age: pl.age ?? undefined,
+      birthDate: pl.birth?.date ?? undefined,
+      nationality: trCountry(pl.nationality) ?? undefined,
+      height: pl.height ?? undefined,
+      weight: pl.weight ?? undefined,
+      position: POS_EN[main?.games?.position] ?? main?.games?.position ?? undefined,
+      number: main?.games?.number ?? undefined,
+      team: main?.team?.id ? { id: String(main.team.id), name: main.team.name, logo: main.team.logo ?? undefined } : undefined,
+      injured: Boolean(pl.injured),
+      season: used,
+      comps,
+    };
+  }
+
   /** Muhtemel 11 kaynağı olan maçların tam detayı (kadro + oyuncu puanları); biten maç değişmez */
   private xiCache = new Map<string, Match>();
   /** Takımın oynanmış son maçları (en yeni önce); takım başına 6 saatte bir istek */
@@ -381,8 +430,55 @@ function trReason(reason: string, kind: AbsentPlayer['kind']) {
   return /cezası|Cezalı|Milli|Kişisel|Dinlendirme|Hastalık/.test(hit) ? hit : `${hit}${/injury/i.test(reason) ? ' sakatlığı' : ''}`;
 }
 /** API-Football ülke adları İngilizce gelir; sık görülenleri Türkçeleştir */
+const POS_EN: Record<string, string> = { Goalkeeper: 'Kaleci', Defender: 'Defans', Midfielder: 'Orta saha', Attacker: 'Forvet' };
 const COUNTRY_TR: Record<string, string> = {
   Turkey: 'Türkiye',
+  Türkiye: 'Türkiye',
+  Brazil: 'Brezilya',
+  Argentina: 'Arjantin',
+  Croatia: 'Hırvatistan',
+  Serbia: 'Sırbistan',
+  Poland: 'Polonya',
+  Morocco: 'Fas',
+  Nigeria: 'Nijerya',
+  Senegal: 'Senegal',
+  Ghana: 'Gana',
+  Denmark: 'Danimarka',
+  Sweden: 'İsveç',
+  Norway: 'Norveç',
+  Austria: 'Avusturya',
+  Switzerland: 'İsviçre',
+  Greece: 'Yunanistan',
+  Uruguay: 'Uruguay',
+  Colombia: 'Kolombiya',
+  'Bosnia and Herzegovina': 'Bosna-Hersek',
+  'Côte d\'Ivoire': 'Fildişi Sahili',
+  Ukraine: 'Ukrayna',
+  Russia: 'Rusya',
+  Georgia: 'Gürcistan',
+  Japan: 'Japonya',
+  'South Korea': 'Güney Kore',
+  'Korea Republic': 'Güney Kore',
+  USA: 'ABD',
+  Wales: 'Galler',
+  Ireland: 'İrlanda',
+  'Czech Republic': 'Çekya',
+  Hungary: 'Macaristan',
+  Romania: 'Romanya',
+  Slovakia: 'Slovakya',
+  Slovenia: 'Slovenya',
+  Albania: 'Arnavutluk',
+  'North Macedonia': 'Kuzey Makedonya',
+  Kosovo: 'Kosova',
+  Algeria: 'Cezayir',
+  Tunisia: 'Tunus',
+  Egypt: 'Mısır',
+  Cameroon: 'Kamerun',
+  Mexico: 'Meksika',
+  Chile: 'Şili',
+  Azerbaijan: 'Azerbaycan',
+  Iceland: 'İzlanda',
+  Finland: 'Finlandiya',
   England: 'İngiltere',
   Spain: 'İspanya',
   Germany: 'Almanya',

@@ -977,3 +977,24 @@ a.h2h-row:hover { background: var(--surface-2); }
   .pitch.duel .pp .shirt { width: 28px; height: 28px; font-size: 11px; }
   .pitch.duel .pp .shirt.has-face { width: 32px; height: 32px; }
 }
+
+/* ---------------------------------------------------------------- oyuncu profili (oyuncu kartında) */
+.pp.xi { cursor: pointer; }
+button.abs-row { all: unset; display: flex; align-items: center; gap: 10px; min-width: 0; cursor: pointer; border-radius: 8px; }
+button.abs-row:hover b { text-decoration: underline; }
+.pf { margin: 4px 0 14px; }
+.pf-inj { display: inline-block; margin-bottom: 8px; padding: 2px 10px; border-radius: 999px; background: color-mix(in srgb, var(--live) 18%, transparent); color: var(--live); font-weight: 700; font-size: 13px; }
+.pf-facts { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.pf-facts > div { display: flex; flex-direction: column; gap: 1px; padding: 9px 10px; border-radius: 10px; background: var(--surface-2); min-width: 0; }
+.pf-facts span { color: var(--muted); font-size: 12px; }
+.pf-facts b { font-size: 16px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pf-facts small { color: var(--muted); font-size: 11px; }
+.pf-h { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; margin: 14px 0 8px; }
+.pf-kv { grid-template-columns: repeat(4, 1fr); margin: 0 0 8px; }
+.pf-comps { display: grid; gap: 2px; }
+.pf-comp { display: flex; align-items: center; gap: 10px; padding: 8px 2px; border-top: 1px solid var(--border); }
+.pf-lg { width: 24px; height: 24px; object-fit: contain; flex: none; }
+.pf-cn { flex: 1; min-width: 0; display: grid; }
+.pf-cn b { font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pf-cn small { color: var(--muted); font-size: 12px; }
+.pf-h.pf-top { margin-top: 18px; padding-top: 12px; border-top: 1px solid var(--border); }

@@ -1,4 +1,4 @@
-import type { AbsentPlayer, FootballProvider, Lineup, Match, MatchEvent, MatchPreview, MatchSummary, Player, Side, StatLine, Team, TeamProfile } from '../types.js';
+import type { AbsentPlayer, FootballProvider, Lineup, Match, MatchEvent, MatchPreview, PlayerProfile, MatchSummary, Player, Side, StatLine, Team, TeamProfile } from '../types.js';
 
 /**
  * Demo sağlayıcı: API anahtarı yokken ya da API'ye ulaşılamadığında devreye girer.
@@ -227,6 +227,32 @@ export class DemoProvider implements FootballProvider {
     const hw = Math.round(30 + r() * 30);
     const dw = Math.round(20 + r() * 15);
     return { matchId: m.id, referee: 'Ali Şansalan, Turkey', coaches, xi, absent, last, h2h, chances: { home: hw, draw: dw, away: 100 - hw - dw }, updatedAt: new Date().toISOString() };
+  }
+
+  /** Demo oyuncu profili (uydurma künye ve sezon istatistikleri) */
+  async playerProfile(playerId: string): Promise<PlayerProfile | null> {
+    const teamId = playerId.split('-p')[0];
+    const team = TEAMS[teamId];
+    if (!team) return null;
+    const p = [...buildSquad(team).startXI, ...buildSquad(team).subs].find((x) => x.id === playerId);
+    if (!p) return null;
+    const r = rng(hash(`oyuncu-${playerId}`));
+    const apps = 4 + Math.floor(r() * 9);
+    const pos = { G: 'Kaleci', D: 'Defans', M: 'Orta saha', F: 'Forvet' }[p.pos ?? 'M'];
+    const comp = (league: string, n: number) => ({ league, apps: n, starts: Math.max(0, n - 2), minutes: n * 78, goals: p.pos === 'F' ? Math.floor(r() * 7) : Math.floor(r() * 2), assists: Math.floor(r() * 4), rating: Math.round((6.4 + r() * 1.2) * 10) / 10, yellow: Math.floor(r() * 3), red: 0 });
+    return {
+      id: p.id,
+      name: p.name,
+      age: 19 + Math.floor(r() * 15),
+      nationality: team.pool === 'tr' ? 'Türkiye' : 'İspanya',
+      height: `${170 + Math.floor(r() * 25)} cm`,
+      weight: `${65 + Math.floor(r() * 20)} kg`,
+      position: pos,
+      number: p.number,
+      team: { id: team.id, name: team.name },
+      season: 2026,
+      comps: [comp(team.pool === 'tr' ? 'Süper Lig' : 'La Liga', apps), comp('UEFA Şampiyonlar Ligi', 3)],
+    };
   }
 
   // ---------------------------------------------------------------- kurulum

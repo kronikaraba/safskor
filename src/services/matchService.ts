@@ -1,6 +1,6 @@
 import { EventEmitter } from 'node:events';
 import { istanbulDay } from '../providers/apiFootball.js';
-import type { FootballProvider, Match, MatchEvent, MatchPreview, MatchSummary, StandingRow, Standings, TeamFixtures, TeamProfile } from '../types.js';
+import type { FootballProvider, Match, MatchEvent, MatchPreview, PlayerProfile, MatchSummary, StandingRow, Standings, TeamFixtures, TeamProfile } from '../types.js';
 
 const MIN = 60_000;
 
@@ -180,6 +180,41 @@ export class MatchService extends EventEmitter {
 
   getStandings() {
     return this.table;
+  }
+
+  // ------------------------------------------------------------ oyuncu profili
+
+  private players = new Map<string, { at: number; p: PlayerProfile | null }>();
+  private playerJobs = new Map<string, Promise<PlayerProfile | null>>();
+
+  /** Oyuncu profili: oyuncu başına günde en fazla 1 istek (sezonda kaydı yoksa 2); kota sıkışıksa eldeki */
+  async playerProfile(id: string): Promise<PlayerProfile | null> {
+    if (!this.provider.playerProfile) return null;
+    const now = Date.now();
+    const hit = this.players.get(id);
+    if (hit && now - hit.at < (hit.p ? 24 : 6) * 60 * MIN) return hit.p;
+    if (this.pressure() === 'critical') return hit?.p ?? null;
+    let job = this.playerJobs.get(id);
+    if (!job) {
+      job = this.provider.playerProfile(id).catch(() => null);
+      this.playerJobs.set(id, job);
+      job.finally(() => this.playerJobs.delete(id));
+    }
+    const p = await job;
+    this.players.set(id, { at: now, p: p ?? hit?.p ?? null });
+    if (this.players.size > 3000) for (const [k, v] of this.players) if (now - v.at > 24 * 60 * MIN) this.players.delete(k);
+    return p ?? hit?.p ?? null;
+  }
+
+  /** Oyuncu bu maçın kadrosunda, muhtemel 11'inde ya da eksikler listesinde mi (rastgele kimliklerle kota harcatılmasın) */
+  knowsPlayer(m: Match, playerId: string) {
+    const ids = (side: 'home' | 'away') => [
+      ...(m.lineups?.[side]?.startXI ?? []),
+      ...(m.lineups?.[side]?.subs ?? []),
+      ...(this.previews.get(m.id)?.p.xi[side]?.startXI ?? []),
+      ...(this.previews.get(m.id)?.p.absent[side] ?? []),
+    ];
+    return [...ids('home'), ...ids('away')].some((x) => x.id === playerId);
   }
 
   // ------------------------------------------------------------ maç öncesi
