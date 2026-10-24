@@ -1618,7 +1618,7 @@ export function renderMatch(root, matchId) {
         { class: /GOL|gol/.test(msg.text) ? 'goal' : '', dataset: { id: msg.id } },
         h('div.brow', {}, h('div.bubble', {}, msg.text), likeable ? h('button.reply', { type: 'button', 'aria-label': 'Yanıtla', title: 'Yanıtla', onclick: () => setReply({ ...msg, nick: 'Maç olayı' }) }, replyIcon()) : null),
       );
-    // sitenin otomatik yorumcusu: Safskor logosu ve "otomatik" etiketiyle (eski bot adlarıyla yazılmış mesajlar da böyle görünür)
+    // sitenin otomatik yorumcusu: Safskor logosu ve mavi adla sitenin kendi sesi olarak (eski bot adlarıyla yazılmış mesajlar da böyle görünür)
     if (msg.kind === 'bot') {
       msg = { ...msg, nick: BOT_NAME };
       const like = likeable ? likeBtn(msg, false) : null;
@@ -1628,7 +1628,7 @@ export function renderMatch(root, matchId) {
       return h(
         'div.msg.bot',
         { dataset: { id: msg.id } },
-        h('div.who.bot-who', {}, h('img.bot-logo', { src: '/img/favicon-32.png', alt: '' }), h('b', {}, BOT_NAME), h('span.bot-badge', { title: 'Safskor bu yorumları maç verisine göre otomatik yazar' }, 'otomatik'), msgTime(msg)),
+        h('div.who.bot-who', { title: 'Safskor bu yorumları maç verisine göre otomatik yazar' }, h('img.bot-logo', { src: '/img/favicon-32.png', alt: '' }), h('b', {}, BOT_NAME), msgTime(msg)),
         like ? h('div.brow', {}, bubble, h('div.acts', {}, like, reply)) : bubble,
       );
     }
