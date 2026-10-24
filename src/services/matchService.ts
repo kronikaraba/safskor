@@ -1,6 +1,6 @@
 import { EventEmitter } from 'node:events';
 import { istanbulDay } from '../providers/apiFootball.js';
-import type { FootballProvider, Match, MatchEvent, MatchSummary, StandingRow, Standings, TeamFixtures, TeamProfile } from '../types.js';
+import type { FootballProvider, Match, MatchEvent, MatchPreview, MatchSummary, StandingRow, Standings, TeamFixtures, TeamProfile } from '../types.js';
 
 const MIN = 60_000;
 
@@ -22,6 +22,8 @@ const MIN = 60_000;
  * - Dünün maçları gün dönünce bir kez tek istekle; gece yarısını geçen maçın skoru canlı akıştan güncellenir.
  * - Gün dönümü (İstanbul 00:00) dakikada bir kontrol edilir: bugün/yarın/dün listeleri hemen yeni güne geçer.
  * - Takım profili istenince çekilir (künye haftada bir, son/sıradaki maçlar 3 saatte bir).
+ * - Maç öncesi bilgileri yalnızca başlamamış maçın sayfası açılınca çekilir (ilk açılışta en fazla 7 istek),
+ *   3 saat saklanır; maçın ligi lobidekinden farklıysa o ligin puan durumu 6 saatte bir (1 istek).
  *
  * Olaylar: 'list' (MatchSummary[]), 'match' (Match), 'events' (matchId, MatchEvent[] yeni olaylar), 'clubs', 'tomorrow', 'yesterday', 'standings'
  */
@@ -178,6 +180,56 @@ export class MatchService extends EventEmitter {
 
   getStandings() {
     return this.table;
+  }
+
+  // ------------------------------------------------------------ maç öncesi
+
+  private previews = new Map<string, { at: number; p: Omit<MatchPreview, 'table'> }>();
+  private previewJobs = new Map<string, Promise<Omit<MatchPreview, 'table'> | null>>();
+  private leagueTables = new Map<string, { at: number; t: Standings | null }>();
+
+  /** Başlamamış maçın ön bilgileri; başlamış maçta yalnızca eldeki gösterilir (yeni istek atılmaz) */
+  async preview(m: MatchSummary): Promise<MatchPreview | null> {
+    if (!this.provider.matchPreview) return null;
+    const now = Date.now();
+    const hit = this.previews.get(m.id);
+    let p = hit?.p ?? null;
+    const ttl = this.provider.isDemo || m.id.startsWith('demo-') ? MIN : 3 * 60 * MIN;
+    if (m.status === 'SCHEDULED' && (!hit || now - hit.at > ttl) && this.pressure() !== 'critical') {
+      // aynı maçı aynı anda açan herkes tek isteği bekler
+      let job = this.previewJobs.get(m.id);
+      if (!job) {
+        job = this.provider.matchPreview(m).catch(() => null);
+        this.previewJobs.set(m.id, job);
+        job.finally(() => this.previewJobs.delete(m.id));
+      }
+      const fresh = await job;
+      if (fresh) {
+        this.previews.set(m.id, { at: now, p: (p = fresh) });
+        // eski maçların ön bilgileri bellekte birikmesin
+        for (const [id, v] of this.previews) if (now - v.at > 24 * 60 * MIN) this.previews.delete(id);
+      }
+    }
+    if (!p) return null;
+    const t = await this.leagueTable(m.competition.id).catch(() => null);
+    const row = (id: string) => t?.rows.find((r) => r.team.id === id) ?? null;
+    const table = t && (row(m.home.id) || row(m.away.id)) ? { league: t.league.name, home: row(m.home.id), away: row(m.away.id) } : null;
+    // hakem maç günü belli olur: listede güncel hâli varsa onu kullan
+    const referee = this.list.find((x) => x.id === m.id)?.referee ?? m.referee ?? p.referee;
+    return { ...p, referee, table };
+  }
+
+  /** Maçın liginin puan durumu: lobideki lig hazırda; diğerleri 6 saatte bir (kupa gibi tablosuz ligler günde bir denenir) */
+  private async leagueTable(leagueId?: string): Promise<Standings | null> {
+    if (!leagueId || !this.provider.standings || this.provider.isDemo) return null;
+    if (leagueId === this.standingsLeague && this.table) return this.table;
+    const hit = this.leagueTables.get(leagueId);
+    const ttl = hit?.t ? 6 * 60 * MIN : 24 * 60 * MIN;
+    if (hit && Date.now() - hit.at < ttl) return hit.t;
+    if (this.pressure() === 'critical') return hit?.t ?? null;
+    const t = await this.provider.standings(leagueId).catch(() => null);
+    this.leagueTables.set(leagueId, { at: Date.now(), t });
+    return t;
   }
 
   /** API'ye istek atmadan eldeki bilgiden maç özeti (sayfa başlıkları ve site haritası için) */

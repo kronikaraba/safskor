@@ -884,3 +884,96 @@ a.tp-row:hover { background: var(--surface-3); }
 
 /* ---------------------------------------------------------------- botlar (otomatik yorumlar): üye mesajı gibi, "bot" rozetiyle */
 .bot-badge { display: inline-block; margin-left: 4px; font-size: 10px; font-weight: 700; padding: 0 6px; border-radius: 999px; background: var(--surface-3); color: var(--muted, #93a1b3); vertical-align: 1px; }
+
+/* ---------------------------------------------------------------- maç öncesi (başlamamış maç sayfası) */
+.pre .card h3 .muted { text-align: right; }
+.pre h3.mt { margin-top: 16px; }
+/* Kim kazanır: büyük armalı üç düğme */
+.ww-opts { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
+.ww-opt { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; min-height: 84px; padding: 10px 6px; border-radius: 12px; border: 2px solid var(--border); background: var(--surface-2); font-weight: 700; }
+.ww-opt:hover:not(:disabled) { border-color: color-mix(in srgb, var(--accent) 60%, var(--border)); }
+.ww-opt.mine { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 16%, transparent); }
+.ww-opt .wx { display: grid; place-items: center; width: 44px; height: 44px; font-size: 24px; font-weight: 900; color: var(--muted); }
+.ww-opt .ww-l { font-size: 13px; color: var(--muted); max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ww-opt.mine .ww-l { color: var(--text); }
+.ww-opt .ww-p { font-size: 15px; }
+.ww-model { margin-top: 12px; }
+.ww-bar { display: flex; gap: 3px; height: 10px; border-radius: 6px; overflow: hidden; margin: 6px 0 4px; }
+.ww-bar i { background: var(--c, var(--accent)); }
+.ww-bar i.draw { background: var(--faint); }
+.ww-nums { display: flex; justify-content: space-between; font-size: 12.5px; font-weight: 700; }
+/* muhtemel 11: iki takım tek sahada */
+.xi-heads { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 10px; }
+.xi-team { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.xi-team.away { flex-direction: row-reverse; text-align: right; }
+.xi-tn { min-width: 0; display: grid; }
+.xi-tn b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14.5px; }
+.xi-form { color: var(--muted); font-size: 12.5px; }
+.xi-team .rating-pill { font-size: 14px; padding: 3px 8px; }
+.xi-team .rating-pill.hi { background: #1fa45a; }
+.xi-team .rating-pill.mid { background: #b08a12; }
+.pitch.duel { aspect-ratio: 68 / 135; max-height: none; max-width: 520px; }
+.pitch.duel::before { top: -2px; bottom: auto; height: 9%; border: 2px solid rgba(255, 255, 255, 0.22); border-top: 0; }
+.pitch.duel::after { top: 50%; width: 26%; transform: translate(-50%, -50%); }
+.pitch.duel { background-image: linear-gradient(rgba(255, 255, 255, 0.22), rgba(255, 255, 255, 0.22)), linear-gradient(rgba(255, 255, 255, 0.22), rgba(255, 255, 255, 0.22)), linear-gradient(rgba(255, 255, 255, 0.22), rgba(255, 255, 255, 0.22)), linear-gradient(rgba(255, 255, 255, 0.22), rgba(255, 255, 255, 0.22)), repeating-linear-gradient(0deg, #1d6b3a 0 8.333%, #1b6436 8.333% 16.666%);
+  background-size: 100% 2px, 50% 2px, 2px 9%, 2px 9%, auto; background-position: 0 50%, 50% 91%, 25% 100%, 75% 100%, 0 0; background-repeat: no-repeat; }
+.pp.xi { cursor: default; }
+.pp.xi .xi-rt { font-size: 11px; font-weight: 800; border-radius: 5px; padding: 0 5px; background: var(--surface-3); color: #fff; line-height: 16px; }
+.pp.xi .xi-rt.hi { background: #1fa45a; }
+.pp.xi .xi-rt.mid { background: #b08a12; }
+.pp.xi .xi-rt.lo { background: #c0392b; }
+.pp.xi.absent .shirt { opacity: 0.55; }
+.xi-out { position: absolute; left: -6px; top: -6px; width: 16px; height: 16px; border-radius: 50%; background: var(--live); color: #fff; font-size: 11px; line-height: 16px; text-align: center; box-shadow: 0 0 0 1.5px #0d1117; }
+.xi-note { margin-top: 10px; display: grid; gap: 2px; }
+/* maç öncesi sıralama */
+.pt-head, .pt-row { display: grid; grid-template-columns: 26px minmax(0, 1fr) auto 34px; gap: 8px; align-items: center; }
+.pt-head { padding: 0 2px 6px; border-bottom: 1px solid var(--border); }
+.pt-head span:last-child, .pt-pts { text-align: right; }
+.pt-row { padding: 10px 2px; border-bottom: 1px solid var(--border); }
+.pt-row:last-child { border-bottom: 0; }
+.pt-rank { color: var(--muted); font-weight: 700; text-align: center; }
+.pt-team { all: unset; cursor: pointer; display: flex; align-items: center; gap: 8px; min-width: 0; }
+.pt-team b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pt-form { display: flex; gap: 3px; }
+.pt-pts { font-size: 16px; }
+/* hakem, teknik direktörler, sakat/cezalı */
+.two { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.ref, .coach, .abs-row { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.ref-ic { font-size: 22px; width: 40px; text-align: center; }
+.coach b, .abs-row b { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.coach > div, .abs-row > div { min-width: 0; }
+.pre .pface { display: grid; place-items: center; width: 40px; height: 40px; flex: none; border-radius: 50%; overflow: hidden; background: var(--surface-3); }
+.pre .pface.has-face { background: #e9edf2; }
+.pre .pface:not(.has-face)::after { content: "👤"; font-size: 18px; opacity: 0.6; }
+.abs-col { display: grid; gap: 10px; align-content: start; min-width: 0; }
+.abs-team { display: flex; align-items: center; gap: 6px; padding-bottom: 6px; border-bottom: 1px solid var(--border); }
+.abs-why { font-size: 12px; font-weight: 700; }
+.abs-why.inj, .abs-why.sus { color: var(--live); }
+.abs-why.doubt { color: var(--gold); }
+.abs-why .muted { font-weight: 400; }
+/* aralarındaki maçlar */
+.h2h-sum { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin-bottom: 10px; }
+.h2h-sum > div { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 10px 4px; border-radius: 10px; background: var(--surface-2); font-size: 12px; color: var(--muted); }
+.h2h-sum b { font-size: 22px; color: var(--text); }
+.h2h-row { display: grid; grid-template-columns: 62px minmax(0, 1fr) 52px minmax(0, 1fr); gap: 6px; align-items: center; padding: 9px 2px; border-top: 1px solid var(--border); font-size: 13px; }
+a.h2h-row:hover { background: var(--surface-2); }
+.h2h-date { color: var(--muted); font-size: 12px; }
+.h2h-t { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.h2h-t span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.h2h-t.r { justify-content: flex-end; text-align: right; }
+.h2h-s { text-align: center; font-size: 15px; }
+/* geniş ekranda yatay saha */
+.pitch.duel.wide { aspect-ratio: 120 / 68; max-width: none; background-image: linear-gradient(rgba(255, 255, 255, 0.22), rgba(255, 255, 255, 0.22)), repeating-linear-gradient(90deg, #1d6b3a 0 8.333%, #1b6436 8.333% 16.666%); background-size: 2px 100%, auto; background-position: 50% 0, 0 0; }
+.pitch.duel.wide::before { top: 25%; bottom: 25%; left: -2px; right: auto; width: 9%; height: auto; border: 2px solid rgba(255, 255, 255, 0.22); border-left: 0; }
+.pitch.duel.wide::after { top: 50%; left: auto; right: -2px; width: 9%; height: 50%; aspect-ratio: auto; transform: translateY(-50%); border: 2px solid rgba(255, 255, 255, 0.22); border-right: 0; border-radius: 0; }
+.pitch.duel.wide .pp { width: 70px; }
+@media (max-width: 520px) {
+  .two { gap: 8px; }
+  .pre .pface { width: 34px; height: 34px; }
+  .abs-row { gap: 7px; }
+  .abs-row b { font-size: 13px; }
+  .h2h-row { grid-template-columns: 50px minmax(0, 1fr) 44px minmax(0, 1fr); font-size: 12.5px; }
+  .pitch.duel .pp { width: 58px; gap: 1px; }
+  .pitch.duel .pp .shirt { width: 28px; height: 28px; font-size: 11px; }
+  .pitch.duel .pp .shirt.has-face { width: 32px; height: 32px; }
+}

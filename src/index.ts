@@ -47,6 +47,13 @@ app.get('/api/matches/:id/fan', async (req, res) => {
   store.ensureAutoPolls(m);
   res.json({ ...store.state(m.id), chat: store.chatHistory(m.id) });
 });
+/** Başlamamış maçın ön bilgileri: muhtemel 11, sakat/cezalı, form, puan durumu, aralarındaki maçlar, hakem */
+app.get('/api/matches/:id/preview', async (req, res) => {
+  const m = await matches.getMatch(req.params.id);
+  if (!m) return res.status(404).json({ error: 'Maç bulunamadı' });
+  const preview = await matches.preview(m).catch(() => null);
+  res.json({ preview });
+});
 app.get('/api/meta', (_req, res) => res.json({ formations: FORMATIONS, styles: STYLES }));
 /** Favori takım olarak seçilebilen takımlar (API-Football kimlikleri ve armaları) */
 const PICKABLE_TEAMS: TeamBadge[] = [

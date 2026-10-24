@@ -1,4 +1,4 @@
-import type { FootballProvider, Lineup, Match, MatchEvent, MatchSummary, Player, Side, StatLine, Team, TeamProfile } from '../types.js';
+import type { AbsentPlayer, FootballProvider, Lineup, Match, MatchEvent, MatchPreview, MatchSummary, Player, Side, StatLine, Team, TeamProfile } from '../types.js';
 
 /**
  * Demo sağlayıcı: API anahtarı yokken ya da API'ye ulaşılamadığında devreye girer.
@@ -195,6 +195,38 @@ export class DemoProvider implements FootballProvider {
       last: [...mine.filter((m) => m.status !== 'SCHEDULED'), ...old].slice(0, 5),
       next: mine.filter((m) => m.status === 'SCHEDULED'),
     };
+  }
+
+  /** Demo maç öncesi: son maç olarak kendi kadrosu ve uydurma puanlar, profildeki geçmiş maçlar */
+  async matchPreview(m: MatchSummary): Promise<Omit<MatchPreview, 'table'> | null> {
+    const sim = this.matches.get(m.id);
+    if (!sim) return null;
+    const r = rng(hash(`onizleme-${m.id}`));
+    const sides: Side[] = ['home', 'away'];
+    const xi = {} as MatchPreview['xi'];
+    const absent: Record<Side, AbsentPlayer[]> = { home: [], away: [] };
+    const last = {} as MatchPreview['last'];
+    const coaches = {} as MatchPreview['coaches'];
+    for (const s of sides) {
+      const team = TEAMS[m[s].id];
+      const l = sim.lineups[s];
+      xi[s] = {
+        formation: l.formation,
+        startXI: l.startXI.map((p) => ({ ...p, stats: { rating: round1(6 + r() * 2.6) } })),
+        from: { id: '', kickoff: new Date(Date.now() - 4 * 24 * 3600_000).toISOString(), opponent: 'Kasımpaşa', competition: m.competition.name, home: r() < 0.5 },
+      };
+      const out = l.subs.slice(-2);
+      absent[s] = out.map((p, i): AbsentPlayer => ({ id: p.id, name: p.name, kind: i ? 'suspension' : 'injury', reason: i ? 'Sarı kart cezası' : 'Diz sakatlığı' }));
+      last[s] = ((await this.teamProfile(m[s].id))?.last ?? []).filter((x) => x.status === 'FT');
+      coaches[s] = team ? { name: team.coach } : null;
+    }
+    const h2h = Array.from({ length: 5 }, (_, i): MatchSummary => {
+      const flip = i % 2 === 1;
+      return { id: '', competition: m.competition, status: 'FT', minute: 90, kickoff: new Date(Date.now() - (i + 1) * 180 * 24 * 3600_000).toISOString(), home: flip ? m.away : m.home, away: flip ? m.home : m.away, score: { home: Math.floor(r() * 4), away: Math.floor(r() * 3) } };
+    });
+    const hw = Math.round(30 + r() * 30);
+    const dw = Math.round(20 + r() * 15);
+    return { matchId: m.id, referee: 'Ali Şansalan, Turkey', coaches, xi, absent, last, h2h, chances: { home: hw, draw: dw, away: 100 - hw - dw }, updatedAt: new Date().toISOString() };
   }
 
   // ---------------------------------------------------------------- kurulum

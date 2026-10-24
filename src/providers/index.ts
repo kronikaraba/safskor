@@ -1,5 +1,5 @@
 import { config } from '../config.js';
-import type { FootballProvider, Match, MatchSummary, Standings, TeamFixtures, TeamProfile } from '../types.js';
+import type { FootballProvider, Match, MatchPreview, MatchSummary, Standings, TeamFixtures, TeamProfile } from '../types.js';
 import { ApiFootballProvider, PlanError, QuotaError, RateError } from './apiFootball.js';
 import { DemoProvider } from './demo.js';
 
@@ -133,6 +133,18 @@ export class FallbackProvider implements FootballProvider {
       return await this.primary.standings(leagueId);
     } catch (e) {
       console.warn(`[provider] puan durumu alınamadı (${leagueId}): ${e instanceof Error ? e.message : e}`);
+      return null;
+    }
+  }
+
+  /** Maç öncesi bilgileri de ek bilgi: hata siteyi demoya geçirmez */
+  async matchPreview(m: MatchSummary): Promise<Omit<MatchPreview, 'table'> | null> {
+    if (m.id.startsWith('demo-')) return this.demo.matchPreview(m);
+    if (this.isDemo || this.stale) return null;
+    try {
+      return await this.primary.matchPreview(m);
+    } catch (e) {
+      console.warn(`[provider] maç öncesi bilgisi alınamadı (${m.id}): ${e instanceof Error ? e.message : e}`);
       return null;
     }
   }

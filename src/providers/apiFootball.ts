@@ -1,4 +1,4 @@
-import type { FootballProvider, TeamFixtures, TeamProfile, Standings, Lineup, Match, MatchEvent, MatchStatus, MatchSummary, Player, StatLine, Side } from '../types.js';
+import type { AbsentPlayer, FootballProvider, MatchPreview, ProbableXI, TeamFixtures, TeamProfile, Standings, Lineup, Match, MatchEvent, MatchStatus, MatchSummary, Player, StatLine, Side } from '../types.js';
 
 /** Günlük istek hakkı bitti; gün dönümüne (00:00 UTC) kadar istek atılmaz. */
 export class QuotaError extends Error {
@@ -241,6 +241,91 @@ export class ApiFootballProvider implements FootballProvider {
     };
   }
 
+  /**
+   * Maç öncesi bilgileri. İstekler: kazanma yüzdeleri + aralarındaki maçlar (1), sakat/cezalı (1),
+   * iki takımın son 5 maçı (takım başına 1, 6 saat saklanır), son maçların kadro ve puanları (1, iki takım birlikte),
+   * TD (takım başına günde 1). İlk açılışta en fazla 7 istek; sonra önbellekten.
+   */
+  async matchPreview(m: MatchSummary): Promise<Omit<MatchPreview, 'table'>> {
+    const sides: Side[] = ['home', 'away'];
+    // tahmin ve sakatlık verisi her maçta olmayabilir: biri gelmezse diğerleri yine gösterilir
+    const pred = (await this.get('/predictions', { fixture: m.id }).catch(soft))?.[0] ?? null;
+    const inj = (await this.get('/injuries', { fixture: m.id, timezone: 'Europe/Istanbul' }).catch(soft)) ?? [];
+    const recent = { home: await this.teamRecent(m.home.id, m.id), away: await this.teamRecent(m.away.id, m.id) };
+
+    // muhtemel 11: iki takımın son maçlarının kadroları tek istekte
+    const lastIds = sides.map((s) => recent[s].find((x) => x.status === 'FT')?.id).filter((x): x is string => Boolean(x));
+    const need = [...new Set(lastIds.filter((id) => !this.xiCache.has(id)))];
+    if (need.length) {
+      const rows = (await this.get('/fixtures', { ids: need.join('-'), timezone: 'Europe/Istanbul' }).catch(soft)) ?? [];
+      for (const r of rows) this.xiCache.set(String(r.fixture.id), toMatch(r));
+      if (this.xiCache.size > 200) this.xiCache.delete(this.xiCache.keys().next().value!);
+    }
+    const xi = {} as Record<Side, ProbableXI | null>;
+    for (const s of sides) {
+      const teamId = m[s].id;
+      const src = recent[s].find((x) => x.status === 'FT');
+      const full = src ? this.xiCache.get(src.id) : undefined;
+      const at: Side | undefined = full ? (full.home.id === teamId ? 'home' : 'away') : undefined;
+      const l = full && at ? full.lineups?.[at] : undefined;
+      xi[s] =
+        l && l.startXI.length
+          ? {
+              formation: l.formation,
+              startXI: l.startXI.map((p) => ({ ...p, stats: p.stats?.rating != null ? { rating: p.stats.rating } : undefined })),
+              from: { id: full!.id, kickoff: full!.kickoff, opponent: full![at === 'home' ? 'away' : 'home'].name, competition: full!.competition.name, home: at === 'home' },
+            }
+          : null;
+    }
+
+    const absent: Record<Side, AbsentPlayer[]> = { home: [], away: [] };
+    const seen = new Set<string>();
+    for (const r of inj) {
+      const id = String(r.player?.id ?? '');
+      if (!id || seen.has(id)) continue;
+      seen.add(id);
+      const side: Side = String(r.team?.id) === m.home.id ? 'home' : 'away';
+      const reason = String(r.player?.reason ?? '');
+      const kind: AbsentPlayer['kind'] = /questionable|doubt/i.test(r.player?.type ?? '') ? 'doubt' : /suspen|card/i.test(reason) ? 'suspension' : 'injury';
+      absent[side].push({ id, name: r.player?.name ?? '', photo: r.player?.photo ?? undefined, kind, reason: trReason(reason, kind) });
+    }
+
+    const pct = (v: any) => Number(String(v ?? '').replace('%', ''));
+    const pp = pred?.predictions?.percent;
+    const chances = pp && [pp.home, pp.draw, pp.away].every((v) => Number.isFinite(pct(v))) && pct(pp.home) + pct(pp.draw) + pct(pp.away) > 0 ? { home: pct(pp.home), draw: pct(pp.draw), away: pct(pp.away) } : null;
+    const h2h = ((pred?.h2h ?? []) as any[])
+      .map(toSummary)
+      .filter((x) => x.status === 'FT' && x.id !== m.id)
+      .sort((a, b) => b.kickoff.localeCompare(a.kickoff))
+      .slice(0, 6);
+
+    return {
+      matchId: m.id,
+      referee: m.referee,
+      coaches: { home: await this.teamCoach(m.home.id).catch(() => null), away: await this.teamCoach(m.away.id).catch(() => null) },
+      xi,
+      absent,
+      last: { home: recent.home.slice(0, 5), away: recent.away.slice(0, 5) },
+      h2h,
+      chances,
+      updatedAt: new Date().toISOString(),
+    };
+  }
+
+  /** Muhtemel 11 kaynağı olan maçların tam detayı (kadro + oyuncu puanları); biten maç değişmez */
+  private xiCache = new Map<string, Match>();
+  /** Takımın oynanmış son maçları (en yeni önce); takım başına 6 saatte bir istek */
+  private recent = new Map<string, { at: number; list: MatchSummary[] }>();
+  private async teamRecent(teamId: string, exceptId: string): Promise<MatchSummary[]> {
+    let hit = this.recent.get(teamId);
+    if (!hit || Date.now() - hit.at > 6 * 3600_000) {
+      const rows = (await this.get('/fixtures', { team: teamId, last: '6', timezone: 'Europe/Istanbul' }).catch(soft)) ?? [];
+      hit = { at: Date.now(), list: rows.map(toSummary).sort((a, b) => b.kickoff.localeCompare(a.kickoff)) };
+      this.recent.set(teamId, hit);
+    }
+    return hit.list.filter((x) => x.id !== exceptId && x.status === 'FT');
+  }
+
   /** Takımın güncel teknik direktörü; takım başına günde en fazla bir istek */
   private coaches = new Map<string, { at: number; coach: { name: string; photo?: string } | null }>();
   private async teamCoach(teamId: string) {
@@ -256,6 +341,45 @@ export class ApiFootballProvider implements FootballProvider {
 }
 
 const utcDay = () => new Date().toISOString().slice(0, 10);
+
+/** Maç öncesi ek verisinde kota/dakika sınırı hatası yukarı taşınır; diğer hatalarda o parça boş kalır */
+function soft(e: unknown): null {
+  if (e instanceof QuotaError || e instanceof RateError || e instanceof PlanError) throw e;
+  console.warn(`[api-football] maç öncesi verisi alınamadı: ${e instanceof Error ? e.message : e}`);
+  return null;
+}
+
+/** API-Football sakatlık nedenleri İngilizce gelir; sık görülenleri Türkçeleştir */
+const REASON_TR: [RegExp, string][] = [
+  [/red card/i, 'Kırmızı kart cezası'],
+  [/yellow card/i, 'Sarı kart cezası'],
+  [/suspen/i, 'Cezalı'],
+  [/knee/i, 'Diz'],
+  [/ankle/i, 'Ayak bileği'],
+  [/hamstring/i, 'Arka adale'],
+  [/thigh/i, 'Uyluk'],
+  [/calf/i, 'Baldır'],
+  [/groin/i, 'Kasık'],
+  [/muscle/i, 'Kas'],
+  [/back/i, 'Sırt'],
+  [/shoulder/i, 'Omuz'],
+  [/foot/i, 'Ayak'],
+  [/achilles/i, 'Aşil'],
+  [/hip/i, 'Kalça'],
+  [/head|concussion/i, 'Kafa darbesi'],
+  [/ligament|acl|cruciate/i, 'Bağ'],
+  [/illness|virus|sick/i, 'Hastalık'],
+  [/fracture|broken/i, 'Kırık'],
+  [/national/i, 'Milli takım'],
+  [/personal/i, 'Kişisel neden'],
+  [/rest/i, 'Dinlendirme'],
+];
+function trReason(reason: string, kind: AbsentPlayer['kind']) {
+  const hit = REASON_TR.find(([re]) => re.test(reason))?.[1];
+  if (kind === 'suspension') return hit && hit !== 'Cezalı' ? hit : 'Cezalı';
+  if (!hit) return kind === 'doubt' ? 'Şüpheli' : reason && !/unknown|injury$/i.test(reason) ? reason : 'Sakat';
+  return /cezası|Cezalı|Milli|Kişisel|Dinlendirme|Hastalık/.test(hit) ? hit : `${hit}${/injury/i.test(reason) ? ' sakatlığı' : ''}`;
+}
 /** API-Football ülke adları İngilizce gelir; sık görülenleri Türkçeleştir */
 const COUNTRY_TR: Record<string, string> = {
   Turkey: 'Türkiye',
@@ -304,6 +428,7 @@ function toSummary(r: any): MatchSummary {
     extra: r.fixture.status?.extra ?? null,
     kickoff: r.fixture.date,
     venue: r.fixture.venue?.name ?? undefined,
+    referee: r.fixture.referee ?? undefined,
     home: t(r.teams.home),
     away: t(r.teams.away),
     score: { home: r.goals?.home ?? 0, away: r.goals?.away ?? 0 },

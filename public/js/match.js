@@ -1,5 +1,5 @@
 import { app, editNick, rankBadge, inviteUrl, myRankAtLeast } from './app.js';
-import { h, mount, crest, statusPill, minuteText, ratingPill, timeText, toast, openSheet, colorFor, POS_TR, kickoffText, roundText, dayText, teamBadge, icon, matchHref, face, playerPhoto } from './util.js';
+import { h, mount, crest, statusPill, minuteText, ratingPill, ratingClass, timeText, toast, openSheet, colorFor, POS_TR, kickoffText, roundText, dayText, teamBadge, icon, matchHref, face, playerPhoto } from './util.js';
 import { openShare } from './share.js';
 import { openDm } from './dm.js';
 import { openTeam } from './team.js';
@@ -41,6 +41,8 @@ export function renderMatch(root, matchId) {
     roomChat: [],
     chatView: 'main', // 'main' maç sohbeti, 'room' özel oda
     pinned: null, // Efsane'nin sabitlediği mesaj
+    preview: null, // başlamamış maçın ön bilgileri (muhtemel 11, form, sakat/cezalı, hakem, aralarındaki maçlar)
+    previewAt: 0,
   };
 
   const board = h('div');
@@ -79,6 +81,8 @@ export function renderMatch(root, matchId) {
         mount(body, h('div.empty', {}, r?.error || 'Maç bulunamadı.', h('br'), h('a', { href: '/', style: { color: 'var(--accent)' } }, 'Maç listesine dön')));
         return;
       }
+      // masaüstünde başlamamış maç ilk olarak maç öncesi bilgileriyle açılır
+      if (!s.match && !isNarrow() && s.tab === 'fan' && isPre(r.match)) s.tab = 'summary';
       s.match = r.match;
       // adres takım adlarını içersin (eski bağlantılardan gelince de): /mac/123/galatasaray-fenerbahce
       if (location.pathname.startsWith('/mac/') && location.pathname !== matchHref(r.match)) history.replaceState(null, '', matchHref(r.match));
@@ -105,7 +109,11 @@ export function renderMatch(root, matchId) {
       const prev = s.match;
       s.match = m;
       drawBoard(prev && (prev.score.home !== m.score.home || prev.score.away !== m.score.away));
-      refreshBody();
+      // maç başlayınca "Maç öncesi" sekmesi olay akışına (Özet) döner
+      if (prev && isPre(prev) !== isPre(m)) {
+        drawTabs();
+        drawBody();
+      } else refreshBody();
     },
     'fan:state': (f) => {
       if (f.matchId !== matchId) return;
@@ -212,7 +220,7 @@ export function renderMatch(root, matchId) {
             'aria-selected': String(key === s.tab),
             onclick: () => setTab(key),
           },
-          label,
+          key === 'summary' && isPre(s.match) ? 'Maç öncesi' : label,
           key === 'chat' && s.unread ? h('span.badge', {}, s.unread > 99 ? '99+' : s.unread) : null,
         ),
       ),
@@ -248,7 +256,7 @@ export function renderMatch(root, matchId) {
     }
     if (s.tab === 'chat') s.tab = 'fan';
     chatCol.classList.remove('show');
-    const view = { summary: Summary, lineups: Lineups, fan: Fan }[s.tab] ?? Fan;
+    const view = { summary: isPre(s.match) ? Preview : Summary, lineups: Lineups, fan: Fan }[s.tab] ?? Fan;
     current = view();
     mount(body, current.el);
     current.update();
@@ -321,6 +329,283 @@ export function renderMatch(root, matchId) {
         );
       },
     };
+  }
+
+  // --- Maç öncesi: başlamamış maçın sayfası (Kim kazanır, muhtemel 11, sıralama, hakem, TD, sakat/cezalı, aralarındaki maçlar)
+  /** Ön bilgileri sunucudan bir kez (5 dakikada bir tazeleyerek) alır; gelince onDone ile yeniden çizdirir */
+  function loadPreview(onDone) {
+    if (s.previewLoading || (s.previewAt && Date.now() - s.previewAt < 5 * 60_000)) return;
+    s.previewLoading = true;
+    fetch(`/api/matches/${encodeURIComponent(matchId)}/preview`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((r) => {
+        if (r?.preview) s.preview = r.preview;
+      })
+      .catch(() => {})
+      .finally(() => {
+        s.previewLoading = false;
+        s.previewAt = Date.now();
+        onDone?.();
+      });
+  }
+
+  function Preview() {
+    const el = h('div.stack.pre');
+    const draw = () => {
+      const m = s.match;
+      const p = s.preview;
+      const waiting = !p && (s.previewLoading || !s.previewAt);
+      mount(
+        el,
+        winnerCard(m, p),
+        p ? xiCard(p) : h('div.card', {}, h('p.muted', {}, waiting ? 'Maç öncesi bilgiler yükleniyor…' : `Maç ${kickoffText(m.kickoff)}'de başlayacak. Bu maç için ön bilgi şu an yok; taktik önerini yap ve anketlere katıl!`)),
+        p && tableCard(m, p),
+        p && officialsCard(m, p),
+        p && absentCard(m, p),
+        p && h2hCard(m, p),
+      );
+    };
+    loadPreview(() => refreshBody());
+    return { el, update: draw };
+  }
+
+  /** Kim kazanır: taraftar oylaması (Anketler'deki "Maçı kim kazanır?" ile aynı) + istatistik modelinin yüzdeleri */
+  function winnerCard(m, p) {
+    const poll = s.fan?.polls?.find((x) => x.key === 'winner');
+    const mine = poll ? s.mine?.polls?.[poll.id] : undefined;
+    const pct = (i) => (poll?.total ? Math.round((poll.options[i].votes / poll.total) * 100) : 0);
+    const opts = [
+      [0, crest(m.home, 'md'), m.home.short],
+      [1, h('span.wx', {}, 'X'), 'Beraberlik'],
+      [2, crest(m.away, 'md'), m.away.short],
+    ];
+    const c = p?.chances;
+    return h(
+      'div.card.who-wins',
+      {},
+      h('h3', {}, h('span', {}, 'Kim kazanır?'), h('span.muted', {}, poll?.total ? `${poll.total} taraftar oy verdi` : 'Tahminde bulun')),
+      h(
+        'div.ww-opts',
+        {},
+        opts.map(([i, ic, label]) =>
+          h(
+            'button.ww-opt',
+            { type: 'button', class: mine === i ? 'mine' : '', disabled: !poll, 'aria-pressed': String(mine === i), 'aria-label': i === 1 ? 'Beraberlik' : `${(i === 0 ? m.home : m.away).name} kazanır`, onclick: () => poll && send('poll:vote', { pollId: poll.id, option: i }) },
+            ic,
+            h('span.ww-l', {}, label),
+            mine != null ? h('b.ww-p', {}, `%${pct(i)}`) : null,
+          ),
+        ),
+      ),
+      c &&
+        h(
+          'div.ww-model',
+          {},
+          h('div.muted.small', {}, 'İstatistiklere göre kazanma ihtimali'),
+          h(
+            'div.ww-bar',
+            {},
+            h('i', { style: { flex: c.home || 0.001 }, '--c': m.home.color || colorFor(m.home.name) }),
+            h('i.draw', { style: { flex: c.draw || 0.001 } }),
+            h('i', { style: { flex: c.away || 0.001 }, '--c': m.away.color || colorFor(m.away.name) }),
+          ),
+          h('div.ww-nums', {}, h('span', {}, `${m.home.short} %${c.home}`), h('span', {}, `X %${c.draw}`), h('span', {}, `${m.away.short} %${c.away}`)),
+        ),
+    );
+  }
+
+  /** İki takımın 11'i tek sahada: ev sahibi altta, deplasman üstte. Resmî kadro açıklandıysa o, yoksa muhtemel 11 */
+  function xiCard(p) {
+    const m = s.match;
+    const official = Boolean(m.lineups?.home?.startXI?.length && m.lineups?.away?.startXI?.length);
+    const xi = (side) => (official ? { formation: m.lineups[side].formation, startXI: m.lineups[side].startXI, from: null } : p.xi?.[side]);
+    if (!xi('home') && !xi('away')) return null;
+    const out = new Set(['home', 'away'].flatMap((side) => (p.absent?.[side] ?? []).filter((a) => a.kind !== 'doubt').map((a) => a.id)));
+    const avg = (x) => {
+      const r = (x?.startXI ?? []).map((pl) => pl.stats?.rating).filter((v) => v != null);
+      return r.length >= 6 ? r.reduce((a, b) => a + b, 0) / r.length : null;
+    };
+    const head = (side) => {
+      const x = xi(side);
+      const a = avg(x);
+      return h('div.xi-team', { class: side }, crest(m[side], 'md'), h('div.xi-tn', {}, h('b', {}, m[side].name), h('span.xi-form', {}, x?.formation ?? '')), a != null ? ratingPill(a) : null);
+    };
+    const from = (side) => {
+      const f = xi(side)?.from;
+      if (!f) return null;
+      const d = new Date(f.kickoff).toLocaleDateString('tr-TR', { day: 'numeric', month: 'short' });
+      return h('div', {}, h('b', {}, `${m[side].short}: `), `${d} · ${f.home ? 'ev' : 'deplasman'} · ${f.opponent}`);
+    };
+    return h(
+      'div.card.xi-card',
+      {},
+      h('h3', {}, h('span', {}, official ? 'İlk 11’ler' : 'Muhtemel 11'), h('span.muted', {}, official ? 'Resmî kadro açıklandı' : 'Son maçlarındaki ilk 11')),
+      h('div.xi-heads', {}, head('home'), head('away')),
+      // telefonda dikey (ev sahibi altta), geniş ekranda yatay saha (ev sahibi solda)
+      h('div.pitch.duel', { class: isNarrow() ? '' : 'wide' }, duelNodes(xi('away'), 'away', out), duelNodes(xi('home'), 'home', out)),
+      official
+        ? null
+        : h('div.muted.small.xi-note', {}, 'Puanlar son maçtaki oyuncu puanları. ✚ = sakat ya da cezalı. Resmî kadrolar maçtan yaklaşık 1 saat önce gelir.', from('home'), from('away')),
+    );
+  }
+
+  function duelNodes(x, side, out) {
+    if (!x?.startXI?.length) return null;
+    const players = x.startXI;
+    const rows = new Map();
+    const withGrid = players.every((pl) => pl.grid && /^\d+:\d+$/.test(pl.grid));
+    const order = { G: 1, D: 2, M: 3, F: 4 };
+    for (const pl of players) {
+      const r = withGrid ? Number(pl.grid.split(':')[0]) : (order[pl.pos] ?? 3);
+      if (!rows.has(r)) rows.set(r, []);
+      rows.get(r).push(pl);
+    }
+    if (withGrid) for (const arr of rows.values()) arr.sort((a, b) => Number(a.grid.split(':')[1]) - Number(b.grid.split(':')[1]));
+    const keys = [...rows.keys()].sort((a, b) => a - b);
+    const team = s.match[side];
+    const color = team.color || colorFor(team.name);
+    const nodes = [];
+    keys.forEach((r, i) => {
+      const arr = rows.get(r);
+      // ev sahibi: kaleci kendi kalesinde, forvetler ortaya doğru; deplasman aynası
+      const t = i / Math.max(1, keys.length - 1);
+      const depth = side === 'home' ? 95 - t * 42 : 5 + t * 42;
+      const wide = !isNarrow();
+      arr.forEach((pl, j) => {
+        let lat = ((j + 1) / (arr.length + 1)) * 100;
+        if (side === 'away') lat = 100 - lat;
+        // yatay sahada ev sahibi solda: derinlik x eksenine döner
+        const [x, y] = wide ? [100 - depth, side === 'home' ? 100 - lat : lat] : [lat, depth];
+        const rating = pl.stats?.rating;
+        nodes.push(
+          h(
+            'div.pp.xi',
+            { style: { left: `${x}%`, top: `${y}%` }, class: out.has(pl.id) ? 'absent' : '', title: pl.name },
+            h('span.shirt', { '--c': color, class: playerPhoto(pl) ? 'has-face' : '' }, face(pl), h('span.no', {}, pl.number ?? ''), out.has(pl.id) ? h('span.xi-out', {}, '✚') : null),
+            h('span.pname', {}, shortName(pl.name)),
+            rating != null ? h('span.xi-rt', { class: ratingClass(rating) }, Number(rating).toFixed(1)) : null,
+          ),
+        );
+      });
+    });
+    return nodes;
+  }
+
+  /** Maç öncesi sıralama: lig sırası, son 5 maç, puan */
+  function tableCard(m, p) {
+    const sides = ['home', 'away'];
+    const hasTable = p.table && (p.table.home || p.table.away);
+    if (!hasTable && !p.last?.home?.length && !p.last?.away?.length) return null;
+    const res = (x, id) => {
+      const [a, b] = x.home.id === id ? [x.score.home, x.score.away] : [x.score.away, x.score.home];
+      return a > b ? 'G' : a < b ? 'M' : 'B';
+    };
+    const rows = sides.map((side) => {
+      const t = m[side];
+      const row = p.table?.[side];
+      // en eski solda, en yeni sağda
+      const last = [...(p.last?.[side] ?? [])].slice(0, 5).reverse();
+      return h(
+        'div.pt-row',
+        {},
+        h('span.pt-rank', {}, row ? row.rank : '–'),
+        h('button.pt-team', { type: 'button', onclick: () => openTeam(t) }, crest(t, 'sm'), h('b', {}, t.name)),
+        h(
+          'span.pt-form',
+          {},
+          last.map((x) => {
+            const r = res(x, t.id);
+            const opp = x.home.id === t.id ? x.away : x.home;
+            return h('span.tp-res', { class: `r-${r}`, title: `${x.home.name} ${x.score.home}-${x.score.away} ${x.away.name}` }, r, h('span.sr-only', {}, ` ${opp.name}`));
+          }),
+        ),
+        h('b.pt-pts', {}, row ? row.points : ''),
+      );
+    });
+    return h(
+      'div.card',
+      {},
+      h('h3', {}, h('span', {}, 'Maç öncesi sıralama'), h('span.muted', {}, p.table?.league ?? 'Son 5 maç')),
+      h('div.pt-head.muted.small', {}, h('span', {}, '#'), h('span', {}, 'Takım'), h('span', {}, 'Son 5'), h('span', {}, hasTable ? 'Puan' : '')),
+      rows,
+    );
+  }
+
+  /** Hakem ve teknik direktörler */
+  function officialsCard(m, p) {
+    const [refName, refCountry] = String(p.referee ?? '').split(',').map((x) => x.trim());
+    const coach = (side) => {
+      const c = p.coaches?.[side];
+      if (!c) return h('div.coach', {}, h('span.muted', {}, '–'));
+      return h('div.coach', {}, h('span.pface', { class: c.photo ? 'has-face' : '' }, face({ photo: c.photo })), h('div', {}, h('b', {}, c.name), h('div.muted.small', {}, m[side].name)));
+    };
+    const COUNTRY = { Turkey: 'Türkiye', Türkiye: 'Türkiye', England: 'İngiltere', Spain: 'İspanya', Germany: 'Almanya', Italy: 'İtalya', France: 'Fransa', Netherlands: 'Hollanda', Portugal: 'Portekiz', Poland: 'Polonya', Romania: 'Romanya', Slovenia: 'Slovenya', Scotland: 'İskoçya' };
+    return h(
+      'div.card',
+      {},
+      refName && [h('h3', {}, h('span', {}, 'Hakem')), h('div.ref', {}, h('span.ref-ic', {}, '🟨'), h('div', {}, h('b', {}, refName), refCountry ? h('div.muted.small', {}, COUNTRY[refCountry] ?? refCountry) : null))],
+      (p.coaches?.home || p.coaches?.away) && [h('h3', { class: refName ? 'mt' : '' }, h('span', {}, 'Teknik direktörler')), h('div.two', {}, coach('home'), coach('away'))],
+    );
+  }
+
+  /** Sakat ve cezalılar, iki sütun */
+  function absentCard(m, p) {
+    const KIND = { injury: ['Sakat', 'inj'], suspension: ['Cezalı', 'sus'], doubt: ['Şüpheli', 'doubt'] };
+    const col = (side) => {
+      const list = p.absent?.[side] ?? [];
+      return h(
+        'div.abs-col',
+        {},
+        h('div.abs-team', {}, crest(m[side], 'sm'), h('b', {}, m[side].short)),
+        list.length
+          ? list.map((a) => {
+              const [label, cls] = KIND[a.kind] ?? KIND.injury;
+              return h(
+                'div.abs-row',
+                {},
+                h('span.pface', { class: playerPhoto(a) ? 'has-face' : '' }, face(a)),
+                h('div', {}, h('b', {}, a.name), h('div.abs-why', { class: cls }, h('span', {}, a.kind === 'suspension' ? '🟥' : a.kind === 'doubt' ? '?' : '✚'), ` ${label}`, a.reason && a.reason !== label ? h('span.muted', {}, ` · ${a.reason}`) : null)),
+              );
+            })
+          : h('div.muted.small', {}, 'Eksik yok'),
+      );
+    };
+    if (!p.absent?.home?.length && !p.absent?.away?.length) return null;
+    return h('div.card', {}, h('h3', {}, h('span', {}, 'Sakat ve cezalılar')), h('div.two', {}, col('home'), col('away')));
+  }
+
+  /** Aralarındaki son maçlar */
+  function h2hCard(m, p) {
+    const list = p.h2h ?? [];
+    if (!list.length) return null;
+    let hw = 0, d = 0, aw = 0;
+    for (const x of list) {
+      const hs = x.home.id === m.home.id ? x.score.home : x.score.away;
+      const as = x.home.id === m.home.id ? x.score.away : x.score.home;
+      if (hs > as) hw++;
+      else if (hs < as) aw++;
+      else d++;
+    }
+    return h(
+      'div.card',
+      {},
+      h('h3', {}, h('span', {}, 'Aralarındaki son maçlar'), h('span.muted', {}, `Son ${list.length}`)),
+      h('div.h2h-sum', {}, h('div', {}, crest(m.home, 'sm'), h('b', {}, hw), h('span', {}, 'galibiyet')), h('div', {}, h('b', {}, d), h('span', {}, 'beraberlik')), h('div', {}, crest(m.away, 'sm'), h('b', {}, aw), h('span', {}, 'galibiyet'))),
+      h(
+        'div.h2h-list',
+        {},
+        list.map((x) =>
+          h(
+            x.id ? 'a.h2h-row' : 'div.h2h-row',
+            { href: x.id ? matchHref(x) : null },
+            h('span.h2h-date', {}, new Date(x.kickoff).toLocaleDateString('tr-TR', { day: 'numeric', month: 'short', year: '2-digit' })),
+            h('span.h2h-t.r', {}, h('span', {}, x.home.name), crest(x.home, 'xs')),
+            h('b.h2h-s', {}, `${x.score.home} - ${x.score.away}`),
+            h('span.h2h-t', {}, crest(x.away, 'xs'), h('span', {}, x.away.name)),
+          ),
+        ),
+      ),
+    );
   }
 
   function eventRow(e, m) {
@@ -505,7 +790,10 @@ export function renderMatch(root, matchId) {
     const draw = () => {
       const m = s.match;
       if (!m.lineups) {
-        mount(el, h('div.card', {}, h('p.muted', {}, 'Kadrolar henüz açıklanmadı. Genelde maçtan yaklaşık 1 saat önce yayınlanır.')));
+        const note = h('p.muted', {}, 'Kadrolar henüz açıklanmadı. Genelde maçtan yaklaşık 1 saat önce yayınlanır.');
+        if (!isPre(m)) return mount(el, h('div.card', {}, note));
+        loadPreview(() => refreshBody());
+        mount(el, s.preview ? xiCard(s.preview) : h('div.card', {}, note));
         return;
       }
       const side = s.side.lineups;
@@ -1410,6 +1698,11 @@ export function renderMatch(root, matchId) {
     },
     rejoin: join,
   };
+}
+
+/** Başlamamış (ya da ertelenmiş) maç: sayfa maç öncesi bilgileri gösterir */
+function isPre(m) {
+  return Boolean(m) && m.status === 'SCHEDULED';
 }
 
 function isNarrow() {

@@ -74,6 +74,8 @@ export interface MatchSummary {
   extra?: number | null;
   kickoff: string;
   venue?: string;
+  /** Hakem (API-Football: "Ad Soyad, Ülke") */
+  referee?: string;
   home: Team;
   away: Team;
   score: { home: number; away: number };
@@ -83,6 +85,41 @@ export interface Match extends MatchSummary {
   events: MatchEvent[];
   lineups?: { home: Lineup; away: Lineup };
   stats: StatLine[];
+}
+
+/** Maça çıkamayacak ya da şüpheli oyuncu */
+export interface AbsentPlayer {
+  id: string;
+  name: string;
+  photo?: string;
+  kind: 'injury' | 'suspension' | 'doubt';
+  reason: string;
+}
+
+/** Muhtemel 11: takımın son resmî maçındaki ilk 11 ve o maçtaki puanları */
+export interface ProbableXI {
+  formation?: string;
+  startXI: Player[];
+  /** İlk 11'in alındığı maç */
+  from: { id: string; kickoff: string; opponent: string; competition: string; home: boolean } | null;
+}
+
+/** Maç öncesi bilgileri (başlamamış maç sayfası) */
+export interface MatchPreview {
+  matchId: string;
+  referee?: string;
+  coaches: Record<Side, { name: string; photo?: string } | null>;
+  xi: Record<Side, ProbableXI | null>;
+  absent: Record<Side, AbsentPlayer[]>;
+  /** Takımların son 5 maçı, en yeni önce */
+  last: Record<Side, MatchSummary[]>;
+  /** Aralarındaki son maçlar, en yeni önce */
+  h2h: MatchSummary[];
+  /** İstatistik modelinin kazanma yüzdeleri */
+  chances: { home: number; draw: number; away: number } | null;
+  /** Maçın liginin puan durumundan iki takımın satırı */
+  table?: { league: string; home: StandingRow | null; away: StandingRow | null } | null;
+  updatedAt: string;
 }
 
 /** Modüler futbol veri sağlayıcısı arayüzü. Yeni bir API eklemek için bunu uygulayın. */
@@ -143,6 +180,8 @@ export interface FootballProvider {
   teamProfile?(teamId: string): Promise<TeamProfile | null>;
   /** İsteğe bağlı: ligin güncel puan durumu. null: şu an kullanılamıyor */
   standings?(leagueId: string): Promise<Standings | null>;
+  /** İsteğe bağlı: maç öncesi bilgileri (muhtemel 11, sakat/cezalı, form, H2H, hakem). null: şu an kullanılamıyor */
+  matchPreview?(m: MatchSummary): Promise<Omit<MatchPreview, 'table'> | null>;
   /** Önerilen yoklama aralığı (ms); demo için kısa, gerçek API için kota dostu */
   readonly pollMs: { list: number; detail: number; live?: number };
 }
