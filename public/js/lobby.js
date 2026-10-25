@@ -6,7 +6,6 @@ const FILTERS = [
   ['all', 'Tümü', () => true],
   ['live', 'Canlı', (m) => m.status === 'LIVE' || m.status === 'HT'],
   ['upcoming', 'Yaklaşan', (m) => m.status === 'SCHEDULED'],
-  ['done', 'Biten', (m) => m.status === 'FT' || m.status === 'POSTPONED'],
 ];
 const isLive = (m) => m.status === 'LIVE' || m.status === 'HT';
 const hasStarted = (m) => m.status !== 'SCHEDULED' && m.status !== 'POSTPONED';
@@ -18,15 +17,27 @@ const TABS = [
   ['table', 'Puan durumu', '/puan-durumu', 'Süper Lig puan durumu'],
 ];
 const hhmm = (iso) => new Date(iso).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' });
-const dateLabel = (offset) => {
-  const d = new Date();
-  d.setDate(d.getDate() + offset);
-  return d.toLocaleDateString('tr-TR', { day: 'numeric', month: 'long' });
+// günler İstanbul saatine göre (yurt dışındaki ziyaretçide de "bugün" sitenin bugünü)
+const istDay = (offset) => new Date(Date.now() + offset * 86_400_000).toLocaleDateString('sv-SE', { timeZone: 'Europe/Istanbul' });
+const dayFmt = (iso, opts) => new Date(`${iso}T12:00:00+03:00`).toLocaleDateString('tr-TR', { timeZone: 'Europe/Istanbul', ...opts });
+/** Tarih seçicideki günler: 7 gün geri, 7 gün ileri. Dün, bugün ve yarının kendi sayfası var */
+const PICK_DAYS = Array.from({ length: 15 }, (_, i) => i - 7);
+const DAY_PATH = { '-1': '/dun', 0: '/', 1: '/yarin' };
+const calIcon = () => {
+  const s = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  s.setAttribute('viewBox', '0 0 24 24');
+  s.setAttribute('aria-hidden', 'true');
+  s.innerHTML = '<rect x="3" y="5" width="18" height="16" rx="2.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M3 10h18M8 3v4M16 3v4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>';
+  return s;
 };
 
 /** tab: 'yesterday' (dünün maçları), 'today' (bugünün maçları), 'tomorrow' (yarının maçları), 'table' (puan durumu) */
 export function renderLobby(root, tab = 'today') {
   let filter = storage.get('safskor.filter', 'all');
+  if (!FILTERS.some((f) => f[0] === filter)) filter = 'all'; // kaldırılan "Biten" filtresi seçili kaldıysa
+  let pickDate = null; // tarih seçiciden seçilen gün (dün/bugün/yarın dışında)
+  let stripOpen = false;
+  const dayCache = new Map(); // tarih -> maç listesi (null: alınamadı)
   let featuredId = null; // sağ sütunda gösterilen maç
   app.socket.emit('lobby:join');
 
@@ -34,7 +45,19 @@ export function renderLobby(root, tab = 'today') {
   const list = h('div.lobby-list');
   const clubs = h('section.panel.big4', { 'aria-label': 'Büyük 4' });
   const featured = h('div');
-  const dateEl = h('span.lobby-date');
+  const dateEl = h('div.lobby-date');
+  const strip = h('div.date-strip', { hidden: true });
+  const tabLinks = TABS.map(([key, label, href]) =>
+    h('a.day-tab', { href, class: key === tab ? 'active' : '', 'aria-current': key === tab ? 'page' : null, onclick: () => pickDate && ((pickDate = null), refreshTabs(), drawList()) }, label),
+  );
+  function refreshTabs() {
+    tabLinks.forEach((a, i) => {
+      const on = !pickDate && TABS[i][0] === tab;
+      a.classList.toggle('active', on);
+      if (on) a.setAttribute('aria-current', 'page');
+      else a.removeAttribute('aria-current');
+    });
+  }
   const side = h('aside.lobby-side', {}, featured);
   const lobby = h(
     'div.lobby',
@@ -46,8 +69,9 @@ export function renderLobby(root, tab = 'today') {
       h(
         'div.lobby-head',
         {},
-        h('nav.day-tabs', { 'aria-label': 'Maç günü' }, TABS.map(([key, label, href]) => h('a.day-tab', { href, class: key === tab ? 'active' : '', 'aria-current': key === tab ? 'page' : null }, label))),
+        h('nav.day-tabs', { 'aria-label': 'Maç günü' }, tabLinks),
         dateEl,
+        strip,
         tab === 'today' ? chips : null,
       ),
       list,
@@ -106,11 +130,81 @@ export function renderLobby(root, tab = 'today') {
     );
   }
 
+  // ---------------------------------------------------------------- tarih seçici
+  /** Görünen gün: seçilen tarih ya da sekmenin günü */
+  const shownDay = () => pickDate ?? istDay(tab === 'yesterday' ? -1 : tab === 'tomorrow' ? 1 : 0);
+  function drawDateBtn() {
+    const day = shownDay();
+    const off = PICK_DAYS.find((o) => istDay(o) === day);
+    const name = off === 0 ? 'Bugün' : off === -1 ? 'Dün' : off === 1 ? 'Yarın' : dayFmt(day, { weekday: 'long' });
+    mount(
+      dateEl,
+      h(
+        'button.date-btn',
+        { type: 'button', 'aria-expanded': String(stripOpen), 'aria-label': 'Tarih seç', onclick: () => ((stripOpen = !stripOpen), drawStrip()) },
+        calIcon(),
+        h('span', {}, `${name} · ${dayFmt(day, { day: 'numeric', month: 'long' })}`),
+        h('span.date-caret', {}, stripOpen ? '▴' : '▾'),
+      ),
+    );
+  }
+  function drawStrip() {
+    drawDateBtn();
+    strip.hidden = !stripOpen;
+    if (!stripOpen) return;
+    const cur = shownDay();
+    mount(
+      strip,
+      PICK_DAYS.map((o) => {
+        const d = istDay(o);
+        const top = o === 0 ? 'Bugün' : o === -1 ? 'Dün' : o === 1 ? 'Yarın' : dayFmt(d, { weekday: 'short' });
+        const attrs = { class: d === cur ? 'on' : '', 'aria-current': d === cur ? 'date' : null };
+        const body = [h('span', {}, top), h('b', {}, dayFmt(d, { day: 'numeric' })), h('span', {}, dayFmt(d, { month: 'short' }))];
+        // dün, bugün ve yarın kendi adreslerine gider; diğer günler bu sayfada açılır
+        if (DAY_PATH[o]) return h('a.date-day', { ...attrs, href: DAY_PATH[o], onclick: () => ((stripOpen = false), pickDate && ((pickDate = null), refreshTabs(), drawList())) }, body);
+        return h('button.date-day', { ...attrs, type: 'button', onclick: () => pick(d) }, body);
+      }),
+    );
+    strip.querySelector('.on')?.scrollIntoView({ block: 'nearest', inline: 'center' });
+  }
+  function pick(d) {
+    pickDate = d;
+    stripOpen = false;
+    strip.hidden = true;
+    refreshTabs();
+    drawList();
+  }
+  function drawDay() {
+    drawDateBtn();
+    const label = dayFmt(pickDate, { day: 'numeric', month: 'long', weekday: 'long' });
+    if (!dayCache.has(pickDate)) {
+      const d = pickDate;
+      mount(list, h('div.empty', {}, `${label} maçları yükleniyor…`));
+      app.socket.timeout(10000).emit('day:get', { date: d }, (err, r) => {
+        dayCache.set(d, !err && r?.ok ? r.matches : null);
+        if (r?.demo) dayCache.set(d, 'demo');
+        if (pickDate === d) drawList();
+      });
+      return;
+    }
+    const all = dayCache.get(pickDate);
+    if (all === 'demo') return mount(list, h('div.empty', {}, 'Demo modunda başka günlerin maçları gösterilmiyor.'));
+    if (!all) {
+      dayCache.delete(pickDate); // bir dahaki açılışta yeniden dene
+      return mount(list, h('div.empty', {}, `${label} maçları şu an alınamıyor. Biraz sonra tekrar dene.`));
+    }
+    if (!all.length) return mount(list, h('div.empty', {}, `${label} takip edilen liglerde maç yok.`));
+    const past = pickDate < istDay(0);
+    mount(list, h('p.muted.small.list-note', {}, past ? 'Maç odaları açık: sohbet, puanlar ve yorumlar duruyor.' : 'Maç odasına girip skor tahminini şimdiden yapabilirsin.'), groups(all));
+  }
+
   function drawList() {
+    chips.hidden = !!pickDate;
+    if (pickDate) return drawDay();
     if (tab === 'tomorrow') return drawTomorrow();
     if (tab === 'yesterday') return drawYesterday();
     if (tab === 'table') return drawTable();
-    mount(dateEl, `Bugün · ${dateLabel(0)}`);
+    drawDateBtn();
     const all = app.matches || [];
     mount(
       chips,
@@ -146,7 +240,7 @@ export function renderLobby(root, tab = 'today') {
 
   // ---------------------------------------------------------------- yarının maçları
   function drawTomorrow() {
-    mount(dateEl, `Yarın · ${dateLabel(1)}`);
+    drawDateBtn();
     const all = app.tomorrow;
     if (!all?.length) {
       const text = app.provider?.demo ? 'Demo modunda yarının maçları gösterilmiyor.' : all ? 'Yarın takip edilen liglerde maç yok.' : 'Yarının maçları yükleniyor…';
@@ -157,7 +251,7 @@ export function renderLobby(root, tab = 'today') {
 
   // ---------------------------------------------------------------- dünün maçları
   function drawYesterday() {
-    mount(dateEl, `Dün · ${dateLabel(-1)}`);
+    drawDateBtn();
     const all = app.yesterday;
     if (!all?.length) {
       const text = app.provider?.demo ? 'Demo modunda dünün maçları gösterilmiyor.' : all ? 'Dün takip edilen liglerde maç yok.' : 'Dünün maçları yükleniyor…';

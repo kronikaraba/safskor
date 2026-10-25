@@ -503,6 +503,14 @@ io.on('connection', (socket: Socket) => {
   });
 
   socket.on('teams:list', (_p, ack) => safeAck(ack)({ ok: true, teams: PICKABLE_TEAMS }));
+  // tarih seçici: bugünden ±7 gün (dün/bugün/yarın dışındaki günler ilk istekte 1 API isteği, sonra önbellekten)
+  socket.on('day:get', async (p, ack) => {
+    const a = safeAck(ack);
+    const date = typeof p?.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(p.date) ? p.date : null;
+    if (!date) return a({ ok: false, error: 'Geçersiz tarih.' });
+    const list = await matches.getDay(date).catch(() => null);
+    a({ ok: true, date, matches: list, demo: matches.providerInfo.demo });
+  });
   socket.on('standings:get', (_p, ack) => safeAck(ack)({ ok: true, standings: matches.getStandings() }));
 
   // --- takım profili: yalnızca sitede görünen takımlar (rastgele kimliklerle API kotası harcanmasın)

@@ -115,6 +115,16 @@ export class FallbackProvider implements FootballProvider {
     }
   }
 
+  async dayMatches(date: string): Promise<MatchSummary[] | null> {
+    if (this.isDemo || this.stale || !this.primary.dayMatches) return null;
+    try {
+      return await this.primary.dayMatches(date);
+    } catch (e) {
+      console.warn(`[provider] ${date} maçları alınamadı: ${e instanceof Error ? e.message : e}`);
+      return null;
+    }
+  }
+
   /** Takım profili de ek bilgi: hata siteyi demoya geçirmez. Demo modunda demo takımlarının profili */
   async teamProfile(teamId: string): Promise<TeamProfile | null> {
     if (this.isDemo) return this.demo.teamProfile(teamId);

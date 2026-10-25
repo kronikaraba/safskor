@@ -130,7 +130,28 @@ button { cursor: pointer; }
 .mrow-go { color: var(--faint); font-size: 22px; line-height: 1; }
 .chip.has-live:not(.active) { color: #ff8994; border-color: rgba(255, 77, 94, 0.4); background: rgba(255, 77, 94, 0.1); }
 
-.lobby-date, .lobby-side { display: none; }
+.lobby-side { display: none; }
+/* tarih seçici: telefonda sekmelerin altında tam genişlik, masaüstünde sağ üstte */
+.lobby-date { flex-basis: 100%; color: var(--muted); font-size: 13.5px; font-weight: 600; }
+.lobby-date:empty { display: none; }
+.date-btn {
+  display: inline-flex; align-items: center; gap: 8px; height: 40px; padding: 0 14px; width: 100%; justify-content: center;
+  border: 1px solid var(--border); border-radius: 10px; background: var(--surface-2); color: var(--blue); font-size: 14px; font-weight: 700; cursor: pointer;
+}
+.date-btn svg { width: 18px; height: 18px; flex: none; }
+.date-btn:hover { border-color: var(--accent); }
+.date-caret { color: var(--muted); font-size: 12px; }
+.date-strip { flex-basis: 100%; display: flex; gap: 6px; overflow-x: auto; padding: 4px 0 6px; scrollbar-width: thin; }
+.date-strip[hidden] { display: none; }
+.date-day {
+  flex: none; display: flex; flex-direction: column; align-items: center; gap: 1px; min-width: 58px; padding: 8px 6px;
+  border: 1px solid var(--border); border-radius: 12px; background: var(--surface-2); color: var(--muted); font-size: 12px; cursor: pointer;
+}
+.date-day b { font-size: 19px; color: var(--text); line-height: 1.15; }
+.date-day:hover { border-color: var(--accent); }
+.date-day.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+.date-day.on b { color: #fff; }
+.chips[hidden] { display: none; }
 
 .empty { text-align: center; color: var(--muted); padding: 40px 16px; border: 1px dashed var(--border); border-radius: var(--radius); }
 
@@ -615,10 +636,10 @@ button { cursor: pointer; }
   }
   .lobby-head h1::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 3px; border-radius: 3px 3px 0 0; background: var(--accent); }
   .lobby-head p { display: none; }
-  .lobby-date {
-    display: inline-flex; align-items: center; height: 34px; padding: 0 14px; border: 1px solid var(--border); border-radius: 8px;
-    background: var(--surface-2); color: var(--blue); font-size: 13.5px; font-weight: 600; white-space: nowrap;
-  }
+  .lobby-date { flex-basis: auto; white-space: nowrap; }
+  .lobby-date > span { display: inline-flex; align-items: center; height: 34px; padding: 0 14px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-2); color: var(--blue); }
+  .date-btn { width: auto; height: 36px; font-size: 13.5px; }
+  .lobby-head .date-strip { grid-column: 1 / -1; margin: 0 -16px; padding: 10px 16px; border-top: 1px solid var(--border); }
   .lobby-head .chips { grid-column: 1 / -1; margin: 0 -16px; padding: 12px 16px; border-top: 1px solid var(--border); }
   .chip { border: 0; background: var(--surface-3); color: var(--text); padding: 7px 14px; font-weight: 500; }
   .chip.active { background: var(--accent); }

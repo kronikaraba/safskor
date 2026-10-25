@@ -592,6 +592,36 @@ export class MatchService extends EventEmitter {
     this.emit('yesterday', this.yesterday);
   }
 
+  /**
+   * Tarih seçici: bugünden 7 gün geri ve 7 gün ileriye kadar herhangi bir günün maçları.
+   * Dün/bugün/yarın zaten elde; diğer günler ilk istendiğinde tek istekle çekilir ve saklanır
+   * (geçmiş gün 6 saat, gelecek gün 1 saat). Kota sıkışıkken yeni gün çekilmez.
+   */
+  async getDay(date: string): Promise<MatchSummary[] | null> {
+    if (date === istanbulDay(0)) return this.list;
+    if (date === istanbulDay(1) && this.tomorrowDay === date) return this.tomorrow;
+    if (date === istanbulDay(-1) && this.yesterdayDay === date) return this.yesterday;
+    const allowed = new Set(Array.from({ length: 15 }, (_, i) => istanbulDay(i - 7)));
+    if (!allowed.has(date)) return null;
+    const hit = this.days.get(date);
+    const ttl = date < istanbulDay(0) ? 6 * 60 * MIN : 60 * MIN;
+    if (hit && Date.now() - hit.at < ttl) return hit.list;
+    if (!this.provider.dayMatches || this.pressure() === 'critical') return hit?.list ?? null;
+    let job = this.dayJobs.get(date);
+    if (!job) {
+      job = this.provider.dayMatches(date).catch(() => null);
+      this.dayJobs.set(date, job);
+      job.finally(() => this.dayJobs.delete(date)).catch(() => {});
+    }
+    const list = await job;
+    if (!list) return hit?.list ?? null;
+    for (const d of this.days.keys()) if (!allowed.has(d)) this.days.delete(d);
+    this.days.set(date, { at: Date.now(), list });
+    return list;
+  }
+  private days = new Map<string, { at: number; list: MatchSummary[] }>();
+  private dayJobs = new Map<string, Promise<MatchSummary[] | null>>();
+
   /** Puan durumu: 3 saatte bir; ligde bugün yeni bir maç bitince 10 dk sonra */
   private async refreshStandings() {
     if (!this.standingsLeague || !this.provider.standings || this.provider.isDemo || this.pressure() === 'critical') return;

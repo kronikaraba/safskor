@@ -195,6 +195,8 @@ export interface FootballProvider {
   tomorrowMatches?(): Promise<MatchSummary[] | null>;
   /** İsteğe bağlı: dünün maçları (aynı filtre). null: şu an kullanılamıyor */
   yesterdayMatches?(): Promise<MatchSummary[] | null>;
+  /** Seçilen bir günün (İstanbul, YYYY-MM-DD) maçları; tek istek */
+  dayMatches?(date: string): Promise<MatchSummary[] | null>;
   /** İsteğe bağlı: takım künyesi, teknik direktörü, son 5 ve sıradaki 3 maçı. null: şu an kullanılamıyor */
   teamProfile?(teamId: string): Promise<TeamProfile | null>;
   /** İsteğe bağlı: ligin güncel puan durumu. null: şu an kullanılamıyor */

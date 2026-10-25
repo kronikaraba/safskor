@@ -156,6 +156,12 @@ export class ApiFootballProvider implements FootballProvider {
     return rows.map(toSummary).sort((a, b) => a.kickoff.localeCompare(b.kickoff));
   }
 
+  /** Tarih seçiciden istenen günün maçları (tek istek; sonuç önbellekte tutulur) */
+  async dayMatches(date: string): Promise<MatchSummary[]> {
+    const rows = await this.dayFixtures(date);
+    return rows.map(toSummary).sort((a, b) => a.kickoff.localeCompare(b.kickoff));
+  }
+
   /** Ligin güncel sezon puan durumu (tek istek) */
   async standings(leagueId: string): Promise<Standings | null> {
     const now = new Date();
