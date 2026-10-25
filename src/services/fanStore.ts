@@ -197,7 +197,7 @@ export class FanStore {
     this.db.exec(`DELETE FROM poll_votes WHERE poll_id IN (${dropped}); DELETE FROM polls WHERE id IN (${dropped});`);
     // yorumcunun dili değişti (fanatik taraftar ağzı): eski sürümün maç öncesi yorumları bir kez silinir,
     // başlamamış maçlarda oda açılınca yenileri yazılır (aynı ref olduğu için eskiler yenisini engelliyordu)
-    const SPIKER_V = '3';
+    const SPIKER_V = '4';
     const v = (this.db.prepare("SELECT value FROM meta WHERE key = 'spiker_v'").get() as any)?.value;
     if (v !== SPIKER_V) {
       const old = "SELECT id FROM chat WHERE kind = 'bot' AND ref IN ('spiker:pre', 'spiker:xi', 'spiker:soon')";

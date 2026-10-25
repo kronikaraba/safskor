@@ -965,11 +965,15 @@ matches.on('match', (m: Match) => {
   io.to(room(m.id)).emit('match', m);
   // kadrolar açıklanınca; karşılama henüz yazılmadıysa odaya ilk girişte sırasıyla yazılır
   if (m.status === 'SCHEDULED' && store.chatRefAt(m.id, 'spiker:pre') != null) spikerSay(m, 'spiker:xi', lineupsOut(m));
-  // dakika notları: 30. ve 70. dakikada bir kez, eldeki istatistik ve skora göre
+  // maç içi en az 5 yorum (Bat'ın isteği): başlama, 15/30/60/75/85. dakika notları, devre arası ve ikinci yarı başlangıcı.
+  // Durum değişimi kaçırılsa da (yeniden başlatma, ilk görüldüğünde maç başlamış) dakika aralığına göre bir kez yazılır.
   if (m.status === 'LIVE' && m.minute != null) {
-    if (m.minute >= 30 && m.minute < 45) spikerSay(m, 'spiker:m30', midGame(m, 30));
-    if (m.minute >= 70 && m.minute < 85) spikerSay(m, 'spiker:m70', midGame(m, 70));
+    const min = m.minute;
+    if (min <= 15 && store.chatRefAt(m.id, 'spiker:ko') == null) spikerLater(m, 'spiker:ko', kickoff(m), 4_000);
+    if (min >= 46 && min <= 55 && store.chatRefAt(m.id, 'spiker:2h') == null) spikerLater(m, 'spiker:2h', secondHalf(m), 4_000);
+    for (const mark of [15, 30, 60, 75, 85] as const) if (min >= mark && min < mark + 10) spikerSay(m, `spiker:m${mark}`, midGame(m, mark));
   }
+  if (m.status === 'HT') spikerSay(m, 'spiker:ht', halfTime(m));
 });
 
 // --- Safskor Yorum (otomatik yorumcu): maç öncesi, maç içi ve sonrası maç, futbolcu ve hocalar hakkında keskin yorumlar (sohbette logo ve "otomatik" etiketiyle).

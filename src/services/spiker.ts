@@ -150,11 +150,16 @@ export function preMatch(m: Match, table: Standings | null, _fan: SpikerFan, pv:
     }
   }
   takes.push(...previewTakes(m, pv));
-  takes.push([10, pick([
-    `${m.home.name} kendi evinde. kendi sahanda puan bırakırsan kimse senden korkmaz, bu akşam 3 puan şart`,
-    `favori kâğıt üstünde belli ama kâğıt üstünde maç kazanan görmedim. sahada yürek konuşacak`,
-  ], m.id + 'gen')]);
-  return top(takes, 3);
+  // veri az olsa da maç öncesi en az 5 yorum çıksın (Bat'ın isteği)
+  const when = new Date(m.kickoff).toLocaleTimeString('tr-TR', { timeZone: 'Europe/Istanbul', hour: '2-digit', minute: '2-digit' });
+  takes.push(
+    [10, `${m.home.name} kendi evinde. kendi sahanda puan bırakırsan kimse senden korkmaz, bu akşam 3 puan şart`],
+    [9, `${m.away.name} deplasmanda. buraya puan almaya değil, kazanmaya gelmeli. kapanıp beklersen 90 dakika acı çekersin`],
+    [8, `saat ${when}, ${m.home.short} - ${m.away.short}. ${m.competition.name || 'bu maç'} bu akşam burada konuşacak, bahane yok 🔥`],
+    [7, `${coachOf(m, 'home')} ve ${coachOf(m, 'away')} karşı karşıya. kenarda kim daha cesursa sahada da o takım öne çıkar`],
+    [6, `favori kâğıt üstünde belli ama kâğıt üstünde maç kazanan görmedim. sahada yürek konuşacak`],
+  );
+  return top(takes, 5);
 }
 
 function lineupsTakes(m: Match): Take[] {
@@ -191,6 +196,7 @@ export function halfTime(m: Match): BotSay[] {
     const lead: Side = hs > as ? 'home' : 'away';
     takes.push([25, `${team(m, lead)} önde ama bu iş bitmedi. ${team(m, other(lead))} ikinci yarı bu silik oyunu sürdürürse fark açılır, ${coachOf(m, other(lead))} hemen hamle yapmalı`]);
   } else takes.push([25, `${hs}-${as}, maç bıçak sırtında. ilk hatayı yapan yanar, iki savunma da bu akşam güven vermiyor`]);
+  takes.push([10, `${coachOf(m, 'home')} ve ${coachOf(m, 'away')} soyunma odasında. ikinci yarıya kim daha aç çıkarsa bu maç onun`]);
   return top(takes, 2);
 }
 
@@ -283,26 +289,43 @@ export function liveEvent(m: Match, e: MatchEvent): BotSay[] {
   return [];
 }
 
-/** Dakika notları (30. ve 70. dakika): eldeki istatistik ve skora göre */
-export function midGame(m: Match, mark: 30 | 70): BotSay[] {
+/** Dakika notları (15, 30, 60, 75, 85): eldeki istatistik ve skora göre; her notta en az bir yorum çıkar */
+export function midGame(m: Match, mark: 15 | 30 | 60 | 75 | 85): BotSay[] {
   const { home: hs, away: as } = m.score;
   const takes: (Take | null)[] = [];
   const pos = stat(m, 'possession'), shots = stat(m, 'shots'), sot = stat(m, 'shotsOnTarget'), xg = stat(m, 'xg');
-  // not, maç odası geç açıldıysa 30./70. dakikadan sonra yazılabilir: metin gerçek dakikayı söyler
+  // not, maç odası geç açıldıysa işaretli dakikadan sonra yazılabilir: metin gerçek dakikayı söyler
   const min = Math.max(mark, m.minute ?? mark);
-  for (const s of ['home', 'away'] as Side[]) {
+  const seed = m.id + 'm' + mark;
+  if (mark >= 30) for (const s of ['home', 'away'] as Side[]) {
     const mine = s === 'home' ? hs : as, theirs = s === 'home' ? as : hs;
     if (pos && pos[s] >= 62 && mine <= theirs) takes.push([60, `${min}. dakika, ${team(m, s)} %${pos[s]} topla oynuyor, skor ${hs}-${as}. topu sevmekle gol atılmıyor, kaleye vurun artık`]);
     if (shots && sot && shots[s] >= 8 && sot[s] <= 1) takes.push([58, `${team(m, s)} ${shots[s]} şut çekti, kaleyi bulan ${sot[s]}. bu bitiricilikle sabaha kadar oynasalar gol çıkmaz, tribün çıldırdı`]);
     if (xg && xg[s] - xg[other(s)] >= 1 && mine <= theirs) takes.push([62, `gol beklentisi ${team(m, s)} ${fmt1(xg[s])}, rakip ${fmt1(xg[other(s)])}. skor ise ${hs}-${as}. futbolda adalet yok kardeşim`]);
   }
-  if (mark === 70) {
-    if (hs === as) takes.push([30, `son ${Math.max(5, 90 - min)} dakika, ${hs}-${as}. şimdi yürek konuşur, kenardan ilk doğru hamleyi yapan 3 puanı alır`]);
-    else {
-      const lead: Side = hs > as ? 'home' : 'away';
-      takes.push([30, `${min}. dakika, ${team(m, lead)} önde. ${team(m, other(lead))} şimdi her şeyini ortaya koymazsa bu maç bitti, tabutun son çivisi çakılıyor`]);
-    }
-  } else if (hs === 0 && as === 0) takes.push([25, `${min} dakika geçti, tek kurşun yok. iki takım da birbirini kokluyor, bu tempoyla gol ancak hatadan gelir 😴`]);
+  const lead: Side | null = hs === as ? null : hs > as ? 'home' : 'away';
+  const L = lead ? team(m, lead) : '', T = lead ? team(m, other(lead)) : '';
+  const left = Math.max(5, 90 - min);
+  if (mark === 15)
+    takes.push([20, lead
+      ? pick([`${min} dakikada ${L} önde! erken gelen gol maçın planını çöpe attı, ${T} şimdi ya açılır ya da yıkılır`, `daha ${min}. dakika ve ${L} önde 🔥 ${T} bu başlangıçla akşamı zor geçirir`], seed)
+      : pick([`${min} dakika geride kaldı, ${hs}-${as}. iki takım da birbirini tartıyor, ilk ciddi atağı yapan bu maçı alır`, `${min}. dakika, ${hs}-${as}. ısınma turları bitsin artık, tribün gol istiyor 📣`], seed)]);
+  else if (mark === 30)
+    takes.push([20, lead
+      ? pick([`${min}. dakika, ${L} önde. ${T} bu silik oyunla devreye kadar dayanamaz, kenardan bir şey yapılmalı`, `${L} ${min}. dakikada önde ve oyunun kontrolü onda. ${T} topa ancak santrada dokunuyor`], seed)
+      : pick([`${min} dakika geçti, ${hs}-${as}. iki takım da birbirini kokluyor, bu tempoyla gol ancak hatadan gelir 😴`, `${min}. dakika ve hâlâ ${hs}-${as}. biri risk almazsa bu ilk yarı uyku ilacı gibi biter`], seed)]);
+  else if (mark === 60)
+    takes.push([20, lead
+      ? pick([`saat 60'ı gösteriyor, ${L} önde. ${T} hâlâ uyanmadıysa bu akşam uyanmaz`, `${min}. dakika, ${L} skoru elinde tutuyor. ${T} için bundan sonrası ya hep ya hiç 🔥`], seed)
+      : pick([`${min}. dakika, ${hs}-${as}. bu maç kenardaki iki hocanın satrancına döndü, ilk doğru hamle 3 puan getirir`, `${min} dakika oynandı, skor ${hs}-${as}. hâlâ korkarak oynayan varsa çıksın, yerine yürekli biri girsin`], seed)]);
+  else if (mark === 75)
+    takes.push([30, lead
+      ? `${min}. dakika, ${L} önde. ${T} şimdi her şeyini ortaya koymazsa bu maç bitti, tabutun son çivisi çakılıyor`
+      : `son ${left} dakika, ${hs}-${as}. şimdi yürek konuşur, kenardan ilk doğru hamleyi yapan 3 puanı alır`]);
+  else
+    takes.push([30, lead
+      ? pick([`son dakikalar! ${L} önde, ${T} bütün oyuncularıyla ileri çıkmalı. kaybedecek bir şey kalmadı 🔥`, `${min}. dakika, ${L} saati izliyor. bu son dakikalar kalp krizi, tribünde tırnak kalmadı`], seed)
+      : pick([`son dakikalar ve ${hs}-${as}! ilk atan kahraman olur, kaleye ne gelirse vurun 🔥`, `${min}. dakika, hâlâ ${hs}-${as}. bu maçı kim isterse o alır, ayak çeken bir daha formayı giymesin`], seed)]);
   return top(takes, 1);
 }
 
@@ -364,7 +387,25 @@ export function fullTime(m: Match, _fan: SpikerFan): BotSay[] {
   if (!winner && hs === 0) takes.push([20, '90 dakika, sıfır gol 😴 iki takım da bu maçı bir an önce unutmak ister, biz de']);
   else if (winner) takes.push([15, pick([`${team(m, winner)} 3 puanı aldı, helal olsun 💪 ${team(m, other(winner))} tarafında ise ciddi bir hesaplaşma lazım`, `${team(m, winner)} işini yaptı, 3 puan cepte. ${team(m, other(winner))} yine aynı hataları yaptı, yine kaybetti. bu film çok tanıdık`, `${m.home.short} ${hs}-${as} ${m.away.short}. ${coachOf(m, winner)} kazanmayı bildi, rakip hoca kenarda sadece izledi`], m.id + 'end')]);
   else takes.push([15, pick([`${hs}-${as}, kazanan yok. iki takım da yenmek için yeterince istemedi, bu sonuç kimseyi kurtarmaz`, `beraberlik, ${hs}-${as}. cesaret yoksa 3 puan da yok, bu kadar basit`], m.id + 'end')]);
-  return top(takes, 4);
+  // veri az olsa da maç sonu en az 5 yorum çıksın (Bat'ın isteği)
+  const scorers = goals.filter((e) => e.player).map((e) => `${e.player} ${e.minute}${e.extra ? `+${e.extra}` : ''}'`);
+  if (scorers.length) takes.push([14, `golleri atanlar: ${scorers.slice(0, 5).join(', ')}. bu isimler bu gecenin kahramanları ⚽`]);
+  if (pos) takes.push([13, `topla oynama %${pos.home} - %${pos.away}${sot ? `, isabetli şut ${sot.home} - ${sot.away}` : ''}. rakamlar bir şey söylüyor ama skor tabelası son sözü söyledi`]);
+  if (winner) {
+    const l = other(winner);
+    takes.push(
+      [12, `${team(m, winner)} taraftarı bu gece rahat uyur 💪 ${coachOf(m, winner)} doğru adamları sahaya sürdü, sonuç ortada`],
+      [11, `${team(m, l)} için hesap vakti. bu oyunla bu formaya yakışmayan bir akşam, ${coachOf(m, l)} pazartesi çok soru duyacak`],
+      [8, `${team(m, l)} bu yenilgiyi çabuk unutmazsa gelecek hafta aynı film tekrar oynar. kafalar hemen toparlanmalı`],
+    );
+  } else
+    takes.push(
+      [12, `${team(m, 'home')} kendi evinde 2 puan bıraktı. iç sahada bu skor yenilgi gibidir`],
+      [11, `${team(m, 'away')} deplasmandan 1 puanla dönüyor. ne sevinilir ne üzülür, ortada kaldı`],
+      [8, `${coachOf(m, 'home')} da ${coachOf(m, 'away')} da bu maçı kazanmak için risk almadı. korkak futbolun sonucu bu`],
+    );
+  takes.push([5, `${m.home.short} ${hs}-${as} ${m.away.short}, düdük çaldı. oyuncuları puanlamayı unutmayın, tribünün sesi orada duyulur 📣`]);
+  return top(takes, 5);
 }
 
 /** Taraftar oylarıyla maçın adamı (en az 3 oy alan oyuncular arasında en yüksek ortalama) */
