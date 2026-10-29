@@ -38,6 +38,7 @@ export function renderLobby(root, tab = 'today') {
   let pickDate = null; // tarih seçiciden seçilen gün (dün/bugün/yarın dışında)
   let stripOpen = false;
   const dayCache = new Map(); // tarih -> maç listesi (null: alınamadı)
+  let nextDay; // bugün maç yoksa sıradaki maç günü { date, matches } (undefined: sorulmadı, null: bulunamadı)
   let featuredId = null; // sağ sütunda gösterilen maç
   app.socket.emit('lobby:join');
 
@@ -219,8 +220,9 @@ export function renderLobby(root, tab = 'today') {
     );
     const fn = FILTERS.find((f) => f[0] === filter)?.[2] ?? (() => true);
     const shown = all.filter(fn);
+    if (!all.length && app.provider) return emptyToday();
     if (!shown.length) {
-      mount(list, h('div.empty', {}, all.length ? 'Bu filtrede maç yok.' : app.provider ? 'Bugün takip edilen liglerde maç yok.' : 'Maçlar yükleniyor…'));
+      mount(list, h('div.empty', {}, all.length ? 'Bu filtrede maç yok.' : 'Maçlar yükleniyor…'));
       return;
     }
     mount(list, groups(shown));
@@ -236,6 +238,32 @@ export function renderLobby(root, tab = 'today') {
     // Süper Lig her zaman ilk, Premier League ikinci; diğerleri geldiği sırada
     const rank = (xs) => ({ 203: 0, 39: 1 })[xs[0].competition.id] ?? 2;
     return [...by.entries()].sort((a, b) => rank(a[1]) - rank(b[1])).map(([name, xs]) => compSection(name, xs));
+  }
+
+  // ---------------------------------------------------------------- bugün maç yoksa
+  // Ekran boş kalmasın (Bat'ın isteği): sıradaki maç gününün maçları ve dünün sonuçları gösterilir.
+  function emptyToday() {
+    chips.hidden = true;
+    if (app.tomorrow?.length) nextDay = { date: istDay(1), matches: app.tomorrow };
+    else if (nextDay === undefined && app.tomorrow) {
+      nextDay = 'loading';
+      app.socket.timeout(15000).emit('day:next', {}, (err, r) => {
+        nextDay = !err && r?.next?.matches?.length ? r.next : null;
+        drawList();
+        drawFeatured();
+      });
+    }
+    const dayName = (d) => {
+      const off = PICK_DAYS.find((o) => istDay(o) === d);
+      return `${off === 1 ? 'Yarın' : dayFmt(d, { weekday: 'long' })} · ${dayFmt(d, { day: 'numeric', month: 'long' })}`;
+    };
+    const parts = [
+      h('div.day-empty', {}, h('b', {}, 'Bugün takip edilen liglerde maç yok'), h('span', {}, 'Sıradaki maçlar aşağıda: odaya gir, skor tahminini şimdiden yap.')),
+    ];
+    if (nextDay === 'loading' || (nextDay === undefined && !app.tomorrow)) parts.push(h('p.muted.small.list-note', {}, 'Sıradaki maçlar yükleniyor…'));
+    else if (nextDay) parts.push(h('h2.day-sep', {}, h('span', {}, 'Sıradaki maçlar'), h('b', {}, dayName(nextDay.date))), groups(nextDay.matches));
+    if (app.yesterday?.length) parts.push(h('h2.day-sep', {}, h('span', {}, 'Dünün sonuçları'), h('b', {}, dayName(istDay(-1)).replace(/^[^·]+/, 'Dün '))), groups(app.yesterday));
+    mount(list, parts);
   }
 
   // ---------------------------------------------------------------- yarının maçları
@@ -381,7 +409,9 @@ export function renderLobby(root, tab = 'today') {
   function picks() {
     const order = (m) => (isLive(m) ? 0 : m.status === 'SCHEDULED' ? 1 : 2);
     const time = (m) => Date.parse(m.kickoff) || 0;
-    return [...(app.matches || [])]
+    // bugün maç yoksa sağ sütunda sıradaki maç gününün maçları öne çıkar
+    const src = app.matches?.length ? app.matches : nextDay?.matches || [];
+    return [...src]
       .sort((a, b) => (b.viewers ?? 0) - (a.viewers ?? 0) || order(a) - order(b) || (order(a) === 2 ? time(b) - time(a) : time(a) - time(b)))
       .slice(0, 5);
   }

@@ -511,6 +511,11 @@ io.on('connection', (socket: Socket) => {
     const list = await matches.getDay(date).catch(() => null);
     a({ ok: true, date, matches: list, demo: matches.providerInfo.demo });
   });
+  // bugün maç yoksa ana sayfa boş kalmasın: sıradaki maç günü
+  socket.on('day:next', async (_p, ack) => {
+    const next = await matches.nextMatchDay().catch(() => null);
+    safeAck(ack)({ ok: true, next });
+  });
   socket.on('standings:get', (_p, ack) => safeAck(ack)({ ok: true, standings: matches.getStandings() }));
 
   // --- takım profili: yalnızca sitede görünen takımlar (rastgele kimliklerle API kotası harcanmasın)

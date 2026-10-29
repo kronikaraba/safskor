@@ -1048,3 +1048,14 @@ button.abs-row:hover b { text-decoration: underline; }
 .notfound .btn { display: inline-block; padding: 12px 22px; font-size: 15px; }
 .btn.danger { background: var(--live); color: #fff; }
 .acct-del { color: var(--live); margin-top: 6px; font-size: 13px; }
+
+/* bugün maç yoksa: uyarı ve gün ayraçları */
+.day-empty { display: flex; flex-direction: column; gap: 4px; margin-bottom: 12px; padding: 14px 16px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface-2); }
+.day-empty b { font-size: 15px; }
+.day-empty span { color: var(--muted); font-size: 13.5px; }
+.day-sep { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin: 16px 2px 8px; font-size: 13px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+.day-sep b { color: var(--blue); text-transform: none; letter-spacing: 0; font-size: 14px; }
+@media (min-width: 641px) {
+  .lobby-main .day-empty { margin: 0; border: 0; border-top: 1px solid var(--border); border-radius: 0; background: transparent; }
+  .lobby-main .day-sep { margin: 0; padding: 12px 16px; border-top: 1px solid var(--border); background: var(--surface-2); }
+}

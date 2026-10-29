@@ -619,6 +619,18 @@ export class MatchService extends EventEmitter {
     this.days.set(date, { at: Date.now(), list });
     return list;
   }
+  /**
+   * Bugün maç yoksa ana sayfada gösterilecek sıradaki maç günü (yarından 7 gün ileriye kadar ilk dolu gün).
+   * Yarın elde; sonraki günler getDay önbelleğinden, ilk aramada gün başına 1 istek (en çok 6, saatte bir).
+   */
+  async nextMatchDay(): Promise<{ date: string; matches: MatchSummary[] } | null> {
+    for (let i = 1; i <= 7; i++) {
+      const date = istanbulDay(i);
+      const list = await this.getDay(date).catch(() => null);
+      if (list?.length) return { date, matches: list };
+    }
+    return null;
+  }
   private days = new Map<string, { at: number; list: MatchSummary[] }>();
   private dayJobs = new Map<string, Promise<MatchSummary[] | null>>();
 
