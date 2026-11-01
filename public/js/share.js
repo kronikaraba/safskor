@@ -44,7 +44,10 @@ async function share(canvas, card) {
   const name = `safskor-${card.match.home.short}-${card.match.away.short}.png`.replace(/[^\w.-]+/g, '');
   const file = new File([blob], name, { type: 'image/png' });
   // paylaşılan her kart davet bağlantısını taşır: bu bağlantıyla gelip üye olan, paylaşana yazılır
-  const text = `${card.match.home.name} ${card.match.score.home}-${card.match.score.away} ${card.match.away.name} · Safskor${card.invite ? `\n${card.invite}` : ''}`;
+  const cm = card.match;
+  const pre = cm.status === 'SCHEDULED' || cm.status === 'POSTPONED';
+  const when = new Date(cm.kickoff).toLocaleString('tr-TR', { day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Istanbul' });
+  const text = `${pre ? `${cm.home.name} - ${cm.away.name} · ${when}` : `${cm.home.name} ${cm.score.home}-${cm.score.away} ${cm.away.name}`} · Safskor${card.invite ? `\n${card.invite}` : ''}`;
   if (navigator.canShare?.({ files: [file] })) {
     try {
       await navigator.share({ files: [file], title: 'Safskor taraftar kartım', text });
@@ -160,6 +163,20 @@ async function drawCard(canvas, card, format) {
       ? { top: 40, logo: 52, logoGap: 34, lg: 26, lgGap: 30, box: 190, crest: 96, cOff: 20, name: 26, nameGap: 38, score: 84, scoreOff: 28, st: 24, stOff: 70, after: 22 }
       : { top: 70, logo: 70, logoGap: 40, lg: 30, lgGap: 50, box: 400, crest: 150, cOff: 50, name: 34, nameGap: 70, score: 120, scoreOff: 42, st: 28, stOff: 100, after: 40 };
 
+  // tabeladaki bilgiler kartta da olsun (Bat: odadaki taraftar sayısı hariç hepsi): başlama saati/tarih, golcüler, stat
+  const started = m.status !== 'SCHEDULED' && m.status !== 'POSTPONED';
+  const isGoal = (e) => e.type === 'goal' || e.type === 'penalty' || e.type === 'own_goal';
+  const scorers = (side) =>
+    (m.events ?? []).filter((e) => isGoal(e) && e.side === side && e.player).map((e) => `${e.player} ${e.minute}${e.extra ? `+${e.extra}` : ''}'${e.type === 'penalty' ? ' (P)' : e.type === 'own_goal' ? ' (KK)' : ''}`);
+  const sc = { home: scorers('home'), away: scorers('away') };
+  const scRows = Math.min(3, Math.max(sc.home.length, sc.away.length));
+  const scFont = Math.round(L.st * 0.82);
+  const scLh = scFont + 10;
+  const venueFont = Math.round(L.st * 0.85);
+  // kutu içeriğe göre uzar: isimler + golcüler + stat + alt boşluk
+  const need = L.cOff + L.crest + L.nameGap + 14 + (scRows ? scRows * scLh + 10 : 0) + (m.venue ? venueFont + 8 : 0) + Math.round(L.cOff * 1.2);
+  L.box = Math.max(L.box, need);
+
   // zemin
   const g = x.createLinearGradient(0, 0, 0, H);
   g.addColorStop(0, '#0a2442');
@@ -200,15 +217,42 @@ async function drawCard(canvas, card, format) {
   drawCrest(x, hc, m.home, W * 0.22, cy + L.crest / 2, L.crest);
   drawCrest(x, ac, m.away, W * 0.78, cy + L.crest / 2, L.crest);
   x.fillStyle = C.text;
-  x.font = `700 ${L.name}px ${FONT}`;
-  x.fillText(fit(x, m.home.name, 300), W * 0.22, cy + L.crest + L.nameGap);
-  x.fillText(fit(x, m.away.name, 300), W * 0.78, cy + L.crest + L.nameGap);
-  const started = m.status !== 'SCHEDULED' && m.status !== 'POSTPONED';
-  x.font = `800 ${L.score}px ${FONT}`;
-  x.fillText(started ? `${m.score.home}-${m.score.away}` : 'vs', W / 2, cy + L.crest / 2 + L.scoreOff);
-  x.fillStyle = m.status === 'FT' ? C.muted : '#ff8994';
+  // uzun takım adı önce küçülür, en son kısalır ("Manchester City" sığsın)
+  for (const [t, cx] of [[m.home, W * 0.22], [m.away, W * 0.78]]) {
+    let fs = L.name;
+    x.font = `700 ${fs}px ${FONT}`;
+    while (fs > L.name * 0.7 && x.measureText(t.name).width > 300) x.font = `700 ${--fs}px ${FONT}`;
+    x.fillText(fit(x, t.name, 300), cx, cy + L.crest + L.nameGap);
+  }
+  const ko = new Date(m.kickoff);
+  const day = ko.toLocaleDateString('tr-TR', { day: 'numeric', month: 'long', timeZone: 'Europe/Istanbul' });
+  const time = ko.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Istanbul' });
+  // başlamamış maçta "vs" yerine başlama saati ve tarihi (sitedeki tabela gibi)
+  x.font = `800 ${started ? L.score : Math.round(L.score * 0.78)}px ${FONT}`;
+  x.fillText(started ? `${m.score.home}-${m.score.away}` : m.status === 'POSTPONED' ? 'vs' : time, W / 2, cy + L.crest / 2 + L.scoreOff);
+  x.fillStyle = m.status === 'FT' || !started ? C.muted : '#ff8994';
   x.font = `700 ${L.st}px ${FONT}`;
-  x.fillText(m.status === 'FT' ? 'MAÇ SONU' : m.status === 'HT' ? 'DEVRE ARASI' : m.status === 'LIVE' ? `CANLI ${m.minute ?? ''}'` : '', W / 2, cy + L.crest / 2 + L.stOff);
+  const stText =
+    m.status === 'FT' ? `MAÇ SONU · ${day}` : m.status === 'HT' ? 'DEVRE ARASI' : m.status === 'LIVE' ? `CANLI ${m.minute ?? ''}'` : m.status === 'POSTPONED' ? `ERTELENDİ · ${day}` : day;
+  x.fillText(fit(x, stText, W * 0.34), W / 2, cy + L.crest / 2 + L.stOff);
+  // golcüler takımlarının altında
+  let by = cy + L.crest + L.nameGap + 14;
+  if (scRows) {
+    x.fillStyle = C.muted;
+    x.font = `500 ${scFont}px ${FONT}`;
+    for (const [side, cx] of [['home', W * 0.22], ['away', W * 0.78]]) {
+      const list = sc[side];
+      const rows = list.length > scRows ? [...list.slice(0, scRows - 1), `+${list.length - scRows + 1} gol`] : list;
+      rows.forEach((t, i) => x.fillText(fit(x, t, 320), cx, by + (i + 1) * scLh));
+    }
+    by += scRows * scLh + 10;
+  }
+  // stat
+  if (m.venue) {
+    x.fillStyle = C.muted;
+    x.font = `600 ${venueFont}px ${FONT}`;
+    x.fillText(fit(x, `🏟️ ${m.venue}`, W - 200), W / 2, by + venueFont + 8);
+  }
   y += L.box + L.after;
 
   // işlem bölümleri tek panelde: önce yazı küçülür, en son bölüm başına satır azalır (kalanlar "+N" olur)
