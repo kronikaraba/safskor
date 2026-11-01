@@ -495,7 +495,7 @@ button { cursor: pointer; }
   .tabs { top: 53px; }
 }
 @media (max-width: 640px) {
-  .brand-logo { height: 26px; }
+  .brand-logo { height: 28px; }
   .rank-link span { display: none; }
   .rank-link { padding: 6px 9px; }
   .nick-btn { max-width: 120px; }
@@ -606,7 +606,7 @@ button { cursor: pointer; }
   }
   .topbar-in { max-width: 1200px; margin: 0 auto; height: 64px; display: grid; grid-template-columns: 1fr auto 1fr; gap: 16px; }
   .brand { margin-right: 0; justify-self: start; }
-  .brand-logo { height: 32px; }
+  .brand-logo { height: 36px; }
   .topnav { gap: 6px; }
   .nav-link, .rank-link {
     display: inline-flex; align-items: center; gap: 8px; height: 40px; padding: 0 16px; border: 0; border-radius: 6px; background: transparent;

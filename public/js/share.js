@@ -134,7 +134,7 @@ async function drawCard(canvas, card, format) {
   const x = canvas.getContext('2d');
   const m = card.match;
   const [logo, hc, ac, tb, trophy, rate, tactic, sub, poll] = await Promise.all([
-    loadImg('/img/logo.png'),
+    loadImg('/img/logo-stacked.png'),
     loadImg(crestUrl(m.home.logo)),
     loadImg(crestUrl(m.away.logo)),
     loadImg(crestUrl(card.team?.logo)),
@@ -157,11 +157,11 @@ async function drawCard(canvas, card, format) {
     ? dense
       ? { top: 70, logo: 60, logoGap: 40, lg: 30, lgGap: 40, box: 250, crest: 120, cOff: 30, name: 32, nameGap: 48, score: 110, scoreOff: 38, st: 28, stOff: 88, after: 30 }
       : busy
-        ? { top: 100, logo: 76, logoGap: 60, lg: 36, lgGap: 50, box: 340, crest: 160, cOff: 45, name: 40, nameGap: 70, score: 130, scoreOff: 46, st: 34, stOff: 110, after: 40 }
-        : { top: 150, logo: 92, logoGap: 90, lg: 36, lgGap: 70, box: 430, crest: 200, cOff: 70, name: 40, nameGap: 70, score: 150, scoreOff: 46, st: 34, stOff: 110, after: 70 }
+        ? { top: 100, logo: 140, logoGap: 60, lg: 36, lgGap: 50, box: 340, crest: 160, cOff: 45, name: 40, nameGap: 70, score: 130, scoreOff: 46, st: 34, stOff: 110, after: 40 }
+        : { top: 150, logo: 200, logoGap: 90, lg: 36, lgGap: 70, box: 430, crest: 200, cOff: 70, name: 40, nameGap: 70, score: 150, scoreOff: 46, st: 34, stOff: 110, after: 70 }
     : busy
-      ? { top: 40, logo: 52, logoGap: 34, lg: 26, lgGap: 30, box: 190, crest: 96, cOff: 20, name: 26, nameGap: 38, score: 84, scoreOff: 28, st: 24, stOff: 70, after: 22 }
-      : { top: 70, logo: 70, logoGap: 40, lg: 30, lgGap: 50, box: 400, crest: 150, cOff: 50, name: 34, nameGap: 70, score: 120, scoreOff: 42, st: 28, stOff: 100, after: 40 };
+      ? { top: 40, logo: 84, logoGap: 34, lg: 26, lgGap: 30, box: 190, crest: 96, cOff: 20, name: 26, nameGap: 38, score: 84, scoreOff: 28, st: 24, stOff: 70, after: 22 }
+      : { top: 70, logo: 116, logoGap: 40, lg: 30, lgGap: 50, box: 400, crest: 150, cOff: 50, name: 34, nameGap: 70, score: 120, scoreOff: 42, st: 28, stOff: 100, after: 40 };
 
   // tabeladaki bilgiler kartta da olsun (Bat: odadaki taraftar sayısı hariç hepsi): başlama saati/tarih, golcüler, stat
   const started = m.status !== 'SCHEDULED' && m.status !== 'POSTPONED';

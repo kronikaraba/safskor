@@ -1,6 +1,6 @@
 // Yalnızca bağlantı yokken gösterilecek sayfayı saklar. JS, CSS ve API her zaman ağdan gelir,
 // böylece yeni sürüm yayınlanınca uygulamada eski kod takılı kalmaz.
-const CACHE = 'safskor-offline-v1';
+const CACHE = 'safskor-offline-v2';
 const OFFLINE = '/offline.html';
 const OFFLINE_ASSETS = [OFFLINE, '/offline.js', '/img/icon-192.png'];
 
