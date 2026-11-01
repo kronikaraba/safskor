@@ -186,6 +186,11 @@ export function renderMatch(root, matchId) {
       m.events
         .filter((e) => e.side === side && ['goal', 'penalty', 'own_goal'].includes(e.type))
         .map((e) => `${e.player ?? ''} ${e.minute}'${e.type === 'penalty' ? '\u00a0(P)' : e.type === 'own_goal' ? '\u00a0(KK)' : ''}`);
+    // teknik direktör takım adının altında (kadrodan; kadro yoksa maç öncesi bilgilerden)
+    const coachEl = (side) => {
+      const n = coachName(m, side, s.preview);
+      return n ? h('div.sb-coach', { title: 'Teknik direktör' }, h('span.td', {}, 'TD'), n) : null;
+    };
     const board_ = h(
       'section.scoreboard',
       { '--hc': m.home.color || 'transparent', '--ac': m.away.color || 'transparent' },
@@ -193,14 +198,14 @@ export function renderMatch(root, matchId) {
       h(
         'div.sb-main',
         {},
-        h('div.sb-team', {}, teamBtn(m.home), h('div.sb-scorers', {}, scorers('home').map((t) => h('div', {}, t)))),
+        h('div.sb-team', {}, teamBtn(m.home), coachEl('home'), h('div.sb-scorers', {}, scorers('home').map((t) => h('div', {}, t)))),
         h(
           'div.sb-center',
           {},
           h('div.sb-score', { class: [flash ? 'flash' : '', m.status === 'LIVE' || m.status === 'HT' ? 'live' : ''].join(' ').trim() }, started ? `${m.score.home} - ${m.score.away}` : timeText(m.kickoff)),
           started || m.status === 'POSTPONED' ? statusPill(m) : h('span.status', {}, dayText(m.kickoff)),
         ),
-        h('div.sb-team', {}, teamBtn(m.away), h('div.sb-scorers', {}, scorers('away').map((t) => h('div', {}, t)))),
+        h('div.sb-team', {}, teamBtn(m.away), coachEl('away'), h('div.sb-scorers', {}, scorers('away').map((t) => h('div', {}, t)))),
       ),
       h('div.sb-foot', {}, m.venue && h('span', {}, `🏟️ ${m.venue}`), presenceEl),
     );
@@ -347,6 +352,7 @@ export function renderMatch(root, matchId) {
       .finally(() => {
         s.previewLoading = false;
         s.previewAt = Date.now();
+        if (s.preview?.coaches && s.match) drawBoard();
         onDone?.();
       });
   }
@@ -783,7 +789,7 @@ export function renderMatch(root, matchId) {
     const r = await send('card:get', {});
     if (!r?.ok) return;
     const { ok, ...activity } = r;
-    openShare({ match: s.match, nick: app.me.nick, team: app.me.team, activity, invite: inviteUrl(location.pathname), ref: app.me.ref });
+    openShare({ match: s.match, coaches: { home: coachName(s.match, 'home', s.preview), away: coachName(s.match, 'away', s.preview) }, nick: app.me.nick, team: app.me.team, activity, invite: inviteUrl(location.pathname), ref: app.me.ref });
   }
 
   // --- Kadrolar: saha + yedekler
@@ -1825,6 +1831,10 @@ function squadState(m, side) {
 
 /** Maçta süre almış oyuncular (puanlanabilir olanlar) */
 /** Teknik direktörü oyuncu gibi puanlanabilir/yorumlanabilir bir kayıt olarak döner */
+/** Teknik direktör adı: kadrodaki ya da (kadro açıklanmadıysa) maç öncesi bilgilerdeki */
+function coachName(m, side, preview) {
+  return m.lineups?.[side]?.coach || preview?.coaches?.[side]?.name || '';
+}
 function coachOf(m, side) {
   const l = m.lineups?.[side];
   return l?.coach ? { id: `coach:${side}`, name: l.coach, pos: 'C', photo: l.coachPhoto } : null;

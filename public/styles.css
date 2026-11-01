@@ -175,6 +175,9 @@ button { cursor: pointer; }
 .sb-team { display: flex; flex-direction: column; align-items: center; gap: 10px; text-align: center; min-width: 0; }
 .sb-team .name { font-weight: 700; font-size: 16px; }
 .sb-scorers { font-size: 11.5px; color: var(--muted); line-height: 1.5; }
+.sb-coach { margin-top: -4px; max-width: 100%; font-size: 12px; line-height: 1.45; color: var(--muted); text-align: center; }
+.sb-coach .td { display: inline-block; margin-right: 5px; padding: 0 5px; border-radius: 4px; background: rgba(255, 255, 255, 0.08); font-size: 10px; font-weight: 800; letter-spacing: 0.04em; vertical-align: 1px; }
+@media (max-width: 480px) { .sb-coach { font-size: 11px; } }
 .sb-center { text-align: center; padding-top: 6px; }
 .sb-score { font-size: 44px; font-weight: 800; letter-spacing: 0.02em; font-variant-numeric: tabular-nums; line-height: 1.1; }
 .sb-score.flash { animation: flash 1.2s ease 2; }
@@ -884,7 +887,7 @@ a.tp-row:hover { background: var(--surface-3); }
 /* ---------------------------------------------------------------- Android uygulamasının küçük penceresi */
 /* Uygulama maç sayfasındayken arka plana geçince köşede küçük pencere açılır (html.pip): yalnızca skor ve akan sohbet */
 .pip .topbar, .pip .banner, .pip .back, .pip .share-bar, .pip .tabs, .pip .toasts, .pip .sheet-backdrop,
-.pip .sb-comp, .pip .sb-scorers, .pip .sb-foot, .pip .chat-head, .pip .chat-foot, .pip .chat-seg { display: none !important; }
+.pip .sb-comp, .pip .sb-scorers, .pip .sb-coach, .pip .sb-foot, .pip .chat-head, .pip .chat-foot, .pip .chat-seg { display: none !important; }
 .pip .app { padding: 0 6px 6px; }
 .pip .match-layout { gap: 0; }
 .pip .match-layout > div:first-child { position: sticky; top: 0; z-index: 5; background: var(--bg); padding-top: 6px; }

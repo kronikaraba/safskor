@@ -173,8 +173,12 @@ async function drawCard(canvas, card, format) {
   const scFont = Math.round(L.st * 0.82);
   const scLh = scFont + 10;
   const venueFont = Math.round(L.st * 0.85);
+  // teknik direktörler takım adlarının altında
+  const coaches = { home: card.coaches?.home || m.lineups?.home?.coach || '', away: card.coaches?.away || m.lineups?.away?.coach || '' };
+  const coachFont = Math.round(L.st * 0.85);
+  const coachH = coaches.home || coaches.away ? coachFont + 12 : 0;
   // kutu içeriğe göre uzar: isimler + golcüler + stat + alt boşluk
-  const need = L.cOff + L.crest + L.nameGap + 14 + (scRows ? scRows * scLh + 10 : 0) + (m.venue ? venueFont + 8 : 0) + Math.round(L.cOff * 1.2);
+  const need = L.cOff + L.crest + L.nameGap + 14 + coachH + (scRows ? scRows * scLh + 10 : 0) + (m.venue ? venueFont + 8 : 0) + Math.round(L.cOff * 1.2);
   L.box = Math.max(L.box, need);
 
   // zemin
@@ -237,6 +241,12 @@ async function drawCard(canvas, card, format) {
   x.fillText(fit(x, stText, W * 0.34), W / 2, cy + L.crest / 2 + L.stOff);
   // golcüler takımlarının altında
   let by = cy + L.crest + L.nameGap + 14;
+  if (coachH) {
+    x.fillStyle = C.muted;
+    x.font = `600 ${coachFont}px ${FONT}`;
+    for (const [side, cx] of [['home', W * 0.22], ['away', W * 0.78]]) if (coaches[side]) x.fillText(fit(x, `TD ${coaches[side]}`, 320), cx, by + coachFont);
+    by += coachH;
+  }
   if (scRows) {
     x.fillStyle = C.muted;
     x.font = `500 ${scFont}px ${FONT}`;
